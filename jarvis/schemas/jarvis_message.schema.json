@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "JarvisMessage",
+  "type": "object",
+  "required": ["channel", "user_id", "conversation_id", "message_id", "text", "timestamp", "reply_policy", "meta"],
+  "properties": {
+    "channel": {"type": "string"},
+    "user_id": {"type": "string"},
+    "conversation_id": {"type": "string"},
+    "message_id": {"type": "string"},
+    "text": {"type": "string"},
+    "attachments": {"type": "array", "items": {"type": "object"}, "default": []},
+    "timestamp": {"type": "string", "format": "date-time"},
+    "reply_policy": {"type": "string", "enum": ["same_channel", "async"]},
+    "meta": {"type": "object"}
+  },
+  "additionalProperties": false
+}

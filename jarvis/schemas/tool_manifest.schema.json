@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolManifest",
+  "type": "object",
+  "required": ["name", "description", "action_types", "entrypoint", "input_schema", "output_schema"],
+  "properties": {
+    "name": {"type": "string"},
+    "description": {"type": "string"},
+    "action_types": {"type": "array", "items": {"type": "string"}},
+    "entrypoint": {"type": "string"},
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"}
+  },
+  "additionalProperties": false
+}
