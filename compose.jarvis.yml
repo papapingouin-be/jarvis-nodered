@@ -1,0 +1,93 @@
+services:
+  nodered:
+    image: nodered/node-red:latest
+    ports:
+      - "1880:1880"
+    volumes:
+      - nodered_data:/data
+      - ./jarvis/flows/nodered/exports:/flows:ro
+    environment:
+      LLM_ADAPTER_URL: http://llm_adapter:8010
+      OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
+      TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
+      GIT_BRIDGE_URL: http://git_bridge:8040
+      LOG_BRIDGE_URL: http://log_bridge:8050
+      REPO_PATH: /workspace/jarvis-nodered
+
+  llm_adapter:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+    command: bash -lc "pip install -e . && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
+    ports:
+      - "8010:8010"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  openproject_adapter:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+    command: bash -lc "pip install -e . && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
+    ports:
+      - "8020:8020"
+
+  toolbox_runner:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      TOOL_TIMEOUT_S: 30
+    command: bash -lc "pip install -e . && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
+    ports:
+      - "8030:8030"
+
+  git_bridge:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      DRY_RUN: "true"
+    command: bash -lc "pip install -e . && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
+    ports:
+      - "8040:8040"
+
+  log_bridge:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - jarvis_logs:/var/log/jarvis
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
+    command: bash -lc "pip install -e . && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
+    ports:
+      - "8050:8050"
+
+volumes:
+  nodered_data:
+  jarvis_logs:
