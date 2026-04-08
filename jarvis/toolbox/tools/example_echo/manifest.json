@@ -1,0 +1,20 @@
+{
+  "name": "example_echo",
+  "description": "Retourne le message fourni",
+  "action_types": ["analysis", "run_tool"],
+  "entrypoint": "tool.py",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "message": {"type": "string"}
+    },
+    "required": ["message"]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "echo": {"type": "string"}
+    },
+    "required": ["echo"]
+  }
+}

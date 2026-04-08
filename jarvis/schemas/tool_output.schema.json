@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ToolOutput",
+  "type": "object",
+  "required": ["ok", "tool", "message", "data"],
+  "properties": {
+    "ok": {"type": "boolean"},
+    "tool": {"type": "string"},
+    "action": {"type": "string"},
+    "message": {"type": "string"},
+    "data": {"type": "object"},
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "logs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["level", "message"],
+        "properties": {
+          "level": {"type": "string"},
+          "message": {"type": "string"}
+        }
+      }
+    },
+    "error_code": {"type": "string"},
+    "retryable": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}
