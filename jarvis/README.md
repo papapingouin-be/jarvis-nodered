@@ -18,6 +18,7 @@ cp jarvis/.env.portainer.example .env
 Puis adapte:
 - `JARVIS_HOST_ROOT` vers le chemin réel du repo sur l’hôte Docker
 - `NODERED_DATA_PATH` et `JARVIS_LOGS_PATH` vers des dossiers persistants
+- Important: `JARVIS_HOST_ROOT` doit contenir les dossiers `services/` et `jarvis/` du dépôt
 
 Ensuite, dans Portainer:
 1. Stacks > Add stack
@@ -45,6 +46,10 @@ Si tu vois une erreur de type `copyfile ... -> /data/settings.js`:
 ### Erreur Python `file:///app does not appear to be a Python project`
 
 Les stacks utilisent `pip install -r services/<service>/requirements.txt` (et non plus `pip install -e .`), ce qui évite la dépendance au `pyproject.toml` à la racine de `/app`.
+
+### Erreur Python `Could not open requirements file`
+
+Si tu vois `No such file or directory: services/.../requirements.txt`, c’est que le volume `${JARVIS_HOST_ROOT}:/app` ne pointe pas sur la racine du dépôt.
 
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
