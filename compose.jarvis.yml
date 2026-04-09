@@ -24,7 +24,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-    command: bash -lc "pip install -e . && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
+    command: bash -lc "pip install --no-cache-dir -r services/llm_adapter/requirements.txt && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
     healthcheck:
@@ -42,7 +42,7 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-    command: bash -lc "pip install -e . && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
+    command: bash -lc "pip install --no-cache-dir -r services/openproject_adapter/requirements.txt && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
 
@@ -56,7 +56,7 @@ services:
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: 30
-    command: bash -lc "pip install -e . && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
+    command: bash -lc "pip install --no-cache-dir -r services/toolbox_runner/requirements.txt && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
 
@@ -70,7 +70,7 @@ services:
     environment:
       PYTHONPATH: /app
       DRY_RUN: "true"
-    command: bash -lc "pip install -e . && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
+    command: bash -lc "pip install --no-cache-dir -r services/git_bridge/requirements.txt && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
 
@@ -85,6 +85,6 @@ services:
     environment:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
-    command: bash -lc "pip install -e . && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
+    command: bash -lc "pip install --no-cache-dir -r services/log_bridge/requirements.txt && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
