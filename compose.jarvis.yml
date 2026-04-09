@@ -4,8 +4,8 @@ services:
     ports:
       - "1880:1880"
     volumes:
-      - nodered_data:/data
-      - ./jarvis/flows/nodered/exports:/flows:ro
+      - ${NODERED_DATA_PATH:-./.data/nodered}:/data
+      - ${JARVIS_HOST_ROOT:-.}/jarvis/flows/nodered/exports:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
@@ -18,7 +18,7 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
+      - ${JARVIS_HOST_ROOT:-.}:/app
     env_file:
       - .env
     environment:
@@ -36,7 +36,7 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
+      - ${JARVIS_HOST_ROOT:-.}:/app
     env_file:
       - .env
     environment:
@@ -49,7 +49,7 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
+      - ${JARVIS_HOST_ROOT:-.}:/app
     env_file:
       - .env
     environment:
@@ -63,7 +63,7 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
+      - ${JARVIS_HOST_ROOT:-.}:/app
     env_file:
       - .env
     environment:
@@ -77,8 +77,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ./:/app
-      - jarvis_logs:/var/log/jarvis
+      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${JARVIS_LOGS_PATH:-./.data/logs}:/var/log/jarvis
     env_file:
       - .env
     environment:
@@ -87,7 +87,3 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
-
-volumes:
-  nodered_data:
-  jarvis_logs:
