@@ -1,95 +1,136 @@
+version: "3.8"
+
+name: jarvis
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nodered:
     image: nodered/node-red:latest
+    container_name: jarvis_nodered
+    restart: unless-stopped
     user: ${NODERED_USER:-0:0}
     ports:
       - "1880:1880"
+    networks:
+      - jarvis_net
+      - proxy
     volumes:
-      - ${NODERED_DATA_PATH:-./.data/nodered}:/data
-      - ${JARVIS_FLOWS_HOST_PATH:-./jarvis/flows/nodered/exports}:/flows:ro
+      - ${NODERED_DATA_PATH}:/data
+      - ${JARVIS_FLOWS_HOST_PATH}:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
       TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
       GIT_BRIDGE_URL: http://git_bridge:8040
       LOG_BRIDGE_URL: http://log_bridge:8050
-      REPO_PATH: /workspace/jarvis-nodered
+      REPO_PATH: ${JARVIS_HOST_ROOT}
+    logging: *default-logging
 
   llm_adapter:
     image: python:3.11-slim
+    container_name: jarvis_llm_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH:-./services}:/app/services
-      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
-    env_file:
-      - .env
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-llama3.1:8b}
+      LLM_MODEL_PROJECT: ${LLM_MODEL_PROJECT:-llama3.1:8b}
+      LLM_MODEL_SUMMARY: ${LLM_MODEL_SUMMARY:-llama3.1:8b}
     command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    logging: *default-logging
 
   openproject_adapter:
     image: python:3.11-slim
+    container_name: jarvis_openproject_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH:-./services}:/app/services
-      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
-    env_file:
-      - .env
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
+      OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
     command: bash -lc "REQ=/app/services/openproject_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/openproject_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema; fi && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
+    logging: *default-logging
 
   toolbox_runner:
     image: python:3.11-slim
+    container_name: jarvis_toolbox_runner
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH:-./services}:/app/services
-      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
-    env_file:
-      - .env
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
-      TOOL_TIMEOUT_S: 30
+      TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
+    logging: *default-logging
 
   git_bridge:
     image: python:3.11-slim
+    container_name: jarvis_git_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH:-./services}:/app/services
-      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
-    env_file:
-      - .env
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
-      DRY_RUN: "true"
+      DRY_RUN: ${DRY_RUN:-true}
+      GITEA_REMOTE_URL: ${GITEA_REMOTE_URL:-}
     command: bash -lc "REQ=/app/services/git_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/git_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
+    logging: *default-logging
 
   log_bridge:
     image: python:3.11-slim
+    container_name: jarvis_log_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH:-./services}:/app/services
-      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
-      - ${JARVIS_LOGS_PATH:-./.data/logs}:/var/log/jarvis
-    env_file:
-      - .env
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_LOGS_PATH}:/var/log/jarvis
     environment:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
     command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
+    logging: *default-logging
+
+networks:
+  jarvis_net:
+    external: true
+    name: jarvis_net
+  proxy:
+    external: true
+    name: jarvis_proxy
