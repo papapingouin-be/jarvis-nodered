@@ -42,6 +42,10 @@ Si tu vois une erreur de type `copyfile ... -> /data/settings.js`:
 1. Vérifie que `NODERED_USER=0:0` est bien défini dans la stack Portainer.
 2. Si tu veux exécuter Node-RED en user non-root, il faut que le dossier host de `NODERED_DATA_PATH` soit writable par cet UID/GID (ex: `chown -R 1000:1000`).
 
+### Erreur Python `file:///app does not appear to be a Python project`
+
+Les stacks utilisent `pip install -r services/<service>/requirements.txt` (et non plus `pip install -e .`), ce qui évite la dépendance au `pyproject.toml` à la racine de `/app`.
+
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
 Le fichier `docker-compose.observability.yml` est aligné pour un usage Portainer avec:
