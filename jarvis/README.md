@@ -29,11 +29,18 @@ Variables minimales à définir dans Portainer:
 - `JARVIS_HOST_ROOT` (ex: `/srv/jarvis-nodered`)
 - `NODERED_DATA_PATH` (ex: `/srv/jarvis-nodered/.data/nodered`)
 - `JARVIS_LOGS_PATH` (ex: `/srv/jarvis-nodered/.data/logs`)
+- `NODERED_USER` (par défaut `0:0` pour éviter les erreurs EACCES au premier démarrage)
 
 ### Message Portainer: “Control over this stack is limited”
 
 Ce message apparaît généralement quand la stack n’a pas été créée/prise en charge directement par Portainer.
 Pour garder le contrôle complet, redéploie la stack depuis l’UI Portainer (Add stack) avec ce compose et ses variables.
+
+### Erreur Node-RED `EACCES ... /data/settings.js`
+
+Si tu vois une erreur de type `copyfile ... -> /data/settings.js`:
+1. Vérifie que `NODERED_USER=0:0` est bien défini dans la stack Portainer.
+2. Si tu veux exécuter Node-RED en user non-root, il faut que le dossier host de `NODERED_DATA_PATH` soit writable par cet UID/GID (ex: `chown -R 1000:1000`).
 
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 

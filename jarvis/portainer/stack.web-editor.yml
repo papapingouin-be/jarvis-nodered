@@ -13,6 +13,7 @@ services:
     image: nodered/node-red:latest
     container_name: jarvis_nodered
     restart: unless-stopped
+    user: ${NODERED_USER:-0:0}
     ports:
       - "1880:1880"
     networks:
