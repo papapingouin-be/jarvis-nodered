@@ -1,90 +1,131 @@
+version: "3.8"
+
+name: jarvis
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nodered:
     image: nodered/node-red:latest
+    container_name: jarvis_nodered
+    restart: unless-stopped
     user: ${NODERED_USER:-0:0}
     ports:
       - "1880:1880"
+    networks:
+      - jarvis_net
+      - proxy
     volumes:
-      - ${NODERED_DATA_PATH:-./.data/nodered}:/data
-      - ${JARVIS_HOST_ROOT:-.}/jarvis/flows/nodered/exports:/flows:ro
+      - ${NODERED_DATA_PATH}:/data
+      - ${JARVIS_HOST_ROOT}/jarvis/flows/nodered/exports:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
       TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
       GIT_BRIDGE_URL: http://git_bridge:8040
       LOG_BRIDGE_URL: http://log_bridge:8050
-      REPO_PATH: /workspace/jarvis-nodered
+      REPO_PATH: ${JARVIS_HOST_ROOT}
+    logging: *default-logging
 
   llm_adapter:
     image: python:3.11-slim
+    container_name: jarvis_llm_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-llama3.1:8b}
+      LLM_MODEL_PROJECT: ${LLM_MODEL_PROJECT:-llama3.1:8b}
+      LLM_MODEL_SUMMARY: ${LLM_MODEL_SUMMARY:-llama3.1:8b}
     command: bash -lc "pip install --no-cache-dir -r services/llm_adapter/requirements.txt && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+    logging: *default-logging
 
   openproject_adapter:
     image: python:3.11-slim
+    container_name: jarvis_openproject_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
+      OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
     command: bash -lc "pip install --no-cache-dir -r services/openproject_adapter/requirements.txt && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
+    logging: *default-logging
 
   toolbox_runner:
     image: python:3.11-slim
+    container_name: jarvis_toolbox_runner
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
-      TOOL_TIMEOUT_S: 30
+      TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
     command: bash -lc "pip install --no-cache-dir -r services/toolbox_runner/requirements.txt && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
+    logging: *default-logging
 
   git_bridge:
     image: python:3.11-slim
+    container_name: jarvis_git_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
-      DRY_RUN: "true"
+      DRY_RUN: ${DRY_RUN:-true}
+      GITEA_REMOTE_URL: ${GITEA_REMOTE_URL:-}
     command: bash -lc "pip install --no-cache-dir -r services/git_bridge/requirements.txt && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
+    logging: *default-logging
 
   log_bridge:
     image: python:3.11-slim
+    container_name: jarvis_log_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-      - ${JARVIS_LOGS_PATH:-./.data/logs}:/var/log/jarvis
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
+      - ${JARVIS_LOGS_PATH}:/var/log/jarvis
     environment:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
     command: bash -lc "pip install --no-cache-dir -r services/log_bridge/requirements.txt && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
+    logging: *default-logging
+
+networks:
+  jarvis_net:
+    external: true
+    name: jarvis_net
+  proxy:
+    external: true
+    name: jarvis_proxy
