@@ -21,7 +21,7 @@ services:
       - proxy
     volumes:
       - ${NODERED_DATA_PATH}:/data
-      - ${JARVIS_HOST_ROOT}/jarvis/flows/nodered/exports:/flows:ro
+      - ${JARVIS_FLOWS_HOST_PATH}:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
@@ -39,7 +39,8 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT}:/app
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
@@ -60,7 +61,8 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT}:/app
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
       OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
@@ -77,7 +79,8 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT}:/app
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
@@ -94,7 +97,8 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT}:/app
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
     environment:
       PYTHONPATH: /app
       DRY_RUN: ${DRY_RUN:-true}
@@ -112,7 +116,8 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${JARVIS_HOST_ROOT}:/app
+      - ${SERVICES_HOST_PATH}:/app/services
+      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
       - ${JARVIS_LOGS_PATH}:/var/log/jarvis
     environment:
       PYTHONPATH: /app
