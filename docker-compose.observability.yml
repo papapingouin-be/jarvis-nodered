@@ -1,11 +1,73 @@
+version: "3.8"
+
+name: jarvis-observability
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
-  loki:
-    image: grafana/loki:2.9.8
-    ports: ["3100:3100"]
-  promtail:
-    image: grafana/promtail:2.9.8
-    depends_on: [loki]
-  grafana:
-    image: grafana/grafana:10.4.3
-    ports: ["3000:3000"]
-    depends_on: [loki]
+  jarvis_loki:
+    image: grafana/loki:3.0.0
+    container_name: jarvis_loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/config.yml
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    networks:
+      - jarvis_net
+    volumes:
+      - loki-data:/loki
+      - ${LOKI_CONFIG_PATH:-/opt/jarvis/jarvis-logs/loki-config.yml}:/etc/loki/config.yml:ro
+    logging: *default-logging
+
+  jarvis_promtail:
+    image: grafana/promtail:3.0.0
+    container_name: jarvis_promtail
+    restart: unless-stopped
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - jarvis_loki
+    networks:
+      - jarvis_net
+    volumes:
+      - ${PROMTAIL_CONFIG_PATH:-/opt/jarvis/jarvis-logs/promtail-config.yml}:/etc/promtail/config.yml:ro
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/tmp
+    logging: *default-logging
+
+  jarvis_grafana:
+    image: grafana/grafana:11.0.0
+    container_name: jarvis_grafana
+    restart: unless-stopped
+    depends_on:
+      - jarvis_loki
+    ports:
+      - "${GRAFANA_PORT:-3011}:3000"
+    networks:
+      - jarvis_net
+      - proxy
+    environment:
+      TZ: ${TZ:-Europe/Brussels}
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-jarvis}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-jarvis}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    logging: *default-logging
+
+volumes:
+  loki-data:
+  promtail-positions:
+  grafana-data:
+
+networks:
+  jarvis_net:
+    external: true
+    name: ${JARVIS_OBS_NET:-jarvis_net}
+  proxy:
+    external: true
+    name: ${JARVIS_PROXY_NET:-jarvis_proxy}
