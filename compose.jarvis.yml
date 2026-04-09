@@ -6,7 +6,7 @@ services:
       - "1880:1880"
     volumes:
       - ${NODERED_DATA_PATH:-./.data/nodered}:/data
-      - ${JARVIS_HOST_ROOT:-.}/jarvis/flows/nodered/exports:/flows:ro
+      - ${JARVIS_FLOWS_HOST_PATH:-./jarvis/flows/nodered/exports}:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
@@ -19,7 +19,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${SERVICES_HOST_PATH:-./services}:/app/services
+      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
     env_file:
       - .env
     environment:
@@ -37,7 +38,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${SERVICES_HOST_PATH:-./services}:/app/services
+      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
     env_file:
       - .env
     environment:
@@ -50,7 +52,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${SERVICES_HOST_PATH:-./services}:/app/services
+      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
     env_file:
       - .env
     environment:
@@ -64,7 +67,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${SERVICES_HOST_PATH:-./services}:/app/services
+      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
     env_file:
       - .env
     environment:
@@ -78,7 +82,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
+      - ${SERVICES_HOST_PATH:-./services}:/app/services
+      - ${JARVIS_DIR_HOST_PATH:-./jarvis}:/app/jarvis
       - ${JARVIS_LOGS_PATH:-./.data/logs}:/var/log/jarvis
     env_file:
       - .env
