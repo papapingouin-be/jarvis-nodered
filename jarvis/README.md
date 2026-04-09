@@ -21,14 +21,38 @@ Puis adapte:
 
 Ensuite, dans Portainer:
 1. Stacks > Add stack
-2. Colle le contenu de `compose.jarvis.yml`
+2. Colle le contenu de `jarvis/portainer/stack.web-editor.yml` (spécial Web Editor)
 3. Renseigne les variables d’environnement du `.env`
 4. Deploy the stack
+
+Variables minimales à définir dans Portainer:
+- `JARVIS_HOST_ROOT` (ex: `/srv/jarvis-nodered`)
+- `NODERED_DATA_PATH` (ex: `/srv/jarvis-nodered/.data/nodered`)
+- `JARVIS_LOGS_PATH` (ex: `/srv/jarvis-nodered/.data/logs`)
 
 ### Message Portainer: “Control over this stack is limited”
 
 Ce message apparaît généralement quand la stack n’a pas été créée/prise en charge directement par Portainer.
 Pour garder le contrôle complet, redéploie la stack depuis l’UI Portainer (Add stack) avec ce compose et ses variables.
+
+## Stack logs / observabilité (Loki + Promtail + Grafana)
+
+Le fichier `docker-compose.observability.yml` est aligné pour un usage Portainer avec:
+- `jarvis_loki`
+- `jarvis_promtail`
+- `jarvis_grafana`
+
+Réseaux externes attendus:
+- `jarvis_net` (ou `JARVIS_OBS_NET`)
+- `jarvis_proxy` (ou `JARVIS_PROXY_NET`)
+
+Variables utiles (dans Portainer Environment variables):
+- `LOKI_CONFIG_PATH`
+- `PROMTAIL_CONFIG_PATH`
+- `LOKI_PORT`
+- `GRAFANA_PORT`
+- `GF_SECURITY_ADMIN_USER`
+- `GF_SECURITY_ADMIN_PASSWORD`
 
 ## Node-RED flows
 
