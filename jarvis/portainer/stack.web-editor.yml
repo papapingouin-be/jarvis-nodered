@@ -1,8 +1,23 @@
+version: "3.8"
+
+name: jarvis
+
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nodered:
     image: nodered/node-red:latest
+    container_name: jarvis_nodered
+    restart: unless-stopped
     ports:
       - "1880:1880"
+    networks:
+      - jarvis_net
+      - proxy
     volumes:
       - ${NODERED_DATA_PATH}:/data
       - ${JARVIS_HOST_ROOT}/jarvis/flows/nodered/exports:/flows:ro
@@ -13,10 +28,15 @@ services:
       GIT_BRIDGE_URL: http://git_bridge:8040
       LOG_BRIDGE_URL: http://log_bridge:8050
       REPO_PATH: ${JARVIS_HOST_ROOT}
+    logging: *default-logging
 
   llm_adapter:
     image: python:3.11-slim
+    container_name: jarvis_llm_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
       - ${JARVIS_HOST_ROOT}:/app
     environment:
@@ -29,10 +49,15 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
+    logging: *default-logging
 
   openproject_adapter:
     image: python:3.11-slim
+    container_name: jarvis_openproject_adapter
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
       - ${JARVIS_HOST_ROOT}:/app
     environment:
@@ -41,10 +66,15 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
+    logging: *default-logging
 
   toolbox_runner:
     image: python:3.11-slim
+    container_name: jarvis_toolbox_runner
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
       - ${JARVIS_HOST_ROOT}:/app
     environment:
@@ -53,10 +83,15 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
+    logging: *default-logging
 
   git_bridge:
     image: python:3.11-slim
+    container_name: jarvis_git_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
       - ${JARVIS_HOST_ROOT}:/app
     environment:
@@ -66,10 +101,15 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
+    logging: *default-logging
 
   log_bridge:
     image: python:3.11-slim
+    container_name: jarvis_log_bridge
+    restart: unless-stopped
     working_dir: /app
+    networks:
+      - jarvis_net
     volumes:
       - ${JARVIS_HOST_ROOT}:/app
       - ${JARVIS_LOGS_PATH}:/var/log/jarvis
@@ -79,3 +119,12 @@ services:
     command: bash -lc "pip install -e . && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
+    logging: *default-logging
+
+networks:
+  jarvis_net:
+    external: true
+    name: jarvis_net
+  proxy:
+    external: true
+    name: jarvis_proxy
