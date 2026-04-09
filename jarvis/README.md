@@ -21,14 +21,9 @@ Puis adapte:
 
 Ensuite, dans Portainer:
 1. Stacks > Add stack
-2. Colle le contenu de `jarvis/portainer/stack.web-editor.yml` (spécial Web Editor)
+2. Colle le contenu de `compose.jarvis.yml`
 3. Renseigne les variables d’environnement du `.env`
 4. Deploy the stack
-
-Variables minimales à définir dans Portainer:
-- `JARVIS_HOST_ROOT` (ex: `/srv/jarvis-nodered`)
-- `NODERED_DATA_PATH` (ex: `/srv/jarvis-nodered/.data/nodered`)
-- `JARVIS_LOGS_PATH` (ex: `/srv/jarvis-nodered/.data/logs`)
 
 ### Message Portainer: “Control over this stack is limited”
 
