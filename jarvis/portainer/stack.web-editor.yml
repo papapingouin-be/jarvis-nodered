@@ -4,43 +4,40 @@ services:
     ports:
       - "1880:1880"
     volumes:
-      - ${NODERED_DATA_PATH:-./.data/nodered}:/data
-      - ${JARVIS_HOST_ROOT:-.}/jarvis/flows/nodered/exports:/flows:ro
+      - ${NODERED_DATA_PATH}:/data
+      - ${JARVIS_HOST_ROOT}/jarvis/flows/nodered/exports:/flows:ro
     environment:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       OPENPROJECT_ADAPTER_URL: http://openproject_adapter:8020
       TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
       GIT_BRIDGE_URL: http://git_bridge:8040
       LOG_BRIDGE_URL: http://log_bridge:8050
-      REPO_PATH: /workspace/jarvis-nodered
+      REPO_PATH: ${JARVIS_HOST_ROOT}
 
   llm_adapter:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-llama3.1:8b}
+      LLM_MODEL_PROJECT: ${LLM_MODEL_PROJECT:-llama3.1:8b}
+      LLM_MODEL_SUMMARY: ${LLM_MODEL_SUMMARY:-llama3.1:8b}
     command: bash -lc "pip install -e . && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
 
   openproject_adapter:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
+      OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
     command: bash -lc "pip install -e . && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
@@ -49,12 +46,10 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
-      TOOL_TIMEOUT_S: 30
+      TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
     command: bash -lc "pip install -e . && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
@@ -63,12 +58,11 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
-      DRY_RUN: "true"
+      DRY_RUN: ${DRY_RUN:-true}
+      GITEA_REMOTE_URL: ${GITEA_REMOTE_URL:-}
     command: bash -lc "pip install -e . && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
@@ -77,10 +71,8 @@ services:
     image: python:3.11-slim
     working_dir: /app
     volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-      - ${JARVIS_LOGS_PATH:-./.data/logs}:/var/log/jarvis
-    env_file:
-      - .env
+      - ${JARVIS_HOST_ROOT}:/app
+      - ${JARVIS_LOGS_PATH}:/var/log/jarvis
     environment:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
