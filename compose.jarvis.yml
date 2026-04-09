@@ -1,6 +1,7 @@
 services:
   nodered:
     image: nodered/node-red:latest
+    user: ${NODERED_USER:-0:0}
     ports:
       - "1880:1880"
     volumes:
