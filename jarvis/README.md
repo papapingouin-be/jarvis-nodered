@@ -17,8 +17,6 @@ cp jarvis/.env.portainer.example .env
 
 Puis adapte:
 - `JARVIS_HOST_ROOT` vers le chemin réel du repo sur l’hôte Docker
-- `SERVICES_HOST_PATH` vers `<repo>/services`
-- `JARVIS_DIR_HOST_PATH` vers `<repo>/jarvis`
 - `JARVIS_FLOWS_HOST_PATH` vers `<repo>/jarvis/flows/nodered/exports`
 - `NODERED_DATA_PATH` et `JARVIS_LOGS_PATH` vers des dossiers persistants
 
@@ -30,8 +28,6 @@ Ensuite, dans Portainer:
 
 Variables minimales à définir dans Portainer:
 - `JARVIS_HOST_ROOT` (ex: `/srv/jarvis-nodered`)
-- `SERVICES_HOST_PATH` (ex: `/srv/jarvis-nodered/services`)
-- `JARVIS_DIR_HOST_PATH` (ex: `/srv/jarvis-nodered/jarvis`)
 - `JARVIS_FLOWS_HOST_PATH` (ex: `/srv/jarvis-nodered/jarvis/flows/nodered/exports`)
 - `NODERED_DATA_PATH` (ex: `/srv/jarvis-nodered/.data/nodered`)
 - `JARVIS_LOGS_PATH` (ex: `/srv/jarvis-nodered/.data/logs`)
@@ -58,9 +54,8 @@ Si tu vois `No such file or directory: services/.../requirements.txt`, c’est q
 
 ### Erreur Python `ModuleNotFoundError: No module named 'services'`
 
-Vérifie en priorité les variables de montage:
-- `SERVICES_HOST_PATH` doit pointer vers le dossier `services` du repo.
-- `JARVIS_DIR_HOST_PATH` doit pointer vers le dossier `jarvis` du repo.
+Vérifie en priorité que `JARVIS_HOST_ROOT` pointe bien vers la racine du dépôt côté hôte Docker.
+Les services Python montent `${JARVIS_HOST_ROOT}:/app`, ce qui suffit pour les imports du namespace `services.*`.
 
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
