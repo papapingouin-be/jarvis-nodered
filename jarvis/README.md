@@ -62,6 +62,8 @@ Vérifie en priorité les variables de montage:
 - `SERVICES_HOST_PATH` doit pointer vers le dossier `services` du repo.
 - `JARVIS_DIR_HOST_PATH` doit pointer vers le dossier `jarvis` du repo.
 
+Les stacks montent aussi `${JARVIS_HOST_ROOT}:/app` pour fiabiliser les imports Python (namespace `services.*`) même si un mapping fin est mal renseigné.
+
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
 Le fichier `docker-compose.observability.yml` est aligné pour un usage Portainer avec:
