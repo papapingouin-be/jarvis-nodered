@@ -39,8 +39,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH}:/app/services
-      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
       LLM_PROVIDER: ${LLM_PROVIDER:-mock}
@@ -61,8 +60,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH}:/app/services
-      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
       OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
@@ -79,8 +77,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH}:/app/services
-      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
@@ -97,8 +94,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH}:/app/services
-      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_HOST_ROOT}:/app
     environment:
       PYTHONPATH: /app
       DRY_RUN: ${DRY_RUN:-true}
@@ -116,8 +112,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${SERVICES_HOST_PATH}:/app/services
-      - ${JARVIS_DIR_HOST_PATH}:/app/jarvis
+      - ${JARVIS_HOST_ROOT}:/app
       - ${JARVIS_LOGS_PATH}:/var/log/jarvis
     environment:
       PYTHONPATH: /app
