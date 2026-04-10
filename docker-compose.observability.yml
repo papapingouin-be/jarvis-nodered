@@ -10,7 +10,7 @@ x-logging: &default-logging
 
 services:
   jarvis_loki:
-    image: grafana/loki:3.0.0
+    image: grafana/loki:3.7.1
     container_name: jarvis_loki
     restart: unless-stopped
     command: -config.file=/etc/loki/config.yml
@@ -24,7 +24,7 @@ services:
     logging: *default-logging
 
   jarvis_promtail:
-    image: grafana/promtail:3.0.0
+    image: grafana/promtail:3.7.1
     container_name: jarvis_promtail
     restart: unless-stopped
     command: -config.file=/etc/promtail/config.yml
@@ -40,7 +40,7 @@ services:
     logging: *default-logging
 
   jarvis_grafana:
-    image: grafana/grafana:11.0.0
+    image: grafana/grafana:12.4.2
     container_name: jarvis_grafana
     restart: unless-stopped
     depends_on:
