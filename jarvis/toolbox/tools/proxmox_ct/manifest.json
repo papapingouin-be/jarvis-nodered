@@ -12,7 +12,9 @@
           "register_target",
           "register_service",
           "resolve_service",
-          "plan_ct_action"
+          "plan_ct_action",
+          "list_targets",
+          "list_services"
         ]
       },
       "target": {
@@ -23,8 +25,10 @@
           "api_path": {"type": "string"},
           "login": {"type": "string"},
           "password": {"type": "string"},
+          "password_secret_key": {"type": "string"},
           "node": {"type": "string"}
-        }
+        },
+        "required": ["name", "ip", "login", "node"]
       },
       "service": {
         "type": "object",
@@ -36,6 +40,7 @@
         }
       },
       "service_name": {"type": "string"},
+      "include_secret": {"type": "boolean"},
       "action": {
         "type": "string",
         "enum": ["status", "start", "stop", "restart"]
