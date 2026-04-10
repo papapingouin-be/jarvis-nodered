@@ -1,6 +1,7 @@
 import pytest
 
 from services.common.jsonschema_utils import SchemaValidationError, validate_payload
+from services.common.jarvis_types import ToolRunRequest
 
 
 def test_jarvis_message_schema_valid_invalid() -> None:
@@ -61,3 +62,9 @@ def test_tool_output_schema_valid_invalid() -> None:
     validate_payload("tool_output.schema.json", valid)
     with pytest.raises(SchemaValidationError):
         validate_payload("tool_output.schema.json", {"ok": True})
+
+
+def test_tool_run_request_defaults_input_context() -> None:
+    payload = ToolRunRequest(tool="example_echo")
+    assert payload.input == {}
+    assert payload.context == {}
