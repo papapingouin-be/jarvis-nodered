@@ -20,7 +20,7 @@ class JarvisMessage(BaseModel):
 
 class ToolRunRequest(BaseModel):
     tool: str
-    input: dict[str, Any]
+    input: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
 
 
