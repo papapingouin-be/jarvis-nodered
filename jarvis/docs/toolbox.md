@@ -7,10 +7,15 @@
 ## Outils disponibles
 
 - `example_echo`: outil de démonstration minimal.
-- `proxmox_ct`: registre SQLite pour cibles Proxmox + mapping `service -> CT` avec génération de requête API (`status/start/stop/restart`).
+- `proxmox_ct`: registre SQLite pour cibles Proxmox + mapping `service -> CT` + génération de requête API (`status/start/stop/restart`).
+- `npm_service`: registre SQLite pour instances Nginx Proxy Manager et services reverse proxy, avec génération des requêtes API (`list/add/delete`).
+- `sensitive_store`: mini coffre SQLite pour stocker les valeurs sensibles (`namespace/key/value`) et les référencer depuis les autres outils.
 
-## Proxmox et stockage des accès
+## Proxmox/NPM et stockage des accès
 
-`proxmox_ct` stocke `login/password/ip/api_path/node` dans une DB SQLite (`JARVIS_INFRA_DB`, défaut `/tmp/jarvis_infra.db`).
+- DB partagée: `JARVIS_INFRA_DB` (défaut `/tmp/jarvis_infra.db`).
+- Les outils `proxmox_ct` et `npm_service` supportent deux modes pour le mot de passe:
+  - inline (`password`)
+  - référence secrète (`password_secret_key`) lue dans `sensitive_store`.
 
-> ⚠️ Le mot de passe est actuellement stocké en clair pour garder un socle simple compatible V1. Prévoir un chiffrement (Vault/SOPS/KMS) avant un usage production.
+Ce modèle prépare l'étape suivante: exposer une interface web d'édition des valeurs DB sans changer les contrats outillés.
