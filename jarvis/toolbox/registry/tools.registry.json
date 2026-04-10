@@ -30,5 +30,158 @@
       ]
     },
     "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/example_echo"
+  },
+  "proxmox_ct": {
+    "name": "proxmox_ct",
+    "description": "Gère les CT Proxmox et la résolution de services via une base SQLite",
+    "action_types": [
+      "run_tool",
+      "analysis"
+    ],
+    "entrypoint": "tool.py",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string",
+          "enum": [
+            "register_target",
+            "register_service",
+            "resolve_service",
+            "plan_ct_action"
+          ]
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "ip": {
+              "type": "string"
+            },
+            "api_path": {
+              "type": "string"
+            },
+            "login": {
+              "type": "string"
+            },
+            "password": {
+              "type": "string"
+            },
+            "node": {
+              "type": "string"
+            }
+          }
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "target_name": {
+              "type": "string"
+            },
+            "ctid": {
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            }
+          }
+        },
+        "service_name": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "status",
+            "start",
+            "stop",
+            "restart"
+          ]
+        }
+      },
+      "required": [
+        "operation"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "register_target"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "target"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "register_service"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "service"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "resolve_service"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "service_name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "plan_ct_action"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "service_name",
+              "action"
+            ]
+          }
+        }
+      ]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "operation": {
+          "type": "string"
+        },
+        "result": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "operation",
+        "result"
+      ]
+    },
+    "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/proxmox_ct"
   }
 }
