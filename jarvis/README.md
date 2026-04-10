@@ -57,6 +57,8 @@ Si tu vois `No such file or directory: services/.../requirements.txt`, c’est q
 Vérifie en priorité que `JARVIS_HOST_ROOT` pointe bien vers la racine du dépôt côté hôte Docker.
 Les services Python montent `${JARVIS_HOST_ROOT}:/app`, ce qui suffit pour les imports du namespace `services.*`.
 
+Les stacks montent aussi `${JARVIS_HOST_ROOT}:/app` pour fiabiliser les imports Python (namespace `services.*`) même si un mapping fin est mal renseigné.
+
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
 Le fichier `docker-compose.observability.yml` est aligné pour un usage Portainer avec:
