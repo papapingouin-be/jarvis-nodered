@@ -50,7 +50,11 @@ def _set_value(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, A
 
 def _get_value(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     row = conn.execute(
-        "SELECT namespace, key, value, updated_at FROM sensitive_values WHERE namespace = ? AND key = ?",
+        """
+        SELECT namespace, key, value, updated_at
+        FROM sensitive_values
+        WHERE namespace = ? AND key = ?
+        """,
         (payload["namespace"], payload["key"]),
     ).fetchone()
     if row is None:
