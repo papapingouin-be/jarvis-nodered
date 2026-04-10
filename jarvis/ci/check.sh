@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-python -m ruff check .
+python -m pip install --disable-pip-version-check --no-cache-dir --upgrade pip
+python -m pip install --disable-pip-version-check --no-cache-dir ruff
+python -m ruff check . "$@"
 python - <<'PY'
 from services.common.jsonschema_utils import validate_payload
 validate_payload('jarvis_message.schema.json', {
