@@ -46,7 +46,10 @@ def _connect() -> sqlite3.Connection:
             password TEXT,
             password_secret_key TEXT,
             node TEXT NOT NULL,
-            CHECK ((password IS NOT NULL AND password_secret_key IS NULL) OR (password IS NULL AND password_secret_key IS NOT NULL))
+            CHECK (
+                (password IS NOT NULL AND password_secret_key IS NULL)
+                OR (password IS NULL AND password_secret_key IS NOT NULL)
+            )
         )
         """
     )
@@ -136,10 +139,19 @@ def _register_service(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict
     return {"saved_service": service["name"]}
 
 
-def _resolve_service(conn: sqlite3.Connection, service_name: str, include_secret: bool) -> dict[str, Any]:
+def _resolve_service(
+    conn: sqlite3.Connection, service_name: str, include_secret: bool
+) -> dict[str, Any]:
     row = conn.execute(
         """
-        SELECT s.name AS service_name, s.ctid, s.path, t.name AS target_name, t.ip, t.api_path, t.login,
+        SELECT
+            s.name AS service_name,
+            s.ctid,
+            s.path,
+            t.name AS target_name,
+            t.ip,
+            t.api_path,
+            t.login,
                t.password, t.password_secret_key, t.node
         FROM ct_services s
         JOIN proxmox_targets t ON t.name = s.target_name
@@ -184,7 +196,11 @@ def _plan_ct_action(conn: sqlite3.Connection, service_name: str, action: str) ->
 
 def _list_targets(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
-        "SELECT name, ip, api_path, login, node, password_secret_key FROM proxmox_targets ORDER BY name"
+        """
+        SELECT name, ip, api_path, login, node, password_secret_key
+        FROM proxmox_targets
+        ORDER BY name
+        """
     ).fetchall()
     return {"targets": [dict(row) for row in rows]}
 
@@ -206,7 +222,11 @@ def main() -> int:
             elif operation == "register_service":
                 result = _register_service(conn, payload)
             elif operation == "resolve_service":
-                result = _resolve_service(conn, payload["service_name"], payload.get("include_secret", False))
+                result = _resolve_service(
+                    conn,
+                    payload["service_name"],
+                    payload.get("include_secret", False),
+                )
             elif operation == "plan_ct_action":
                 result = _plan_ct_action(conn, payload["service_name"], payload["action"])
             elif operation == "list_targets":

@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 ACTIONS = {"list", "add", "delete"}
 
 
@@ -40,7 +39,10 @@ def _connect() -> sqlite3.Connection:
             login TEXT NOT NULL,
             password TEXT,
             password_secret_key TEXT,
-            CHECK ((password IS NOT NULL AND password_secret_key IS NULL) OR (password IS NULL AND password_secret_key IS NOT NULL))
+            CHECK (
+                (password IS NOT NULL AND password_secret_key IS NULL)
+                OR (password IS NULL AND password_secret_key IS NOT NULL)
+            )
         )
         """
     )
@@ -87,7 +89,13 @@ def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dic
             password=excluded.password,
             password_secret_key=excluded.password_secret_key
         """,
-        (instance["name"], instance["base_url"], instance["login"], password, password_secret_key),
+        (
+            instance["name"],
+            instance["base_url"],
+            instance["login"],
+            password,
+            password_secret_key,
+        ),
     )
     conn.commit()
     return {"saved_instance": instance["name"]}
@@ -95,7 +103,10 @@ def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dic
 
 def _register_service(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     service = payload["service"]
-    found = conn.execute("SELECT name FROM npm_instances WHERE name = ?", (service["instance_name"],)).fetchone()
+    found = conn.execute(
+        "SELECT name FROM npm_instances WHERE name = ?",
+        (service["instance_name"],),
+    ).fetchone()
     if found is None:
         raise ValueError(f"unknown npm instance: {service['instance_name']}")
 
@@ -123,7 +134,12 @@ def _register_service(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict
 
 def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     rows = conn.execute(
-        "SELECT domain, instance_name, forward_host, forward_port, scheme FROM npm_services WHERE instance_name = ? ORDER BY domain",
+        """
+        SELECT domain, instance_name, forward_host, forward_port, scheme
+        FROM npm_services
+        WHERE instance_name = ?
+        ORDER BY domain
+        """,
         (payload["instance_name"],),
     ).fetchall()
     return {"instance_name": payload["instance_name"], "services": [dict(row) for row in rows]}
@@ -135,14 +151,22 @@ def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
         raise ValueError(f"unsupported action: {action}")
 
     instance = conn.execute(
-        "SELECT name, base_url, login, password, password_secret_key FROM npm_instances WHERE name = ?",
+        """
+        SELECT name, base_url, login, password, password_secret_key
+        FROM npm_instances
+        WHERE name = ?
+        """,
         (payload["instance_name"],),
     ).fetchone()
     if instance is None:
         raise ValueError(f"unknown npm instance: {payload['instance_name']}")
 
     inst = dict(instance)
-    password = inst["password"] if inst["password"] is not None else _read_secret(conn, inst["password_secret_key"])
+    password = (
+        inst["password"]
+        if inst["password"] is not None
+        else _read_secret(conn, inst["password_secret_key"])
+    )
 
     plan: dict[str, Any] = {
         "instance_name": inst["name"],
@@ -160,7 +184,11 @@ def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
         }
     else:
         service = conn.execute(
-            "SELECT domain, forward_host, forward_port, scheme FROM npm_services WHERE domain = ? AND instance_name = ?",
+            """
+            SELECT domain, forward_host, forward_port, scheme
+            FROM npm_services
+            WHERE domain = ? AND instance_name = ?
+            """,
             (payload["domain"], payload["instance_name"]),
         ).fetchone()
         if service is None:
@@ -169,7 +197,10 @@ def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
         if action == "delete":
             plan["request"] = {
                 "method": "DELETE",
-                "url": f"{inst['base_url'].rstrip('/')}/api/nginx/proxy-hosts?domain={svc['domain']}",
+                "url": (
+                    f"{inst['base_url'].rstrip('/')}"
+                    f"/api/nginx/proxy-hosts?domain={svc['domain']}"
+                ),
             }
         else:
             plan["request"] = {
