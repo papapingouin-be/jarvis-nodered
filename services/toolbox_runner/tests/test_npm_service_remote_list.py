@@ -62,3 +62,15 @@ def test_list_services_uses_config_web_sensitive_values_as_fallback(tmp_path, mo
     assert output["instance_name"] == "default"
     assert output["remote_count"] == 1
     assert output["remote_services"][0]["id"] == 27
+
+
+def test_list_services_without_instance_returns_empty_remote_list(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+
+    with npm_tool._connect() as conn:
+        output = npm_tool._list_services(conn, {"instance_name": "default"})
+
+    assert output["instance_name"] == "default"
+    assert output["services"] == []
+    assert output["remote_services"] == []
+    assert output["remote_count"] == 0
