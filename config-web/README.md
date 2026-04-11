@@ -36,8 +36,9 @@ Puis ouvrir `http://localhost:8080`.
 Si vous voyez une erreur du type `getaddrinfo EAI_AGAIN toolbox_runner`, Node-RED ne
 résout pas le host `toolbox_runner`.
 
-Sur `flow-test.html`, `meta.toolbox_runner_url` n'est plus injecté automatiquement :
-ajoutez-le manuellement dans le payload si nécessaire.
+Sur `flow-test.html`, `meta.toolbox_runner_url` est injecté automatiquement :
+- par défaut: `http://localhost:8030`
+- au clic sur **Envoyer**: l'URL est dérivée de l'endpoint Node-RED (même host, port `8030`) si le champ n'est pas déjà défini dans `meta`.
 
 Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exemple:
 
