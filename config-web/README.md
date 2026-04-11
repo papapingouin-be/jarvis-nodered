@@ -47,7 +47,8 @@ Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exempl
 }
 ```
 
-Le flow Jarvis donne priorité à `meta.toolbox_runner_url`, puis à `TOOLBOX_RUNNER_URL`.
+Le flow Jarvis donne priorité à `meta.toolbox_runner_url`, puis à `TOOLBOX_RUNNER_URL`,
+puis fallback sur `http://localhost:8030` si rien n'est défini.
 
 Si votre payload de test n'utilise pas `text`, le normalize du flow accepte aussi
 `input.source_text` et `message` pour éviter un `intent: unknown` avec texte vide.
