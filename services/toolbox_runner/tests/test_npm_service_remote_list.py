@@ -32,6 +32,8 @@ def test_list_services_includes_remote_when_instance_exists(tmp_path, monkeypatc
     assert output["instance_name"] == "default"
     assert output["services"] == []
     assert output["remote_count"] == 1
+    assert output["instance_configured"] is True
+    assert output["instance_source"] == "registered_instance"
     assert output["remote_services"][0]["domain"] == "app.example.local"
 
 
@@ -61,6 +63,8 @@ def test_list_services_uses_config_web_sensitive_values_as_fallback(tmp_path, mo
 
     assert output["instance_name"] == "default"
     assert output["remote_count"] == 1
+    assert output["instance_configured"] is True
+    assert output["instance_source"] == "config_web_fallback"
     assert output["remote_services"][0]["id"] == 27
 
 
@@ -74,3 +78,6 @@ def test_list_services_without_instance_returns_empty_remote_list(tmp_path) -> N
     assert output["services"] == []
     assert output["remote_services"] == []
     assert output["remote_count"] == 0
+    assert output["instance_configured"] is False
+    assert output["instance_source"] is None
+    assert "No NPM instance credentials found" in output["message"]
