@@ -1,5 +1,25 @@
+const TOOL_PARAMS = {
+  proxmox: [
+    'PROXMOX_API_TOKEN_ID',
+    'PROXMOX_API_TOKEN_SECRET',
+    'PROXMOX_HOST',
+    'PROXMOX_PASSWORD',
+    'PROXMOX_SSH_PORT',
+    'PROXMOX_USER',
+    'PROXMOX_WEB',
+  ],
+  npm_service: [],
+};
+
+const TOOL_LABELS = {
+  proxmox: 'proxmox',
+  npm_service: 'npm_service',
+};
+
 const globalStatus = document.getElementById('globalStatus');
 const dbPathInput = document.getElementById('dbPath');
+const toolSelect = document.getElementById('cfgTool');
+const keySelect = document.getElementById('cfgKey');
 
 dbPathInput.value = localStorage.getItem('jarvis_db_path') || '';
 
@@ -34,7 +54,7 @@ async function api(action, payload = {}) {
 function renderTable(id, columns, rows) {
   const table = document.getElementById(id);
   if (!rows || rows.length === 0) {
-    table.innerHTML = '<tr><td class="muted">Aucune donnée</td></tr>';
+    table.innerHTML = '<tr><td class="subtle">Liste vide</td></tr>';
     return;
   }
   const header = `<tr>${columns.map((c) => `<th>${c}</th>`).join('')}</tr>`;
@@ -44,25 +64,28 @@ function renderTable(id, columns, rows) {
   table.innerHTML = header + body;
 }
 
+function buildCatalog() {
+  const rows = Object.entries(TOOL_PARAMS).flatMap(([tool, params]) => {
+    if (params.length === 0) {
+      return [{ tool: TOOL_LABELS[tool] || tool, parameter: '', note: 'Liste vide' }];
+    }
+    return params.map((parameter) => ({ tool: TOOL_LABELS[tool] || tool, parameter, note: 'À stocker' }));
+  });
+  renderTable('catalogTable', ['tool', 'parameter', 'note'], rows);
+}
+
+function refreshKeyOptions() {
+  const tool = toolSelect.value;
+  const keys = TOOL_PARAMS[tool] || [];
+  keySelect.innerHTML = keys.map((k) => `<option value="${k}">${k}</option>`).join('');
+  keySelect.disabled = keys.length === 0;
+}
+
 async function reloadAll() {
   try {
-    const [s, t, c, ni] = await Promise.all([
-      api('list_sensitive', { namespace: val('sNamespace') || 'proxmox' }),
-      api('list_proxmox_targets'),
-      api('list_ct_services'),
-      api('list_npm_instances'),
-    ]);
-
-    renderTable('sensitiveTable', ['namespace', 'key', 'updated_at'], s.items);
-    renderTable('targetsTable', ['name', 'ip', 'api_path', 'login', 'node', 'password_secret_key'], t.items);
-    renderTable('ctServicesTable', ['name', 'target_name', 'ctid', 'path'], c.items);
-    renderTable('npmInstancesTable', ['name', 'base_url', 'login', 'password_secret_key'], ni.items);
-
-    if (val('nsInstance')) {
-      const ns = await api('list_npm_services', { instance_name: val('nsInstance') });
-      renderTable('npmServicesTable', ['domain', 'instance_name', 'forward_host', 'forward_port', 'scheme'], ns.items);
-    }
-
+    const tool = toolSelect.value;
+    const data = await api('list_sensitive', { namespace: tool });
+    renderTable('configTable', ['namespace', 'key', 'updated_at'], data.items);
     status('Chargement OK');
   } catch (e) {
     status(e.message, false);
@@ -71,109 +94,53 @@ async function reloadAll() {
 
 document.getElementById('reloadAll').onclick = reloadAll;
 
-document.getElementById('saveSensitive').onclick = async () => {
+document.getElementById('saveConfig').onclick = async () => {
   try {
-    await api('upsert_sensitive', { namespace: val('sNamespace'), key: val('sKey'), value: val('sValue') });
-    status('Secret enregistré');
-    await reloadAll();
-  } catch (e) { status(e.message, false); }
-};
-
-document.getElementById('listSensitive').onclick = async () => {
-  try {
-    const data = await api('list_sensitive', { namespace: val('sNamespace') });
-    renderTable('sensitiveTable', ['namespace', 'key', 'updated_at'], data.items);
-    status('Liste sensitive chargée');
-  } catch (e) { status(e.message, false); }
-};
-
-document.getElementById('deleteSensitive').onclick = async () => {
-  try {
-    await api('delete_sensitive', { namespace: val('sNamespace'), key: val('sKey') });
-    status('Secret supprimé (si existant)');
-    await reloadAll();
-  } catch (e) { status(e.message, false); }
-};
-
-document.getElementById('saveTarget').onclick = async () => {
-  try {
-    await api('upsert_proxmox_target', {
-      row: {
-        name: val('pName'), ip: val('pIp'), api_path: val('pApiPath') || '/api2/json', login: val('pLogin'),
-        node: val('pNode'), password: val('pPassword') || null, password_secret_key: val('pPasswordKey') || null,
-      },
+    if (keySelect.disabled) {
+      throw new Error('Aucun paramètre à stocker pour cet outil');
+    }
+    await api('upsert_sensitive', {
+      namespace: toolSelect.value,
+      key: keySelect.value,
+      value: val('cfgValue'),
     });
-    status('Target proxmox enregistrée');
+    status('Valeur enregistrée');
     await reloadAll();
-  } catch (e) { status(e.message, false); }
+  } catch (e) {
+    status(e.message, false);
+  }
 };
 
-document.getElementById('listTargets').onclick = async () => {
-  try {
-    const data = await api('list_proxmox_targets');
-    renderTable('targetsTable', ['name', 'ip', 'api_path', 'login', 'node', 'password_secret_key'], data.items);
-    status('Liste targets chargée');
-  } catch (e) { status(e.message, false); }
-};
+document.getElementById('listConfig').onclick = reloadAll;
 
-document.getElementById('saveCtService').onclick = async () => {
+document.getElementById('deleteConfig').onclick = async () => {
   try {
-    await api('upsert_ct_service', {
-      row: { name: val('ctName'), target_name: val('ctTarget'), ctid: Number(val('ctId')), path: val('ctPath') || '/' },
+    if (keySelect.disabled) {
+      throw new Error('Aucun paramètre à supprimer pour cet outil');
+    }
+    await api('delete_sensitive', {
+      namespace: toolSelect.value,
+      key: keySelect.value,
     });
-    status('Service CT enregistré');
+    status('Valeur supprimée (si existante)');
     await reloadAll();
-  } catch (e) { status(e.message, false); }
+  } catch (e) {
+    status(e.message, false);
+  }
 };
 
-document.getElementById('listCtServices').onclick = async () => {
-  try {
-    const data = await api('list_ct_services');
-    renderTable('ctServicesTable', ['name', 'target_name', 'ctid', 'path'], data.items);
-    status('Liste CT services chargée');
-  } catch (e) { status(e.message, false); }
+toolSelect.onchange = async () => {
+  refreshKeyOptions();
+  await reloadAll();
 };
 
-document.getElementById('saveNpmInstance').onclick = async () => {
-  try {
-    await api('upsert_npm_instance', {
-      row: {
-        name: val('nName'), base_url: val('nBaseUrl'), login: val('nLogin'),
-        password: val('nPassword') || null, password_secret_key: val('nPasswordKey') || null,
-      },
-    });
-    status('Instance NPM enregistrée');
-    await reloadAll();
-  } catch (e) { status(e.message, false); }
-};
+function initToolSelect() {
+  toolSelect.innerHTML = Object.keys(TOOL_PARAMS)
+    .map((tool) => `<option value="${tool}">${TOOL_LABELS[tool] || tool}</option>`)
+    .join('');
+  refreshKeyOptions();
+}
 
-document.getElementById('listNpmInstances').onclick = async () => {
-  try {
-    const data = await api('list_npm_instances');
-    renderTable('npmInstancesTable', ['name', 'base_url', 'login', 'password_secret_key'], data.items);
-    status('Liste NPM instances chargée');
-  } catch (e) { status(e.message, false); }
-};
-
-document.getElementById('saveNpmService').onclick = async () => {
-  try {
-    await api('upsert_npm_service', {
-      row: {
-        domain: val('nsDomain'), instance_name: val('nsInstance'), forward_host: val('nsForwardHost'),
-        forward_port: Number(val('nsForwardPort')), scheme: val('nsScheme') || 'http',
-      },
-    });
-    status('Service NPM enregistré');
-    await reloadAll();
-  } catch (e) { status(e.message, false); }
-};
-
-document.getElementById('listNpmServices').onclick = async () => {
-  try {
-    const data = await api('list_npm_services', { instance_name: val('nsInstance') });
-    renderTable('npmServicesTable', ['domain', 'instance_name', 'forward_host', 'forward_port', 'scheme'], data.items);
-    status('Liste NPM services chargée');
-  } catch (e) { status(e.message, false); }
-};
-
+buildCatalog();
+initToolSelect();
 reloadAll();
