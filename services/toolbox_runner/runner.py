@@ -6,7 +6,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from services.common.logging_utils import configure_logging, log_event
 from services.common.jsonschema_utils import validate_against_schema, validate_payload
+
+logger = configure_logging("toolbox_runner.runner")
 
 
 class ToolRunError(RuntimeError):
@@ -28,6 +31,7 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, 
     _validate(manifest["input_schema"], tool_input)
     entrypoint = Path(manifest["tool_root"]) / manifest["entrypoint"]
     timeout_s = int(os.getenv("TOOL_TIMEOUT_S", "30"))
+    log_event(logger, service="toolbox_runner", event="tool_execute_start", tool=manifest["name"], entrypoint=str(entrypoint), timeout_s=timeout_s)
     try:
         result = subprocess.run(
             ["python", str(entrypoint)],
@@ -38,15 +42,18 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, 
             check=False,
         )
     except subprocess.TimeoutExpired as exc:
+        log_event(logger, service="toolbox_runner", event="tool_execute_timeout", tool=manifest["name"], timeout_s=timeout_s)
         raise ToolRunError("TIMEOUT", f"tool timeout after {timeout_s}s", retryable=True) from exc
 
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip() or "tool crashed"
+        log_event(logger, service="toolbox_runner", event="tool_execute_crash", tool=manifest["name"], return_code=result.returncode, stderr=stderr[:500])
         raise ToolRunError("TOOL_CRASH", stderr)
 
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError as exc:
+        log_event(logger, service="toolbox_runner", event="tool_execute_invalid_json", tool=manifest["name"])
         raise ToolRunError("INVALID_JSON", "tool returned non-json output") from exc
 
     _validate(manifest["output_schema"], data)
@@ -61,4 +68,5 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, 
         "logs": [{"level": "info", "message": f"{manifest['name']} executed"}],
     }
     validate_payload("tool_output.schema.json", output)
+    log_event(logger, service="toolbox_runner", event="tool_execute_done", tool=manifest["name"])
     return output

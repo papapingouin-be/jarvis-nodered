@@ -5,20 +5,24 @@ import os
 
 from fastapi import FastAPI
 
+from services.common.logging_utils import configure_logging, log_event
 from services.common.jsonschema_utils import validate_payload
 from services.openproject_adapter.client import build_project_payload, build_work_package_payload
 
 app = FastAPI(title="openproject_adapter", version="1.0")
+logger = configure_logging("openproject_adapter")
 
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    log_event(logger, service="openproject_adapter", event="healthcheck")
     return {"status": "ok"}
 
 
 @app.post("/v1/jarvis/create_project_from_spec")
 def create_project_from_spec(payload: dict) -> dict:
     jarvis_project = payload["jarvis_project"]
+    log_event(logger, service="openproject_adapter", event="create_project_from_spec", project_title=jarvis_project.get("title"))
     validate_payload("jarvis_project.schema.json", jarvis_project)
     project_payload = build_project_payload(jarvis_project["title"], jarvis_project["summary"])
     custom_field_map = payload.get("custom_field_map") or json.loads(
@@ -44,6 +48,7 @@ def create_project_from_spec(payload: dict) -> dict:
 
 @app.get("/v1/jarvis/list_ready_tasks")
 def list_ready_tasks() -> dict:
+    log_event(logger, service="openproject_adapter", event="list_ready_tasks")
     return {
         "tasks": [
             {
@@ -60,4 +65,5 @@ def list_ready_tasks() -> dict:
 
 @app.post("/v1/jarvis/update_task")
 def update_task(payload: dict) -> dict:
+    log_event(logger, service="openproject_adapter", event="update_task", payload_keys=sorted(payload.keys()))
     return {"ok": True, "payload": payload}
