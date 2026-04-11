@@ -38,6 +38,16 @@
       <h2>Paramètres d'appel</h2>
       <label for="endpoint">Endpoint Node-RED</label>
       <input id="endpoint" placeholder="http://localhost:1880/jarvis/inbound" />
+      <div class="row" style="margin-top:.75rem;">
+        <div class="col">
+          <label for="dbPath">Chemin DB SQLite (config-web)</label>
+          <input id="dbPath" placeholder="/tmp/jarvis_infra.db" />
+        </div>
+      </div>
+      <label style="margin-top:.75rem; display:flex; align-items:center; gap:.45rem;">
+        <input id="useDbRunnerUrl" type="checkbox" checked style="width:auto;" />
+        Utiliser <code>runtime/TOOLBOX_RUNNER_URL</code> depuis la DB pour <code>meta.toolbox_runner_url</code>
+      </label>
       <div class="muted" style="margin-top:.5rem;">Le payload est envoyé en JSON via POST.</div>
     </section>
 
