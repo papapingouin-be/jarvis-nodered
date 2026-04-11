@@ -7,6 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
+from urllib import error, request
 
 ACTIONS = {"list", "add", "delete"}
 
@@ -72,6 +73,16 @@ def _read_secret(conn: sqlite3.Connection, key: str) -> str:
     return str(row["value"])
 
 
+def _read_value(conn: sqlite3.Connection, namespace: str, key: str) -> str | None:
+    row = conn.execute(
+        "SELECT value FROM sensitive_values WHERE namespace = ? AND key = ?",
+        (namespace, key),
+    ).fetchone()
+    if row is None:
+        return None
+    return str(row["value"])
+
+
 def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     instance = payload["instance"]
     password = instance.get("password")
@@ -133,6 +144,7 @@ def _register_service(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict
 
 
 def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+    instance_name = payload["instance_name"]
     rows = conn.execute(
         """
         SELECT domain, instance_name, forward_host, forward_port, scheme
@@ -140,9 +152,107 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
         WHERE instance_name = ?
         ORDER BY domain
         """,
-        (payload["instance_name"],),
+        (instance_name,),
     ).fetchall()
-    return {"instance_name": payload["instance_name"], "services": [dict(row) for row in rows]}
+    local_services = [dict(row) for row in rows]
+
+    instance = _resolve_instance(conn, instance_name)
+    if instance is None:
+        return {"instance_name": instance_name, "services": local_services}
+
+    inst = instance
+    password = inst["password"]
+    remote_services = _fetch_remote_services(inst["base_url"], inst["login"], password)
+    return {
+        "instance_name": instance_name,
+        "services": local_services,
+        "remote_services": remote_services,
+        "remote_count": len(remote_services),
+    }
+
+
+def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT name, base_url, login, password, password_secret_key
+        FROM npm_instances
+        WHERE name = ?
+        """,
+        (instance_name,),
+    ).fetchone()
+    if row is not None:
+        inst = dict(row)
+        password = (
+            inst["password"]
+            if inst["password"] is not None
+            else _read_secret(conn, inst["password_secret_key"])
+        )
+        return {"name": inst["name"], "base_url": inst["base_url"], "login": inst["login"], "password": password}
+
+    # Fallback for config-web defaults: values stored by namespace `npm_service`.
+    # This allows list_services(default) to work without a prior register_instance step.
+    base_url = _read_value(conn, "npm_service", "NPM_URL")
+    login = _read_value(conn, "npm_service", "NPM_IDENTITY")
+    password = _read_value(conn, "npm_service", "NPM_SECRET")
+    if base_url and login and password:
+        return {"name": instance_name, "base_url": base_url, "login": login, "password": password}
+    return None
+
+
+def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dict[str, Any]]:
+    token_url = f"{base_url.rstrip('/')}/api/tokens"
+    token_req = request.Request(
+        token_url,
+        data=json.dumps({"identity": login, "secret": password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(token_req, timeout=10) as response:
+            token_payload = json.loads(response.read().decode("utf-8"))
+    except error.URLError as exc:
+        raise ValueError(f"npm token request failed: {exc}") from exc
+
+    token = token_payload.get("token")
+    if not token:
+        raise ValueError("npm token request did not return a token")
+
+    hosts_url = f"{base_url.rstrip('/')}/api/nginx/proxy-hosts"
+    hosts_req = request.Request(
+        hosts_url,
+        headers={"Authorization": f"Bearer {token}"},
+        method="GET",
+    )
+    try:
+        with request.urlopen(hosts_req, timeout=10) as response:
+            raw_hosts = json.loads(response.read().decode("utf-8"))
+    except error.URLError as exc:
+        raise ValueError(f"npm list request failed: {exc}") from exc
+
+    if not isinstance(raw_hosts, list):
+        raise ValueError("npm list response is not an array")
+
+    services: list[dict[str, Any]] = []
+    for item in raw_hosts:
+        if not isinstance(item, dict):
+            continue
+        domains = item.get("domain_names")
+        if isinstance(domains, list) and domains:
+            domain = str(domains[0])
+        else:
+            domain = str(item.get("domain", ""))
+        services.append(
+            {
+                "id": item.get("id"),
+                "domain": domain,
+                "domain_names": domains if isinstance(domains, list) else [],
+                "forward_host": item.get("forward_host"),
+                "forward_port": item.get("forward_port"),
+                "scheme": item.get("forward_scheme"),
+                "enabled": item.get("enabled"),
+            }
+        )
+    return services
 
 
 def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
