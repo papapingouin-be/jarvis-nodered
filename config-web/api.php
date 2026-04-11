@@ -82,6 +82,19 @@ try {
             echo json_encode(['items' => $stmt->fetchAll()]);
             break;
 
+        case 'get_sensitive':
+            $stmt = $pdo->prepare('SELECT namespace, key, value, updated_at FROM sensitive_values WHERE namespace = :namespace AND key = :key LIMIT 1');
+            $stmt->execute([
+                ':namespace' => as_string($payload, 'namespace'),
+                ':key' => as_string($payload, 'key'),
+            ]);
+            $item = $stmt->fetch();
+            echo json_encode([
+                'ok' => true,
+                'item' => $item !== false ? $item : null,
+            ]);
+            break;
+
         default:
             fail("action inconnue: {$action}");
     }
