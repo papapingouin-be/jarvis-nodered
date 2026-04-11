@@ -43,6 +43,98 @@ function connect_db(?string $requestedPath): PDO {
     return $pdo;
 }
 
+function repo_root(): string {
+    return dirname(__DIR__);
+}
+
+function tools_root(): string {
+    return repo_root() . '/jarvis/toolbox/tools';
+}
+
+function list_python_tools(): array {
+    $tools = [];
+    $manifestPaths = glob(tools_root() . '/*/manifest.json') ?: [];
+    sort($manifestPaths);
+
+    foreach ($manifestPaths as $manifestPath) {
+        $manifest = json_decode(file_get_contents($manifestPath) ?: '{}', true);
+        if (!is_array($manifest)) {
+            continue;
+        }
+
+        $entrypoint = (string)($manifest['entrypoint'] ?? 'tool.py');
+        if (pathinfo($entrypoint, PATHINFO_EXTENSION) !== 'py') {
+            continue;
+        }
+
+        $toolName = (string)($manifest['name'] ?? basename(dirname($manifestPath)));
+        $toolDir = dirname($manifestPath);
+        $toolCodePath = realpath($toolDir . DIRECTORY_SEPARATOR . $entrypoint);
+        if (!$toolCodePath || !str_starts_with($toolCodePath, realpath(tools_root()))) {
+            continue;
+        }
+
+        $sampleInput = [];
+        $schema = $manifest['input_schema']['properties'] ?? [];
+        if (is_array($schema)) {
+            foreach ($schema as $key => $meta) {
+                if (!is_string($key) || !is_array($meta)) {
+                    continue;
+                }
+                if (array_key_exists('default', $meta)) {
+                    $sampleInput[$key] = $meta['default'];
+                    continue;
+                }
+                $type = $meta['type'] ?? null;
+                if ($type === 'string') {
+                    $sampleInput[$key] = '';
+                } elseif ($type === 'number' || $type === 'integer') {
+                    $sampleInput[$key] = 0;
+                } elseif ($type === 'boolean') {
+                    $sampleInput[$key] = false;
+                } elseif ($type === 'array') {
+                    $sampleInput[$key] = [];
+                } elseif ($type === 'object') {
+                    $sampleInput[$key] = new stdClass();
+                } else {
+                    $sampleInput[$key] = null;
+                }
+            }
+        }
+
+        $tools[] = [
+            'name' => $toolName,
+            'entrypoint' => $entrypoint,
+            'manifest_path' => str_replace(repo_root() . '/', '', $manifestPath),
+            'code_path' => str_replace(repo_root() . '/', '', $toolCodePath),
+            'sample_input' => $sampleInput,
+        ];
+    }
+
+    return $tools;
+}
+
+function find_tool(array $tools, string $name): ?array {
+    foreach ($tools as $tool) {
+        if (($tool['name'] ?? '') === $name) {
+            return $tool;
+        }
+    }
+    return null;
+}
+
+function toolbox_runner_url(?PDO $pdo): string {
+    $defaultUrl = 'http://localhost:8030';
+    if (!$pdo) {
+        return $defaultUrl;
+    }
+    $stmt = $pdo->prepare('SELECT value FROM sensitive_values WHERE namespace = :namespace AND key = :key LIMIT 1');
+    $stmt->execute([':namespace' => 'runtime', ':key' => 'TOOLBOX_RUNNER_URL']);
+    $row = $stmt->fetch();
+    $dbUrl = is_array($row) ? (string)($row['value'] ?? '') : '';
+    return $dbUrl !== '' ? $dbUrl : $defaultUrl;
+}
+
 try {
     $payload = json_decode(file_get_contents('php://input') ?: '{}', true, flags: JSON_THROW_ON_ERROR);
     $action = $payload['action'] ?? null;
@@ -92,6 +184,87 @@ try {
             echo json_encode([
                 'ok' => true,
                 'item' => $item !== false ? $item : null,
+            ]);
+            break;
+
+        case 'list_python_tools':
+            echo json_encode(['ok' => true, 'items' => list_python_tools()]);
+            break;
+
+        case 'get_tool_code':
+            $toolName = as_string($payload, 'tool');
+            $tools = list_python_tools();
+            $tool = find_tool($tools, $toolName);
+            if (!$tool) {
+                fail("outil introuvable: {$toolName}", 404);
+            }
+            $absPath = repo_root() . '/' . $tool['code_path'];
+            $code = file_get_contents($absPath);
+            if ($code === false) {
+                fail('impossible de lire le code outil', 500);
+            }
+            echo json_encode(['ok' => true, 'path' => $tool['code_path'], 'code' => $code]);
+            break;
+
+        case 'save_tool_code':
+            $toolName = as_string($payload, 'tool');
+            $code = as_string($payload, 'code');
+            $tools = list_python_tools();
+            $tool = find_tool($tools, $toolName);
+            if (!$tool) {
+                fail("outil introuvable: {$toolName}", 404);
+            }
+            $absPath = repo_root() . '/' . $tool['code_path'];
+            if (file_put_contents($absPath, $code) === false) {
+                fail('impossible de sauvegarder le code outil', 500);
+            }
+            echo json_encode(['ok' => true, 'path' => $tool['code_path']]);
+            break;
+
+        case 'run_python_tool':
+            $toolName = as_string($payload, 'tool');
+            $input = $payload['input'] ?? null;
+            if (!is_array($input)) {
+                fail('champ input doit être un objet JSON');
+            }
+            $runnerUrl = rtrim(toolbox_runner_url($pdo), '/');
+            $url = $runnerUrl . '/v1/run';
+            $requestBody = json_encode(['tool' => $toolName, 'input' => $input], JSON_UNESCAPED_UNICODE);
+            if ($requestBody === false) {
+                fail('impossible de sérialiser la requête run_tool', 500);
+            }
+
+            $ch = curl_init($url);
+            if ($ch === false) {
+                fail('impossible d\'initialiser cURL', 500);
+            }
+            curl_setopt_array($ch, [
+                CURLOPT_POST => true,
+                CURLOPT_HTTPHEADER => ['Content-Type: application/json'],
+                CURLOPT_POSTFIELDS => $requestBody,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 60,
+            ]);
+
+            $raw = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlError = curl_error($ch);
+            curl_close($ch);
+
+            if ($raw === false) {
+                fail('erreur réseau toolbox_runner: ' . $curlError, 502);
+            }
+
+            $json = json_decode($raw, true);
+            if (!is_array($json)) {
+                fail('réponse non JSON de toolbox_runner', 502);
+            }
+
+            echo json_encode([
+                'ok' => true,
+                'runner_url' => $runnerUrl,
+                'http_code' => $httpCode,
+                'response' => $json,
             ]);
             break;
 

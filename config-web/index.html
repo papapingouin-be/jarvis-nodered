@@ -11,14 +11,14 @@
     }
     body { margin: 0; background: #f3f4f6; color: #111827; }
     header { background: #ffffff; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.25rem; }
-    main { max-width: 960px; margin: 1rem auto 2rem; padding: 0 1rem; }
+    main { max-width: 1040px; margin: 1rem auto 2rem; padding: 0 1rem; }
     .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: .9rem; }
-    .editor-card { margin-bottom: .7rem; }
     h1 { margin: 0; font-size: 1.1rem; }
     h2 { margin: 0 0 .75rem; font-size: 1rem; }
     .subtle { color: #6b7280; font-size: .9rem; }
     label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
-    input, select { border: 1px solid #d1d5db; border-radius: 8px; padding: .5rem .6rem; background: #fff; }
+    input, select, textarea { border: 1px solid #d1d5db; border-radius: 8px; padding: .5rem .6rem; background: #fff; font-family: inherit; }
+    textarea { min-height: 130px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     button { border: none; border-radius: 8px; padding: .5rem .8rem; cursor: pointer; background: #1f2937; color: #fff; }
     button.danger { background: #b91c1c; }
     .row { display: flex; gap: .45rem; flex-wrap: wrap; align-items: end; }
@@ -28,6 +28,15 @@
     table { width: 100%; border-collapse: collapse; font-size: .9rem; }
     th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: .45rem; vertical-align: middle; }
     th { font-weight: 600; }
+    .tabs { display: flex; gap: .4rem; margin: 1rem 0 .8rem; }
+    .tab-btn { background: #e5e7eb; color: #1f2937; }
+    .tab-btn.active { background: #1f2937; color: #fff; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .grid { display: grid; grid-template-columns: 320px 1fr; gap: .9rem; }
+    pre { background: #0b1020; color: #e5e7eb; border-radius: 8px; padding: .8rem; overflow: auto; min-height: 180px; }
+    ul.tool-list { padding-left: 1.1rem; margin: .3rem 0 0; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -49,15 +58,63 @@
       <div id="globalStatus" class="status"></div>
     </section>
 
-    <section class="card">
-      <h2>Configuration simple</h2>
-      <div class="subtle">Choisissez un outil, visualisez les valeurs actuelles, modifiez et sauvegardez au même endroit.</div>
-      <div class="row" style="margin-top:.7rem;">
-        <label style="min-width:280px; flex:1">Outil
-          <select id="cfgTool"></select>
-        </label>
-      </div>
-      <table id="configEditor" style="margin-top:.7rem;"></table>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="configTab">Config Web</button>
+      <button class="tab-btn" data-tab="labTab">Laboratoire outils .py</button>
+    </div>
+
+    <section class="tab-panel active" id="configTab">
+      <section class="card">
+        <h2>Configuration simple</h2>
+        <div class="subtle">Choisissez un outil, visualisez les valeurs actuelles, modifiez et sauvegardez au même endroit.</div>
+        <div class="row" style="margin-top:.7rem;">
+          <label style="min-width:280px; flex:1">Outil
+            <select id="cfgTool"></select>
+          </label>
+        </div>
+        <table id="configEditor" style="margin-top:.7rem;"></table>
+      </section>
+    </section>
+
+    <section class="tab-panel" id="labTab">
+      <section class="card">
+        <h2>Laboratoire de test des outils Python</h2>
+        <div class="subtle">Exécute les outils <code>.py</code> via <code>toolbox_runner</code> avec un JSON d'entrée comme en conditions réelles, affiche le retour brut et permet l'édition du fichier Python.</div>
+        <div class="grid" style="margin-top:.8rem;">
+          <div>
+            <h3 style="margin:.1rem 0 .5rem;">Outils disponibles</h3>
+            <ul id="pythonToolList" class="tool-list"></ul>
+          </div>
+          <div>
+            <div class="row">
+              <label style="min-width:230px; flex:1">Outil à exécuter
+                <select id="labTool"></select>
+              </label>
+              <button id="runLab">Exécuter</button>
+              <button id="refreshLab">Rafraîchir la liste</button>
+            </div>
+            <label style="margin-top:.7rem;">Entrée JSON (input réel)
+              <textarea id="labInput" spellcheck="false"></textarea>
+            </label>
+            <div class="subtle">Le payload envoyé est: <code>{ "tool": "...", "input": {...} }</code> sur <code>/v1/run</code>.</div>
+            <h3 style="margin:.9rem 0 .4rem;">Retour de l'outil</h3>
+            <pre id="labResult">Aucune exécution</pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Éditeur code outil .py</h2>
+        <div class="row">
+          <label style="min-width:280px; flex:1">Outil
+            <select id="codeEditorTool"></select>
+          </label>
+          <button id="loadCode">Charger</button>
+          <button id="saveCode">Sauvegarder le code</button>
+        </div>
+        <div class="subtle" id="codeEditorPath" style="margin:.4rem 0;">Aucun fichier chargé</div>
+        <textarea id="codeEditor" style="min-height:320px;" spellcheck="false" placeholder="# Code Python de l'outil"></textarea>
+      </section>
     </section>
   </main>
 
