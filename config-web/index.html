@@ -3,132 +3,78 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jarvis MCP - Config DB</title>
+  <title>Jarvis MCP - Config outils</title>
   <style>
-    :root { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    body { margin: 0; background: #f7f7fb; color: #1f2937; }
-    header { background: #111827; color: #fff; padding: 1rem 1.25rem; }
-    main { max-width: 1200px; margin: 1rem auto 2rem; padding: 0 1rem; }
-    .panel { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
-    h1 { margin: 0; font-size: 1.15rem; }
-    h2 { margin-top: 0; font-size: 1rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: .75rem; }
-    label { display: flex; flex-direction: column; gap: .35rem; font-size: .92rem; }
-    input, select { border: 1px solid #d1d5db; border-radius: 8px; padding: .55rem .65rem; }
-    button { border: none; border-radius: 8px; padding: .55rem .85rem; cursor: pointer; background: #2563eb; color: white; }
+    :root {
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      color-scheme: light;
+    }
+    body { margin: 0; background: #f3f4f6; color: #111827; }
+    header { background: #ffffff; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.25rem; }
+    main { max-width: 960px; margin: 1rem auto 2rem; padding: 0 1rem; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: .9rem; }
+    h1 { margin: 0; font-size: 1.1rem; }
+    h2 { margin: 0 0 .75rem; font-size: 1rem; }
+    .subtle { color: #6b7280; font-size: .9rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .65rem; }
+    label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
+    input, select { border: 1px solid #d1d5db; border-radius: 8px; padding: .5rem .6rem; background: #fff; }
+    button { border: none; border-radius: 8px; padding: .5rem .8rem; cursor: pointer; background: #1f2937; color: #fff; }
     button.secondary { background: #6b7280; }
-    button.danger { background: #dc2626; }
-    .row { display: flex; gap: .5rem; flex-wrap: wrap; align-items: end; }
-    table { width: 100%; border-collapse: collapse; margin-top: .8rem; font-size: .92rem; }
-    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: .45rem; vertical-align: top; }
-    .muted { color: #6b7280; font-size: .9rem; }
+    button.danger { background: #b91c1c; }
+    .row { display: flex; gap: .45rem; flex-wrap: wrap; align-items: end; }
     .status { margin-top: .5rem; font-size: .9rem; }
     .ok { color: #047857; }
     .err { color: #b91c1c; }
+    table { width: 100%; border-collapse: collapse; margin-top: .65rem; font-size: .9rem; }
+    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: .45rem; vertical-align: top; }
   </style>
 </head>
 <body>
   <header>
-    <h1>Jarvis MCP - Éditeur de configuration SQLite</h1>
-    <div style="margin-top:.35rem;"><a href="flow-test.html" style="color:#93c5fd;text-decoration:none;">Tester le flux de base →</a></div>
+    <h1>Jarvis MCP - Configuration des outils</h1>
   </header>
 
   <main>
-    <section class="panel">
+    <section class="card">
+      <h2>Base SQLite</h2>
       <div class="row">
-        <label style="min-width:380px; flex:1">
+        <label style="min-width:360px; flex:1">
           Chemin DB SQLite (serveur)
           <input id="dbPath" placeholder="/tmp/jarvis_infra.db" />
         </label>
-        <button id="reloadAll">Recharger tout</button>
+        <button id="reloadAll">Recharger</button>
       </div>
-      <div class="muted">Par défaut le backend utilise la variable d'environnement <code>JARVIS_INFRA_DB</code> ou <code>/tmp/jarvis_infra.db</code>.</div>
+      <div class="subtle">Par défaut: <code>JARVIS_INFRA_DB</code> puis <code>/tmp/jarvis_infra.db</code>.</div>
       <div id="globalStatus" class="status"></div>
     </section>
 
-    <section class="panel">
-      <h2>Sensitive values</h2>
-      <div class="grid">
-        <label>Namespace <input id="sNamespace" placeholder="proxmox" /></label>
-        <label>Key <input id="sKey" placeholder="api_password" /></label>
-        <label>Value <input id="sValue" placeholder="secret" /></label>
-      </div>
-      <div class="row" style="margin-top:.65rem;">
-        <button id="saveSensitive">Enregistrer</button>
-        <button class="secondary" id="listSensitive">Lister namespace</button>
-        <button class="danger" id="deleteSensitive">Supprimer key</button>
-      </div>
-      <table id="sensitiveTable"></table>
+    <section class="card">
+      <h2>Outils et paramètres à stocker</h2>
+      <div class="subtle">CT services et NPM services ne sont pas stockés en base: ces infos passent à l'exécution.</div>
+      <table id="catalogTable"></table>
     </section>
 
-    <section class="panel">
-      <h2>Proxmox targets</h2>
-      <div class="grid">
-        <label>Name <input id="pName" /></label>
-        <label>IP <input id="pIp" placeholder="10.0.0.10" /></label>
-        <label>API path <input id="pApiPath" value="/api2/json" /></label>
-        <label>Login <input id="pLogin" placeholder="root@pam" /></label>
-        <label>Node <input id="pNode" placeholder="pve" /></label>
-        <label>Password (inline) <input id="pPassword" type="password" /></label>
-        <label>Password secret key <input id="pPasswordKey" placeholder="proxmox_password" /></label>
-      </div>
-      <div class="row" style="margin-top:.65rem;">
-        <button id="saveTarget">Enregistrer target</button>
-        <button class="secondary" id="listTargets">Lister</button>
-      </div>
-      <table id="targetsTable"></table>
-    </section>
-
-    <section class="panel">
-      <h2>CT services</h2>
-      <div class="grid">
-        <label>Service name <input id="ctName" /></label>
-        <label>Target name <input id="ctTarget" /></label>
-        <label>CTID <input id="ctId" type="number" min="1" /></label>
-        <label>Path <input id="ctPath" value="/" /></label>
-      </div>
-      <div class="row" style="margin-top:.65rem;">
-        <button id="saveCtService">Enregistrer service CT</button>
-        <button class="secondary" id="listCtServices">Lister</button>
-      </div>
-      <table id="ctServicesTable"></table>
-    </section>
-
-    <section class="panel">
-      <h2>NPM instances</h2>
-      <div class="grid">
-        <label>Name <input id="nName" /></label>
-        <label>Base URL <input id="nBaseUrl" placeholder="http://npm.local:81" /></label>
-        <label>Login <input id="nLogin" /></label>
-        <label>Password (inline) <input id="nPassword" type="password" /></label>
-        <label>Password secret key <input id="nPasswordKey" placeholder="npm_admin_password" /></label>
-      </div>
-      <div class="row" style="margin-top:.65rem;">
-        <button id="saveNpmInstance">Enregistrer instance</button>
-        <button class="secondary" id="listNpmInstances">Lister</button>
-      </div>
-      <table id="npmInstancesTable"></table>
-    </section>
-
-    <section class="panel">
-      <h2>NPM services</h2>
-      <div class="grid">
-        <label>Domain <input id="nsDomain" placeholder="app.example.com" /></label>
-        <label>Instance name <input id="nsInstance" /></label>
-        <label>Forward host <input id="nsForwardHost" placeholder="10.0.0.42" /></label>
-        <label>Forward port <input id="nsForwardPort" type="number" min="1" value="80" /></label>
-        <label>Scheme
-          <select id="nsScheme">
-            <option>http</option>
-            <option>https</option>
-          </select>
+    <section class="card">
+      <h2>Valeurs de configuration</h2>
+      <div class="subtle">Une “sensitive value” = un secret (mot de passe, token). Si besoin, vous pouvez aussi enregistrer des valeurs non-secrètes ici pour rester simple.</div>
+      <div class="grid" style="margin-top:.7rem;">
+        <label>Outil
+          <select id="cfgTool"></select>
+        </label>
+        <label>Paramètre
+          <select id="cfgKey"></select>
+        </label>
+        <label>Valeur
+          <input id="cfgValue" type="password" placeholder="valeur" />
         </label>
       </div>
       <div class="row" style="margin-top:.65rem;">
-        <button id="saveNpmService">Enregistrer service NPM</button>
-        <button class="secondary" id="listNpmServices">Lister par instance</button>
+        <button id="saveConfig">Enregistrer</button>
+        <button class="secondary" id="listConfig">Lister</button>
+        <button class="danger" id="deleteConfig">Supprimer</button>
       </div>
-      <table id="npmServicesTable"></table>
+      <table id="configTable"></table>
     </section>
   </main>
 
