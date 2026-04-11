@@ -9,6 +9,8 @@ Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des o
 
 ## Outils/paramètres affichés
 
+- `runtime`
+  - `TOOLBOX_RUNNER_URL`
 - `proxmox`
   - `PROXMOX_API_TOKEN_ID`
   - `PROXMOX_API_TOKEN_SECRET`
@@ -39,6 +41,13 @@ résout pas le host `toolbox_runner`.
 Sur `flow-test.html`, `meta.toolbox_runner_url` est injecté automatiquement :
 - par défaut: `http://localhost:8030`
 - au clic sur **Envoyer**: l'URL est dérivée de l'endpoint Node-RED (même host, port `8030`) si le champ n'est pas déjà défini dans `meta`.
+- si la case **Utiliser runtime/TOOLBOX_RUNNER_URL depuis la DB** est cochée (par défaut), `flow-test` lit d'abord la valeur dans SQLite via `api.php` et l'injecte dans `meta.toolbox_runner_url`.
+
+Vous pouvez donc configurer l'adresse du serveur toolbox runner depuis `index.html` :
+
+- Outil: `runtime`
+- Clé: `TOOLBOX_RUNNER_URL`
+- Valeur exemple: `http://localhost:8030`
 
 Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exemple:
 

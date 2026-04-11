@@ -1,4 +1,7 @@
 const TOOL_PARAMS = {
+  runtime: [
+    'TOOLBOX_RUNNER_URL',
+  ],
   proxmox: [
     'PROXMOX_API_TOKEN_ID',
     'PROXMOX_API_TOKEN_SECRET',
@@ -16,12 +19,14 @@ const TOOL_PARAMS = {
 };
 
 const TOOL_LABELS = {
+  runtime: 'runtime',
   proxmox: 'proxmox',
   npm_service: 'npm_service',
 };
 
 const FIELD_HINTS = {
   NPM_URL: 'Format attendu: http://192.168.12.250:81/api',
+  TOOLBOX_RUNNER_URL: 'Format attendu: http://localhost:8030',
 };
 
 const globalStatus = document.getElementById('globalStatus');
