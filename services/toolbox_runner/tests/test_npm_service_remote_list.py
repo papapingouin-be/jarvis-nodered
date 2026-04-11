@@ -80,4 +80,26 @@ def test_list_services_without_instance_returns_empty_remote_list(tmp_path) -> N
     assert output["remote_count"] == 0
     assert output["instance_configured"] is False
     assert output["instance_source"] is None
+    assert output["required_fallback_namespace"] == "npm_service"
+    assert output["required_fallback_keys"] == ["NPM_URL", "NPM_IDENTITY", "NPM_SECRET"]
+    assert output["missing_fallback_keys"] == ["NPM_URL", "NPM_IDENTITY", "NPM_SECRET"]
     assert "No NPM instance credentials found" in output["message"]
+
+
+def test_list_services_without_instance_reports_only_missing_fallback_keys(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+
+    with npm_tool._connect() as conn:
+        conn.execute(
+            """
+            INSERT INTO sensitive_values(namespace, key, value)
+            VALUES
+              ('npm_service', 'NPM_URL', 'http://npm.local:81/api'),
+              ('npm_service', 'NPM_IDENTITY', 'admin@example.local')
+            """
+        )
+        conn.commit()
+        output = npm_tool._list_services(conn, {"instance_name": "default"})
+
+    assert output["instance_configured"] is False
+    assert output["missing_fallback_keys"] == ["NPM_SECRET"]

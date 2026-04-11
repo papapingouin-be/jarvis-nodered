@@ -158,6 +158,9 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
 
     instance = _resolve_instance(conn, instance_name)
     if instance is None:
+        fallback_keys = ("NPM_URL", "NPM_IDENTITY", "NPM_SECRET")
+        fallback_values = {key: _read_value(conn, "npm_service", key) for key in fallback_keys}
+        missing_fallback_keys = [key for key, value in fallback_values.items() if not value]
         return {
             "instance_name": instance_name,
             "services": local_services,
@@ -165,6 +168,9 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
             "remote_count": 0,
             "instance_configured": False,
             "instance_source": None,
+            "required_fallback_namespace": "npm_service",
+            "required_fallback_keys": list(fallback_keys),
+            "missing_fallback_keys": missing_fallback_keys,
             "message": (
                 "No NPM instance credentials found for this instance. "
                 "Register one via `register_instance` or set fallback keys in "
