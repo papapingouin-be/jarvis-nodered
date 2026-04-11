@@ -8,7 +8,11 @@ const TOOL_PARAMS = {
     'PROXMOX_USER',
     'PROXMOX_WEB',
   ],
-  npm_service: [],
+  npm_service: [
+    'NPM_URL',
+    'NPM_IDENTITY',
+    'NPM_SECRET',
+  ],
 };
 
 const TOOL_LABELS = {
@@ -16,20 +20,20 @@ const TOOL_LABELS = {
   npm_service: 'npm_service',
 };
 
+const FIELD_HINTS = {
+  NPM_URL: 'Format attendu: http://192.168.12.250:81/api',
+};
+
 const globalStatus = document.getElementById('globalStatus');
 const dbPathInput = document.getElementById('dbPath');
 const toolSelect = document.getElementById('cfgTool');
-const keySelect = document.getElementById('cfgKey');
+const configEditor = document.getElementById('configEditor');
 
 dbPathInput.value = localStorage.getItem('jarvis_db_path') || '';
 
 function status(msg, ok = true) {
   globalStatus.className = `status ${ok ? 'ok' : 'err'}`;
   globalStatus.textContent = msg;
-}
-
-function val(id) {
-  return document.getElementById(id).value.trim();
 }
 
 function dbPath() {
@@ -51,96 +55,113 @@ async function api(action, payload = {}) {
   return data;
 }
 
-function renderTable(id, columns, rows) {
-  const table = document.getElementById(id);
-  if (!rows || rows.length === 0) {
-    table.innerHTML = '<tr><td class="subtle">Liste vide</td></tr>';
-    return;
-  }
-  const header = `<tr>${columns.map((c) => `<th>${c}</th>`).join('')}</tr>`;
-  const body = rows
-    .map((row) => `<tr>${columns.map((c) => `<td>${row[c] ?? ''}</td>`).join('')}</tr>`)
-    .join('');
-  table.innerHTML = header + body;
-}
-
-function buildCatalog() {
-  const rows = Object.entries(TOOL_PARAMS).flatMap(([tool, params]) => {
-    if (params.length === 0) {
-      return [{ tool: TOOL_LABELS[tool] || tool, parameter: '', note: 'Liste vide' }];
-    }
-    return params.map((parameter) => ({ tool: TOOL_LABELS[tool] || tool, parameter, note: 'À stocker' }));
-  });
-  renderTable('catalogTable', ['tool', 'parameter', 'note'], rows);
-}
-
-function refreshKeyOptions() {
+async function renderEditor() {
   const tool = toolSelect.value;
   const keys = TOOL_PARAMS[tool] || [];
-  keySelect.innerHTML = keys.map((k) => `<option value="${k}">${k}</option>`).join('');
-  keySelect.disabled = keys.length === 0;
+  const data = await api('list_sensitive', { namespace: tool });
+  const valuesByKey = Object.fromEntries(data.items.map((item) => [item.key, item]));
+
+  if (keys.length === 0) {
+    configEditor.innerHTML = '<tr><td class="subtle">Aucun paramètre configuré pour cet outil.</td></tr>';
+    return;
+  }
+
+  const header = `
+    <tr>
+      <th>Clé</th>
+      <th>Valeur</th>
+      <th>Info</th>
+      <th>Action</th>
+    </tr>
+  `;
+
+  const body = keys.map((key) => {
+    const existing = valuesByKey[key];
+    const updated = existing?.updated_at ? `Sauvegardé: ${existing.updated_at}` : 'Pas encore sauvegardé';
+    const hint = FIELD_HINTS[key] ? ` · ${FIELD_HINTS[key]}` : '';
+
+    return `
+      <tr>
+        <td><code>${key}</code></td>
+        <td>
+          <input data-key="${key}" type="text" value="${existing?.value ?? ''}" placeholder="Saisir une valeur" />
+        </td>
+        <td class="subtle">${updated}${hint}</td>
+        <td>
+          <div class="row">
+            <button data-action="save" data-key="${key}">Enregistrer</button>
+            <button class="danger" data-action="delete" data-key="${key}">Supprimer</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  configEditor.innerHTML = header + body;
 }
 
 async function reloadAll() {
   try {
-    const tool = toolSelect.value;
-    const data = await api('list_sensitive', { namespace: tool });
-    renderTable('configTable', ['namespace', 'key', 'updated_at'], data.items);
+    await renderEditor();
     status('Chargement OK');
   } catch (e) {
     status(e.message, false);
   }
 }
 
+async function saveKey(key) {
+  const input = configEditor.querySelector(`input[data-key="${key}"]`);
+  if (!input || input.value.trim() === '') {
+    throw new Error(`Valeur vide pour ${key}`);
+  }
+  await api('upsert_sensitive', {
+    namespace: toolSelect.value,
+    key,
+    value: input.value.trim(),
+  });
+}
+
+async function deleteKey(key) {
+  await api('delete_sensitive', {
+    namespace: toolSelect.value,
+    key,
+  });
+}
+
 document.getElementById('reloadAll').onclick = reloadAll;
+toolSelect.onchange = reloadAll;
 
-document.getElementById('saveConfig').onclick = async () => {
+configEditor.onclick = async (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const action = target.dataset.action;
+  const key = target.dataset.key;
+  if (!action || !key) {
+    return;
+  }
+
   try {
-    if (keySelect.disabled) {
-      throw new Error('Aucun paramètre à stocker pour cet outil');
+    if (action === 'save') {
+      await saveKey(key);
+      status(`${key} enregistré`);
     }
-    await api('upsert_sensitive', {
-      namespace: toolSelect.value,
-      key: keySelect.value,
-      value: val('cfgValue'),
-    });
-    status('Valeur enregistrée');
+    if (action === 'delete') {
+      await deleteKey(key);
+      status(`${key} supprimé (si existant)`);
+    }
     await reloadAll();
   } catch (e) {
     status(e.message, false);
   }
-};
-
-document.getElementById('listConfig').onclick = reloadAll;
-
-document.getElementById('deleteConfig').onclick = async () => {
-  try {
-    if (keySelect.disabled) {
-      throw new Error('Aucun paramètre à supprimer pour cet outil');
-    }
-    await api('delete_sensitive', {
-      namespace: toolSelect.value,
-      key: keySelect.value,
-    });
-    status('Valeur supprimée (si existante)');
-    await reloadAll();
-  } catch (e) {
-    status(e.message, false);
-  }
-};
-
-toolSelect.onchange = async () => {
-  refreshKeyOptions();
-  await reloadAll();
 };
 
 function initToolSelect() {
   toolSelect.innerHTML = Object.keys(TOOL_PARAMS)
     .map((tool) => `<option value="${tool}">${TOOL_LABELS[tool] || tool}</option>`)
     .join('');
-  refreshKeyOptions();
 }
 
-buildCatalog();
 initToolSelect();
 reloadAll();

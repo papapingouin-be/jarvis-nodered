@@ -77,7 +77,7 @@ try {
             break;
 
         case 'list_sensitive':
-            $stmt = $pdo->prepare('SELECT namespace, key, updated_at FROM sensitive_values WHERE namespace = :namespace ORDER BY key');
+            $stmt = $pdo->prepare('SELECT namespace, key, value, updated_at FROM sensitive_values WHERE namespace = :namespace ORDER BY key');
             $stmt->execute([':namespace' => as_string($payload, 'namespace')]);
             echo json_encode(['items' => $stmt->fetchAll()]);
             break;
