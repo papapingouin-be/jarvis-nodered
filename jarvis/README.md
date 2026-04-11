@@ -61,26 +61,25 @@ Les stacks montent aussi `${JARVIS_HOST_ROOT}:/app` pour fiabiliser les imports 
 
 ## Stack logs / observabilité (Loki + Promtail + Grafana)
 
-Le fichier `docker-compose.observability.yml` déploie:
+Le fichier `jarvis/portainer/stack.logs.yml` déploie:
 - `jarvis_loki`
 - `jarvis_promtail`
 - `jarvis_grafana`
 
-Configs fournies dans le repo:
-- Loki: `jarvis/observability/loki-config.yml`
-- Promtail: `jarvis/observability/promtail-config.yml`
-- Provisioning Grafana (datasource Loki auto): `jarvis/observability/grafana/provisioning/datasources/loki.yml`
+Configs attendues côté hôte:
+- Loki: `/opt/jarvis/jarvis-logs/loki-config.yml`
+- Promtail: `/opt/jarvis/jarvis-logs/promtail-config.yml`
 
 ### Ce qu'il faut pour que ça fonctionne
 
 1. Réseaux Docker externes existants:
-   - `jarvis_net` (ou variable `JARVIS_OBS_NET`)
-   - `jarvis_proxy` (ou variable `JARVIS_PROXY_NET`)
+   - `jarvis_net`
+   - `jarvis_proxy`
 2. Accès lecture Docker logs pour Promtail:
    - `/var/lib/docker/containers` monté en `:ro`
 3. Ports ouverts:
-   - Loki `3100` (ou `LOKI_PORT`)
-   - Grafana `3011` (ou `GRAFANA_PORT`)
+   - Loki `3100`
+   - Grafana `3011`
 4. Credentials Grafana:
    - `GF_SECURITY_ADMIN_USER`
    - `GF_SECURITY_ADMIN_PASSWORD`
@@ -90,7 +89,7 @@ Configs fournies dans le repo:
 ```bash
 docker network create jarvis_net || true
 docker network create jarvis_proxy || true
-docker compose -f docker-compose.observability.yml up -d
+docker compose -f jarvis/portainer/stack.logs.yml up -d
 ```
 
 ### Vérifications rapides
@@ -100,16 +99,7 @@ curl -s http://localhost:3100/ready
 curl -s http://localhost:3011/api/health
 ```
 
-Si `log_bridge` écrit bien dans `events.jsonl`, les logs remontent ensuite dans Grafana via la datasource `Loki` pré-provisionnée.
-
-Variables utiles (override possible):
-- `LOKI_CONFIG_PATH`
-- `PROMTAIL_CONFIG_PATH`
-- `GRAFANA_PROVISIONING_PATH`
-- `LOKI_PORT`
-- `GRAFANA_PORT`
-- `GF_SECURITY_ADMIN_USER`
-- `GF_SECURITY_ADMIN_PASSWORD`
+Si `log_bridge` écrit bien dans `events.jsonl`, les logs remontent ensuite dans Grafana (datasource Loki à créer via l’UI Grafana si nécessaire).
 
 ## Node-RED flows
 
