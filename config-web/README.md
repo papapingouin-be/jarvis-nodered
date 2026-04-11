@@ -26,3 +26,11 @@ Par défaut, `api.php` utilise:
 3. `/tmp/jarvis_infra.db`
 
 Le backend crée automatiquement les tables si elles n'existent pas.
+
+## Test du flux Node-RED (flux de base)
+
+Une page dédiée est disponible pour envoyer un `JarvisMessage` vers Node-RED:
+
+- `http://localhost:8080/flow-test.html`
+
+Renseigne l'endpoint (par défaut `http://localhost:1880/jarvis/inbound`), adapte le JSON puis clique sur **Tester le flux**.
