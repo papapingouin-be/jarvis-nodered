@@ -24,6 +24,20 @@ Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des o
   - `NPM_IDENTITY`
   - `NPM_SECRET`
 
+## Laboratoire outils Python (`.py`)
+
+Un menu **Laboratoire outils .py** est disponible dans l'UI pour:
+
+- lister les outils Python détectés depuis `jarvis/toolbox/tools/*/manifest.json`;
+- préremplir un JSON d'input proche de l'usage réel (selon le `input_schema`);
+- exécuter l'outil via `toolbox_runner` (`POST /v1/run`) et afficher la réponse brute;
+- charger/éditer/sauvegarder le fichier `tool.py` (ou l'entrypoint Python déclaré).
+
+L'URL du runner est lue dans:
+
+1. `runtime/TOOLBOX_RUNNER_URL` (table `sensitive_values`) si présent,
+2. sinon fallback sur `http://localhost:8030`.
+
 ## Lancer localement
 
 ```bash

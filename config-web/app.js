@@ -33,6 +33,19 @@ const globalStatus = document.getElementById('globalStatus');
 const dbPathInput = document.getElementById('dbPath');
 const toolSelect = document.getElementById('cfgTool');
 const configEditor = document.getElementById('configEditor');
+const labToolSelect = document.getElementById('labTool');
+const labInput = document.getElementById('labInput');
+const labResult = document.getElementById('labResult');
+const runLabBtn = document.getElementById('runLab');
+const refreshLabBtn = document.getElementById('refreshLab');
+const pythonToolList = document.getElementById('pythonToolList');
+const codeEditorTool = document.getElementById('codeEditorTool');
+const codeEditorPath = document.getElementById('codeEditorPath');
+const codeEditor = document.getElementById('codeEditor');
+const loadCodeBtn = document.getElementById('loadCode');
+const saveCodeBtn = document.getElementById('saveCode');
+
+let availableTools = [];
 
 dbPathInput.value = localStorage.getItem('jarvis_db_path') || '';
 
@@ -105,9 +118,113 @@ async function renderEditor() {
   configEditor.innerHTML = header + body;
 }
 
+function prettyJson(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function setLabResult(payload) {
+  labResult.textContent = prettyJson(payload);
+}
+
+async function loadToolList() {
+  const data = await api('list_python_tools');
+  availableTools = data.items || [];
+
+  const options = availableTools
+    .map((tool) => `<option value="${tool.name}">${tool.name}</option>`)
+    .join('');
+
+  labToolSelect.innerHTML = options;
+  codeEditorTool.innerHTML = options;
+
+  pythonToolList.innerHTML = availableTools
+    .map((tool) => `<li><code>${tool.name}</code> · <span class="subtle">${tool.entrypoint}</span></li>`)
+    .join('');
+
+  if (availableTools.length === 0) {
+    labInput.value = '{}';
+    labResult.textContent = 'Aucun outil Python détecté.';
+    codeEditorPath.textContent = 'Aucun fichier chargé';
+    return;
+  }
+
+  await selectLabTool(labToolSelect.value || availableTools[0].name);
+  await loadToolCode(codeEditorTool.value || availableTools[0].name);
+}
+
+function toolDefaultInput(toolName) {
+  const tool = availableTools.find((item) => item.name === toolName);
+  if (!tool) {
+    return {};
+  }
+  return tool.sample_input || {};
+}
+
+async function selectLabTool(toolName) {
+  labToolSelect.value = toolName;
+  labInput.value = prettyJson(toolDefaultInput(toolName));
+  setLabResult({
+    info: 'Prêt à exécuter',
+    tool: toolName,
+  });
+}
+
+async function runLabTool() {
+  const tool = labToolSelect.value;
+  if (!tool) {
+    throw new Error('Aucun outil sélectionné');
+  }
+
+  let input;
+  try {
+    input = JSON.parse(labInput.value || '{}');
+  } catch (e) {
+    throw new Error(`JSON input invalide: ${e.message}`);
+  }
+
+  setLabResult({
+    status: 'running',
+    tool,
+  });
+
+  const result = await api('run_python_tool', {
+    tool,
+    input,
+  });
+
+  setLabResult(result);
+}
+
+async function loadToolCode(toolName) {
+  if (!toolName) {
+    return;
+  }
+  codeEditorTool.value = toolName;
+  const data = await api('get_tool_code', { tool: toolName });
+  codeEditor.value = data.code;
+  codeEditorPath.textContent = data.path;
+}
+
+async function saveToolCode() {
+  const tool = codeEditorTool.value;
+  if (!tool) {
+    throw new Error('Aucun outil sélectionné pour sauvegarde');
+  }
+
+  const data = await api('save_tool_code', {
+    tool,
+    code: codeEditor.value,
+  });
+
+  codeEditorPath.textContent = data.path;
+  status(`Code Python sauvegardé pour ${tool}`);
+  await loadToolList();
+}
+
 async function reloadAll() {
   try {
     await renderEditor();
+    await loadToolList();
     status('Chargement OK');
   } catch (e) {
     status(e.message, false);
@@ -135,6 +252,32 @@ async function deleteKey(key) {
 
 document.getElementById('reloadAll').onclick = reloadAll;
 toolSelect.onchange = reloadAll;
+labToolSelect.onchange = () => selectLabTool(labToolSelect.value);
+runLabBtn.onclick = async () => {
+  try {
+    await runLabTool();
+    status(`Exécution de ${labToolSelect.value} terminée`);
+  } catch (e) {
+    status(e.message, false);
+    setLabResult({ error: e.message });
+  }
+};
+refreshLabBtn.onclick = reloadAll;
+loadCodeBtn.onclick = async () => {
+  try {
+    await loadToolCode(codeEditorTool.value);
+    status(`Code chargé pour ${codeEditorTool.value}`);
+  } catch (e) {
+    status(e.message, false);
+  }
+};
+saveCodeBtn.onclick = async () => {
+  try {
+    await saveToolCode();
+  } catch (e) {
+    status(e.message, false);
+  }
+};
 
 configEditor.onclick = async (event) => {
   const target = event.target;
@@ -156,11 +299,25 @@ configEditor.onclick = async (event) => {
       await deleteKey(key);
       status(`${key} supprimé (si existant)`);
     }
-    await reloadAll();
+    await renderEditor();
   } catch (e) {
     status(e.message, false);
   }
 };
+
+
+function initTabs() {
+  const buttons = document.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.tab-panel');
+
+  buttons.forEach((btn) => {
+    btn.onclick = () => {
+      const target = btn.dataset.tab;
+      buttons.forEach((b) => b.classList.toggle('active', b === btn));
+      panels.forEach((panel) => panel.classList.toggle('active', panel.id === target));
+    };
+  });
+}
 
 function initToolSelect() {
   toolSelect.innerHTML = Object.keys(TOOL_PARAMS)
@@ -168,5 +325,6 @@ function initToolSelect() {
     .join('');
 }
 
+initTabs();
 initToolSelect();
 reloadAll();
