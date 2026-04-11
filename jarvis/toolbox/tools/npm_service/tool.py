@@ -158,7 +158,12 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
 
     instance = _resolve_instance(conn, instance_name)
     if instance is None:
-        return {"instance_name": instance_name, "services": local_services}
+        return {
+            "instance_name": instance_name,
+            "services": local_services,
+            "remote_services": [],
+            "remote_count": 0,
+        }
 
     inst = instance
     password = inst["password"]
