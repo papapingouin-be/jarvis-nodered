@@ -20,7 +20,7 @@ services:
       - jarvis_net
     volumes:
       - loki-data:/loki
-      - ${LOKI_CONFIG_PATH:-/opt/jarvis/jarvis-logs/loki-config.yml}:/etc/loki/config.yml:ro
+      - ${LOKI_CONFIG_PATH:-./jarvis/observability/loki-config.yml}:/etc/loki/config.yml:ro
     logging: *default-logging
 
   jarvis_promtail:
@@ -33,7 +33,7 @@ services:
     networks:
       - jarvis_net
     volumes:
-      - ${PROMTAIL_CONFIG_PATH:-/opt/jarvis/jarvis-logs/promtail-config.yml}:/etc/promtail/config.yml:ro
+      - ${PROMTAIL_CONFIG_PATH:-./jarvis/observability/promtail-config.yml}:/etc/promtail/config.yml:ro
       - /var/log:/var/log:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - promtail-positions:/tmp
@@ -57,6 +57,7 @@ services:
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - grafana-data:/var/lib/grafana
+      - ${GRAFANA_PROVISIONING_PATH:-./jarvis/observability/grafana/provisioning}:/etc/grafana/provisioning:ro
     logging: *default-logging
 
 volumes:
