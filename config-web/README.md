@@ -36,8 +36,8 @@ Puis ouvrir `http://localhost:8080`.
 Si vous voyez une erreur du type `getaddrinfo EAI_AGAIN toolbox_runner`, Node-RED ne
 résout pas le host `toolbox_runner`.
 
-Sur `flow-test.html`, si `meta.toolbox_runner_url` est absent, le front le déduit
-automatiquement de l'endpoint saisi (`http(s)://<host>:8030`).
+Sur `flow-test.html`, `meta.toolbox_runner_url` n'est plus injecté automatiquement :
+ajoutez-le manuellement dans le payload si nécessaire.
 
 Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exemple:
 
@@ -50,7 +50,7 @@ Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exempl
 }
 ```
 
-Le flow Jarvis donne priorité à `meta.toolbox_runner_url`, puis à `TOOLBOX_RUNNER_URL`,
+Le flow Jarvis donne priorité à `TOOLBOX_RUNNER_URL`, puis à `meta.toolbox_runner_url`,
 puis fallback sur `http://localhost:8030` si rien n'est défini.
 
 Si votre payload de test n'utilise pas `text`, le normalize du flow accepte aussi

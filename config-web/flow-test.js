@@ -56,14 +56,6 @@ sendBtn.onclick = async () => {
     if (!payload.meta || typeof payload.meta !== 'object') {
       payload.meta = {};
     }
-    if (!payload.meta.toolbox_runner_url) {
-      try {
-        const endpointUrl = new URL(endpoint);
-        payload.meta.toolbox_runner_url = `${endpointUrl.protocol}//${endpointUrl.hostname}:8030`;
-      } catch {
-        // ignore invalid URL here; fetch below will raise a clear error.
-      }
-    }
 
     localStorage.setItem(STORAGE_ENDPOINT, endpoint);
     setStatus('Envoi en cours...');
