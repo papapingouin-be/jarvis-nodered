@@ -10,6 +10,12 @@ app = FastAPI(title="toolbox_runner", version="1.0")
 REGISTRY = build_registry()
 
 
+def _refresh_registry() -> dict:
+    global REGISTRY
+    REGISTRY = build_registry()
+    return REGISTRY
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -19,13 +25,15 @@ def health() -> dict[str, str]:
 def run(payload: ToolRunRequest) -> dict:
     manifest = REGISTRY.get(payload.tool)
     if not manifest:
+        manifest = _refresh_registry().get(payload.tool)
+    if not manifest:
         return {
             "ok": False,
             "tool": payload.tool,
             "error_code": "MISSING_TOOL",
             "message": f"tool not found: {payload.tool}",
             "retryable": False,
-            "data": {},
+            "data": {"available_tools": sorted(REGISTRY.keys())},
         }
 
     try:
