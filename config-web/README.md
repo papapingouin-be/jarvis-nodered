@@ -1,12 +1,24 @@
 # config-web
 
-Mini interface web (HTML/JS/PHP) pour gérer les entrées SQLite nécessaires aux outils MCP Jarvis:
+Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des outils Jarvis.
 
-- `sensitive_values`
-- `proxmox_targets`
-- `ct_services`
-- `npm_instances`
-- `npm_services`
+## Ce qui est stocké
+
+- `sensitive_values` uniquement (`namespace`, `key`, `value`).
+- Les `CT services` et `NPM services` **ne sont pas stockés en DB**: ces informations sont transmises au moment d'exécuter l'outil.
+
+## Outils/paramètres affichés
+
+- `proxmox`
+  - `PROXMOX_API_TOKEN_ID`
+  - `PROXMOX_API_TOKEN_SECRET`
+  - `PROXMOX_HOST`
+  - `PROXMOX_PASSWORD`
+  - `PROXMOX_SSH_PORT`
+  - `PROXMOX_USER`
+  - `PROXMOX_WEB`
+- `npm_service`
+  - liste vide
 
 ## Lancer localement
 
@@ -24,13 +36,3 @@ Par défaut, `api.php` utilise:
 1. `db_path` envoyé par le front (si renseigné), sinon
 2. la variable d'environnement `JARVIS_INFRA_DB`, sinon
 3. `/tmp/jarvis_infra.db`
-
-Le backend crée automatiquement les tables si elles n'existent pas.
-
-## Test du flux Node-RED (flux de base)
-
-Une page dédiée est disponible pour envoyer un `JarvisMessage` vers Node-RED:
-
-- `http://localhost:8080/flow-test.html`
-
-Renseigne l'endpoint (par défaut `http://localhost:1880/jarvis/inbound`), adapte le JSON puis clique sur **Tester le flux**.
