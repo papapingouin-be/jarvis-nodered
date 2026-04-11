@@ -84,7 +84,7 @@ async function renderEditor() {
       <tr>
         <td><code>${key}</code></td>
         <td>
-          <input data-key="${key}" type="password" value="${existing?.value ?? ''}" placeholder="Saisir une valeur" />
+          <input data-key="${key}" type="text" value="${existing?.value ?? ''}" placeholder="Saisir une valeur" />
         </td>
         <td class="subtle">${updated}${hint}</td>
         <td>
