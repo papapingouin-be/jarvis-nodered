@@ -37,6 +37,7 @@ const labToolSelect = document.getElementById('labTool');
 const labInput = document.getElementById('labInput');
 const labResult = document.getElementById('labResult');
 const runLabBtn = document.getElementById('runLab');
+const runNpmQuickBtn = document.getElementById('runNpmQuick');
 const refreshLabBtn = document.getElementById('refreshLab');
 const pythonToolList = document.getElementById('pythonToolList');
 const codeEditorTool = document.getElementById('codeEditorTool');
@@ -44,6 +45,7 @@ const codeEditorPath = document.getElementById('codeEditorPath');
 const codeEditor = document.getElementById('codeEditor');
 const loadCodeBtn = document.getElementById('loadCode');
 const saveCodeBtn = document.getElementById('saveCode');
+const openNpmCodeBtn = document.getElementById('openNpmCode');
 
 let availableTools = [];
 
@@ -195,6 +197,20 @@ async function runLabTool() {
   setLabResult(result);
 }
 
+async function runQuickNpmTest() {
+  const npmTool = availableTools.find((item) => item.name === 'npm_service');
+  if (!npmTool) {
+    throw new Error("L'outil npm_service n'est pas disponible");
+  }
+
+  labToolSelect.value = 'npm_service';
+  const quickInput = {
+    operation: 'list_services',
+  };
+  labInput.value = prettyJson(quickInput);
+  await runLabTool();
+}
+
 async function loadToolCode(toolName) {
   if (!toolName) {
     return;
@@ -262,6 +278,15 @@ runLabBtn.onclick = async () => {
     setLabResult({ error: e.message });
   }
 };
+runNpmQuickBtn.onclick = async () => {
+  try {
+    await runQuickNpmTest();
+    status('Test rapide npm_service terminé');
+  } catch (e) {
+    status(e.message, false);
+    setLabResult({ error: e.message });
+  }
+};
 refreshLabBtn.onclick = reloadAll;
 loadCodeBtn.onclick = async () => {
   try {
@@ -274,6 +299,18 @@ loadCodeBtn.onclick = async () => {
 saveCodeBtn.onclick = async () => {
   try {
     await saveToolCode();
+  } catch (e) {
+    status(e.message, false);
+  }
+};
+openNpmCodeBtn.onclick = async () => {
+  try {
+    const npmTool = availableTools.find((item) => item.name === 'npm_service');
+    if (!npmTool) {
+      throw new Error("L'outil npm_service n'est pas disponible");
+    }
+    await loadToolCode('npm_service');
+    status('Code chargé pour npm_service');
   } catch (e) {
     status(e.message, false);
   }
