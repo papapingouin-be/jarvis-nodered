@@ -6,6 +6,7 @@ const sendBtn = document.getElementById('sendBtn');
 const resetBtn = document.getElementById('resetBtn');
 
 const STORAGE_ENDPOINT = 'jarvis_flow_test_endpoint';
+const DEFAULT_TOOLBOX_RUNNER_PORT = '8030';
 
 function defaultPayload() {
   return {
@@ -17,8 +18,20 @@ function defaultPayload() {
     attachments: [],
     timestamp: new Date().toISOString(),
     reply_policy: 'same_channel',
-    meta: { source: 'config-web-flow-test' },
+    meta: {
+      source: 'config-web-flow-test',
+      toolbox_runner_url: `http://localhost:${DEFAULT_TOOLBOX_RUNNER_PORT}`,
+    },
   };
+}
+
+function inferToolboxRunnerUrl(endpoint) {
+  try {
+    const endpointUrl = new URL(endpoint);
+    return `${endpointUrl.protocol}//${endpointUrl.hostname}:${DEFAULT_TOOLBOX_RUNNER_PORT}`;
+  } catch {
+    return `http://localhost:${DEFAULT_TOOLBOX_RUNNER_PORT}`;
+  }
 }
 
 function setStatus(message, ok = true) {
@@ -55,6 +68,10 @@ sendBtn.onclick = async () => {
 
     if (!payload.meta || typeof payload.meta !== 'object') {
       payload.meta = {};
+    }
+
+    if (!payload.meta.toolbox_runner_url) {
+      payload.meta.toolbox_runner_url = inferToolboxRunnerUrl(endpoint);
     }
 
     localStorage.setItem(STORAGE_ENDPOINT, endpoint);
