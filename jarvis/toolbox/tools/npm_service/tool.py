@@ -163,6 +163,13 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
             "services": local_services,
             "remote_services": [],
             "remote_count": 0,
+            "instance_configured": False,
+            "instance_source": None,
+            "message": (
+                "No NPM instance credentials found for this instance. "
+                "Register one via `register_instance` or set fallback keys in "
+                "`sensitive_values` namespace `npm_service` (NPM_URL/NPM_IDENTITY/NPM_SECRET)."
+            ),
         }
 
     inst = instance
@@ -173,6 +180,8 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
         "services": local_services,
         "remote_services": remote_services,
         "remote_count": len(remote_services),
+        "instance_configured": True,
+        "instance_source": inst["source"],
     }
 
 
@@ -192,7 +201,13 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
             if inst["password"] is not None
             else _read_secret(conn, inst["password_secret_key"])
         )
-        return {"name": inst["name"], "base_url": inst["base_url"], "login": inst["login"], "password": password}
+        return {
+            "name": inst["name"],
+            "base_url": inst["base_url"],
+            "login": inst["login"],
+            "password": password,
+            "source": "registered_instance",
+        }
 
     # Fallback for config-web defaults: values stored by namespace `npm_service`.
     # This allows list_services(default) to work without a prior register_instance step.
@@ -200,7 +215,13 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
     login = _read_value(conn, "npm_service", "NPM_IDENTITY")
     password = _read_value(conn, "npm_service", "NPM_SECRET")
     if base_url and login and password:
-        return {"name": instance_name, "base_url": base_url, "login": login, "password": password}
+        return {
+            "name": instance_name,
+            "base_url": base_url,
+            "login": login,
+            "password": password,
+            "source": "config_web_fallback",
+        }
     return None
 
 
