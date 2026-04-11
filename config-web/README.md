@@ -32,6 +32,9 @@ Un menu **Laboratoire outils .py** est disponible dans l'UI pour:
 - préremplir un JSON d'input proche de l'usage réel (selon le `input_schema`);
 - exécuter l'outil via `toolbox_runner` (`POST /v1/run`) et afficher la réponse brute;
 - charger/éditer/sauvegarder le fichier `tool.py` (ou l'entrypoint Python déclaré).
+- accès direct `npm_service` avec:
+  - bouton **Test rapide npm_service** (préremplit `{"operation":"list_services"}` puis exécute),
+  - bouton **Ouvrir npm_service/tool.py** dans l'éditeur.
 
 L'URL du runner est lue dans:
 
