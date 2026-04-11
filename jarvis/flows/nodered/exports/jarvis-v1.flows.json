@@ -1,71 +1,621 @@
 [
-  {"id":"tab_ingress","type":"tab","label":"NR-Ingress","disabled":false,"info":"Ingress HTTP"},
-  {"id":"tab_intent","type":"tab","label":"NR-Intent","disabled":false,"info":"Intent routing"},
-  {"id":"tab_dialog","type":"tab","label":"NR-ProjectDialog","disabled":false,"info":"Project clarification"},
-  {"id":"tab_mapper","type":"tab","label":"NR-OPMapper","disabled":false,"info":"OpenProject mapping"},
-  {"id":"tab_poller","type":"tab","label":"NR-OPPoller","disabled":false,"info":"Cron poller"},
-  {"id":"tab_runner","type":"tab","label":"NR-ToolRunner","disabled":false,"info":"Tool execution"},
-  {"id":"tab_log","type":"tab","label":"NR-LogBridge","disabled":false,"info":"Logs"},
-  {"id":"tab_git","type":"tab","label":"NR-GitBridge","disabled":false,"info":"Git operations"},
-
-  {"id":"http_in","type":"http in","z":"tab_ingress","name":"Jarvis Inbound","url":"/jarvis/inbound","method":"post","upload":false,"swaggerDoc":"","wires":[["fn_normalize"]]},
-  {"id":"fn_normalize","type":"function","z":"tab_ingress","name":"Normalize JarvisMessage","func":"const b = msg.payload || {};\nmsg.payload = {\n  channel: b.channel || 'openwebui',\n  user_id: b.user_id || 'anonymous',\n  conversation_id: b.conversation_id || `conv-${Date.now()}`,\n  message_id: b.message_id || `msg-${Date.now()}`,\n  text: b.text || '',\n  attachments: b.attachments || [],\n  timestamp: new Date().toISOString(),\n  reply_policy: b.reply_policy || 'same_channel',\n  meta: b.meta || {source:'http', raw:b}\n};\nreturn msg;","outputs":1,"noerr":0,"wires":[["link_to_intent","dbg_ingress"]]},
-  {"id":"dbg_ingress","type":"debug","z":"tab_ingress","name":"important ingress","active":true,"tosidebar":true,"console":false,"tostatus":false,"complete":"payload","targetType":"msg","wires":[]},
-  {"id":"http_resp_ingress","type":"http response","z":"tab_ingress","name":"HTTP Response","statusCode":"200","headers":{},"wires":[]},
-  {"id":"link_to_intent","type":"link out","z":"tab_ingress","name":"to intent","mode":"link","links":["link_in_intent"],"x":0,"y":0,"wires":[]},
-
-  {"id":"link_in_intent","type":"link in","z":"tab_intent","name":"from ingress","links":["link_to_intent"],"wires":[["set_classify_url"]]},
-  {"id":"set_classify_url","type":"function","z":"tab_intent","name":"Set classify URL","func":"const base = env.get('LLM_ADAPTER_URL') || 'http://llm_adapter:8010';\nmsg.url = `${base}/v1/classify`;\nmsg.headers = {'Content-Type':'application/json'};\nreturn msg;","outputs":1,"noerr":0,"wires":[["http_classify"]]},
-  {"id":"http_classify","type":"http request","z":"tab_intent","name":"Call classify","method":"POST","ret":"obj","paytoqs":"ignore","url":"","persist":false,"authType":"","senderr":false,"headers":[],"wires":[["sw_mode","dbg_intent"]]},
-  {"id":"sw_mode","type":"switch","z":"tab_intent","name":"Route by mode","property":"payload.mode","propertyType":"msg","rules":[{"t":"eq","v":"project-dev","vt":"str"},{"t":"eq","v":"run_tool","vt":"str"},{"t":"eq","v":"status_query","vt":"str"},{"t":"else"}],"checkall":"true","repair":false,"outputs":4,"wires":[["link_to_dialog"],["link_to_runner"],["link_to_poller"],["fn_unknown_reply"]]},
-  {"id":"fn_unknown_reply","type":"function","z":"tab_intent","name":"unknown reply","func":"msg.payload = {ok:false,message:'Intention inconnue, peux-tu préciser ?'}; return msg;","outputs":1,"noerr":0,"wires":[["link_to_ingress_response"]]},
-  {"id":"dbg_intent","type":"debug","z":"tab_intent","name":"important intent","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-  {"id":"link_to_dialog","type":"link out","z":"tab_intent","name":"to dialog","mode":"link","links":["link_in_dialog"],"wires":[]},
-  {"id":"link_to_runner","type":"link out","z":"tab_intent","name":"to runner","mode":"link","links":["link_in_runner"],"wires":[]},
-  {"id":"link_to_poller","type":"link out","z":"tab_intent","name":"to poller","mode":"link","links":["link_in_poller"],"wires":[]},
-  {"id":"link_to_ingress_response","type":"link out","z":"tab_intent","name":"to ingress response","mode":"link","links":["link_in_ingress_response"],"wires":[]},
-
-  {"id":"link_in_ingress_response","type":"link in","z":"tab_ingress","name":"from intent","links":["link_to_ingress_response"],"wires":[["http_resp_ingress"]]},
-
-  {"id":"link_in_dialog","type":"link in","z":"tab_dialog","name":"from intent","links":["link_to_dialog"],"wires":[["fn_project_step"]]},
-  {"id":"fn_project_step","type":"function","z":"tab_dialog","name":"Set project step URL","func":"const base = env.get('LLM_ADAPTER_URL') || 'http://llm_adapter:8010';\nmsg.url = `${base}/v1/project_dev/step`;\nmsg.headers = {'Content-Type':'application/json'};\nreturn msg;","wires":[["http_project_step"]]},
-  {"id":"http_project_step","type":"http request","z":"tab_dialog","name":"project step","method":"POST","ret":"obj","url":"","wires":[["sw_project_done","dbg_dialog"]]},
-  {"id":"sw_project_done","type":"switch","z":"tab_dialog","name":"done?","property":"payload.done","propertyType":"msg","rules":[{"t":"true"},{"t":"else"}],"outputs":2,"wires":[["fn_set_spec","link_to_mapper"],["fn_question","link_to_ingress_response"]]},
-  {"id":"fn_set_spec","type":"function","z":"tab_dialog","name":"set jarvis_project_json","func":"msg.jarvis_project_json = msg.payload.jarvis_project_json; msg.payload = msg.jarvis_project_json; return msg;","wires":[[]]},
-  {"id":"fn_question","type":"function","z":"tab_dialog","name":"question reply","func":"msg.payload = {ok:true, question: msg.payload.question || 'Merci de préciser'}; return msg;","wires":[[]]},
-  {"id":"dbg_dialog","type":"debug","z":"tab_dialog","name":"important dialog","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-  {"id":"link_to_mapper","type":"link out","z":"tab_dialog","name":"to mapper","mode":"link","links":["link_in_mapper"],"wires":[]},
-
-  {"id":"link_in_mapper","type":"link in","z":"tab_mapper","name":"from dialog","links":["link_to_mapper"],"wires":[["fn_opmapper_url"]]},
-  {"id":"fn_opmapper_url","type":"function","z":"tab_mapper","name":"set OP mapper URL","func":"const base = env.get('OPENPROJECT_ADAPTER_URL') || 'http://openproject_adapter:8020';\nmsg.url = `${base}/v1/jarvis/create_project_from_spec`;\nmsg.headers = {'Content-Type':'application/json'};\nmsg.payload = { jarvis_project: msg.payload, source: msg.payload.source || {} };\nreturn msg;","wires":[["http_opmapper"]]},
-  {"id":"http_opmapper","type":"http request","z":"tab_mapper","name":"create OP project","method":"POST","ret":"obj","url":"","wires":[["dbg_mapper","fn_mapper_reply","link_to_ingress_response"]]},
-  {"id":"fn_mapper_reply","type":"function","z":"tab_mapper","name":"reply summary","func":"msg.payload = {ok:true, message:'Projet OpenProject préparé', details: msg.payload}; return msg;","wires":[[]]},
-  {"id":"dbg_mapper","type":"debug","z":"tab_mapper","name":"important opmapper","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-
-  {"id":"inject_poller","type":"inject","z":"tab_poller","name":"every 3 min","props":[{"p":"payload"}],"repeat":"180","once":false,"onceDelay":0.1,"topic":"","payload":"{}","payloadType":"json","wires":[["fn_poller_url"]]},
-  {"id":"link_in_poller","type":"link in","z":"tab_poller","name":"from intent","links":["link_to_poller"],"wires":[["fn_poller_url"]]},
-  {"id":"fn_poller_url","type":"function","z":"tab_poller","name":"set list_ready URL","func":"const base = env.get('OPENPROJECT_ADAPTER_URL') || 'http://openproject_adapter:8020';\nmsg.url = `${base}/v1/jarvis/list_ready_tasks`;\nreturn msg;","wires":[["http_ready"]]},
-  {"id":"http_ready","type":"http request","z":"tab_poller","name":"list ready tasks","method":"GET","ret":"obj","url":"","wires":[["fn_to_tasks","dbg_poller"]]},
-  {"id":"fn_to_tasks","type":"function","z":"tab_poller","name":"extract tasks","func":"msg.payload = msg.payload.tasks || []; return msg;","wires":[["split_tasks"]]},
-  {"id":"split_tasks","type":"split","z":"tab_poller","name":"split tasks","splt":"\n","spltType":"str","arraySplt":1,"arraySpltType":"len","stream":false,"addname":"","wires":[["link_to_runner"]]},
-  {"id":"dbg_poller","type":"debug","z":"tab_poller","name":"important poller","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-
-  {"id":"link_in_runner","type":"link in","z":"tab_runner","name":"from intent/poller","links":["link_to_runner"],"wires":[["fn_choose_tool"]]},
-  {"id":"fn_choose_tool","type":"function","z":"tab_runner","name":"choose tool","func":"const t = msg.payload || {};\nconst map = {run_tool:'example_echo',analysis:'example_echo',create_tool:'example_echo'};\nconst tool = t.jarvis_tool_needed || map[t.jarvis_action_type] || 'example_echo';\nmsg.url = `${env.get('TOOLBOX_RUNNER_URL') || 'http://toolbox_runner:8030'}/v1/run`;\nmsg.headers = {'Content-Type':'application/json'};\nmsg.payload = {tool, input: t.input || {message: t.subject || 'hello'}, context:{project_id:t.project_id, task_id:t.task_id}};\nreturn msg;","wires":[["http_run_tool"]]},
-  {"id":"http_run_tool","type":"http request","z":"tab_runner","name":"run tool","method":"POST","ret":"obj","url":"","wires":[["fn_after_run","dbg_runner"]]},
-  {"id":"fn_after_run","type":"function","z":"tab_runner","name":"status + logging","func":"msg.log_payload = {timestamp:new Date().toISOString(), module:'toolbox_runner', action:'run_tool', status: msg.payload.ok ? 'ok':'fail', message: msg.payload.message};\nmsg.git_changed = !!msg.payload.ok;\nreturn msg;","wires":[["link_to_log"],["link_to_git"]]},
-  {"id":"dbg_runner","type":"debug","z":"tab_runner","name":"important runner","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-  {"id":"link_to_log","type":"link out","z":"tab_runner","name":"to log","mode":"link","links":["link_in_log"],"wires":[]},
-  {"id":"link_to_git","type":"link out","z":"tab_runner","name":"to git","mode":"link","links":["link_in_git"],"wires":[]},
-
-  {"id":"link_in_log","type":"link in","z":"tab_log","name":"from runner","links":["link_to_log"],"wires":[["fn_log_url"]]},
-  {"id":"fn_log_url","type":"function","z":"tab_log","name":"set log URL","func":"msg.url = `${env.get('LOG_BRIDGE_URL') || 'http://log_bridge:8050'}/v1/log`;\nmsg.headers = {'Content-Type':'application/json'};\nmsg.payload = msg.log_payload || msg.payload;\nreturn msg;","wires":[["http_log"]]},
-  {"id":"http_log","type":"http request","z":"tab_log","name":"post log","method":"POST","ret":"obj","url":"","wires":[["dbg_log"]]},
-  {"id":"dbg_log","type":"debug","z":"tab_log","name":"important log","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]},
-
-  {"id":"link_in_git","type":"link in","z":"tab_git","name":"from runner","links":["link_to_git"],"wires":[["sw_git_changed"]]},
-  {"id":"sw_git_changed","type":"switch","z":"tab_git","name":"git changed?","property":"git_changed","propertyType":"msg","rules":[{"t":"true"}],"outputs":1,"wires":[["fn_git_url"]]},
-  {"id":"fn_git_url","type":"function","z":"tab_git","name":"set git URL","func":"msg.url = `${env.get('GIT_BRIDGE_URL') || 'http://git_bridge:8040'}/v1/commit_if_dirty`;\nmsg.headers = {'Content-Type':'application/json'};\nmsg.payload = {repo_path: env.get('REPO_PATH') || '/workspace/jarvis-nodered', branch: 'jarvis/demo/task', message:'[jarvis] demo T1 run_tool'};\nreturn msg;","wires":[["http_git"]]},
-  {"id":"http_git","type":"http request","z":"tab_git","name":"commit if dirty","method":"POST","ret":"obj","url":"","wires":[["dbg_git"]]},
-  {"id":"dbg_git","type":"debug","z":"tab_git","name":"important git","active":true,"tosidebar":true,"complete":"payload","targetType":"msg","wires":[]}
+    {
+        "id": "tab_jarvis_debug",
+        "type": "tab",
+        "label": "Jarvis Debug V3",
+        "disabled": false,
+        "info": "Flow Jarvis simplifié, traçable et pédagogique"
+    },
+    {
+        "id": "cmt_intro",
+        "type": "comment",
+        "z": "tab_jarvis_debug",
+        "name": "Vue d'ensemble",
+        "info": "",
+        "x": 620,
+        "y": 760,
+        "wires": []
+    },
+    {
+        "id": "http_in_jarvis",
+        "type": "http in",
+        "z": "tab_jarvis_debug",
+        "name": "POST /jarvis/inbound",
+        "url": "/jarvis/inbound",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 120,
+        "y": 80,
+        "wires": [
+            [
+                "fn_normalize"
+            ]
+        ]
+    },
+    {
+        "id": "fn_normalize",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "01 Normalize + Trace start",
+        "func": "const b = msg.payload || {};\nconst now = new Date().toISOString();\n\nmsg.payload = {\n  channel: b.channel || 'openwebui',\n  user_id: b.user_id || 'anonymous',\n  conversation_id: b.conversation_id || `conv-${Date.now()}`,\n  message_id: b.message_id || `msg-${Date.now()}`,\n  text: (b.text || '').trim(),\n  attachments: Array.isArray(b.attachments) ? b.attachments : [],\n  timestamp: b.timestamp || now,\n  reply_policy: b.reply_policy || 'same_channel',\n  meta: b.meta || {}\n};\n\nmsg.req_id = `${msg.payload.conversation_id}:${msg.payload.message_id}`;\nmsg.jarvis = msg.jarvis || {};\nmsg.jarvis.started_at = now;\nmsg.jarvis.intent = null;\nmsg.jarvis.tool = null;\nmsg.jarvis.route = null;\nmsg.jarvis.debug = true;\nmsg.jarvis_trace = [];\n\nmsg.jarvis_trace.push({\n  step: 'normalize',\n  time: now,\n  text: msg.payload.text,\n  channel: msg.payload.channel,\n  user_id: msg.payload.user_id\n});\n\nnode.status({fill:'blue', shape:'dot', text:'reçu'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 420,
+        "y": 80,
+        "wires": [
+            [
+                "dbg_payload_in",
+                "fn_detect_intent",
+                "fn_trace_compact_in"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_payload_in",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "A payload entrant",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "\"payload ok\"",
+        "statusType": "jsonata",
+        "x": 1950,
+        "y": 80,
+        "wires": []
+    },
+    {
+        "id": "fn_trace_compact_in",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "A' Debug compact entrée",
+        "func": "msg.payload = {\n  stage: 'input',\n  req_id: msg.req_id,\n  text: msg.payload.text,\n  conversation_id: msg.payload.conversation_id,\n  message_id: msg.payload.message_id\n};\nnode.status({fill:'grey', shape:'ring', text:'entrée visible'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 710,
+        "y": 140,
+        "wires": [
+            [
+                "dbg_compact_in"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_compact_in",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "A'' entrée compacte",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1950,
+        "y": 140,
+        "wires": []
+    },
+    {
+        "id": "fn_detect_intent",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "02 Detect intent",
+        "func": "const text = (msg.payload.text || '').toLowerCase();\n\nlet intent = 'unknown';\nlet tool = null;\nlet route = 'unknown';\n\nconst wantsListNpm =\n  text.includes('liste les service de npm') ||\n  text.includes('liste les services de npm') ||\n  text.includes('liste les proxy de npm') ||\n  text.includes('liste les proxys de npm') ||\n  text.includes('liste les services de nginx proxy manager') ||\n  text.includes('nginx proxy manager') ||\n  text.includes('proxy manager');\n\nconst wantsAddProxy =\n  text.includes('ajoute un proxy') ||\n  text.includes('crée un proxy') ||\n  text.includes('cree un proxy') ||\n  text.includes('nouveau proxy');\n\nconst wantsHealth =\n  text.includes('health') ||\n  text.includes('ping jarvis') ||\n  text.includes('test jarvis') ||\n  text.includes('etat jarvis') ||\n  text.includes('état jarvis');\n\nif (wantsListNpm) {\n  intent = 'npm_list_services';\n  tool = 'npm_list_services';\n  route = 'tool';\n} else if (wantsAddProxy) {\n  intent = 'npm_add_proxy';\n  tool = 'npm_add_proxy';\n  route = 'tool';\n} else if (wantsHealth) {\n  intent = 'healthcheck';\n  tool = null;\n  route = 'health';\n}\n\nmsg.intent = intent;\nmsg.tool = tool;\nmsg.jarvis.intent = intent;\nmsg.jarvis.tool = tool;\nmsg.jarvis.route = route;\n\nmsg.jarvis_trace.push({\n  step: 'detect_intent',\n  time: new Date().toISOString(),\n  text,\n  intent,\n  tool,\n  route\n});\n\nconst color = intent === 'unknown' ? 'red' : (route === 'health' ? 'blue' : 'green');\nnode.status({fill: color, shape: 'dot', text: `intent: ${intent}`});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 680,
+        "y": 260,
+        "wires": [
+            [
+                "dbg_intent",
+                "sw_route",
+                "fn_trace_compact_intent"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_intent",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "B intention détectée",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "intent",
+        "statusType": "msg",
+        "x": 1960,
+        "y": 260,
+        "wires": []
+    },
+    {
+        "id": "fn_trace_compact_intent",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "B' Debug compact intention",
+        "func": "msg.payload = {\n  stage: 'intent',\n  req_id: msg.req_id,\n  text: msg.payload.text,\n  intent: msg.intent,\n  tool: msg.tool,\n  route: msg.jarvis.route\n};\nnode.status({fill:'grey', shape:'ring', text:'intention visible'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 960,
+        "y": 200,
+        "wires": [
+            [
+                "dbg_compact_intent"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_compact_intent",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "B'' intention compacte",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1960,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "sw_route",
+        "type": "switch",
+        "z": "tab_jarvis_debug",
+        "name": "03 Route",
+        "property": "jarvis.route",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "eq",
+                "v": "tool",
+                "vt": "str"
+            },
+            {
+                "t": "eq",
+                "v": "health",
+                "vt": "str"
+            },
+            {
+                "t": "else"
+            }
+        ],
+        "checkall": "true",
+        "repair": false,
+        "outputs": 3,
+        "x": 860,
+        "y": 340,
+        "wires": [
+            [
+                "fn_prepare_tool_call"
+            ],
+            [
+                "fn_health"
+            ],
+            [
+                "fn_unknown"
+            ]
+        ]
+    },
+    {
+        "id": "fn_prepare_tool_call",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "04 Prepare tool call",
+        "func": "const base = env.get('TOOLBOX_RUNNER_URL') || 'http://toolbox_runner:8030';\n\nconst input = {\n  source_text: msg.payload.text\n};\n\nif (msg.intent === 'npm_add_proxy') {\n  input.note = 'Prévoir un parsing plus riche des domaines, upstreams et certificats';\n}\n\nmsg.url = `${base}/v1/run`;\nmsg.method = 'POST';\nmsg.headers = {'Content-Type': 'application/json'};\nmsg.payload = {\n  tool: msg.tool,\n  input,\n  context: {\n    req_id: msg.req_id,\n    conversation_id: msg.payload.conversation_id,\n    user_id: msg.payload.user_id,\n    source: msg.payload.meta?.source || 'unknown'\n  }\n};\n\nmsg.jarvis_trace.push({\n  step: 'prepare_tool_call',\n  time: new Date().toISOString(),\n  url: msg.url,\n  method: msg.method,\n  tool: msg.tool,\n  request_body: msg.payload\n});\n\nnode.status({fill:'yellow', shape:'dot', text:`appel ${msg.tool}`});\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1090,
+        "y": 320,
+        "wires": [
+            [
+                "dbg_before_tool",
+                "http_tool",
+                "fn_trace_compact_toolreq"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_before_tool",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "C avant appel outil",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "\"appel outil\"",
+        "statusType": "jsonata",
+        "x": 1950,
+        "y": 320,
+        "wires": []
+    },
+    {
+        "id": "fn_trace_compact_toolreq",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "C' Debug compact appel outil",
+        "func": "msg.payload = {\n  stage: 'tool_request',\n  req_id: msg.req_id,\n  url: msg.url,\n  tool: msg.tool,\n  body: msg.payload\n};\nnode.status({fill:'grey', shape:'ring', text:'requête outil visible'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1700,
+        "y": 380,
+        "wires": [
+            [
+                "dbg_compact_toolreq"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_compact_toolreq",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "C'' appel outil compact",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1960,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "http_tool",
+        "type": "http request",
+        "z": "tab_jarvis_debug",
+        "name": "05 Run tool",
+        "method": "use",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": true,
+        "headers": [],
+        "x": 1170,
+        "y": 400,
+        "wires": [
+            [
+                "fn_format_tool_response"
+            ]
+        ]
+    },
+    {
+        "id": "fn_format_tool_response",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "06 Format tool response",
+        "func": "const toolResult = msg.payload || {};\nconst ok = !!toolResult.ok;\n\nmsg.jarvis_trace.push({\n  step: 'tool_response',\n  time: new Date().toISOString(),\n  tool: msg.tool,\n  ok,\n  payload: toolResult\n});\n\nmsg.payload = {\n  ok,\n  message: toolResult.message || (ok ? 'Outil exécuté' : 'Outil en échec'),\n  intent: msg.intent,\n  tool: msg.tool,\n  result: toolResult,\n  debug: {\n    req_id: msg.req_id,\n    route: msg.jarvis.route,\n    toolbox_runner_url: msg.url || null\n  },\n  trace: msg.jarvis_trace\n};\n\nnode.status({fill: ok ? 'green' : 'red', shape: 'dot', text: ok ? 'outil ok' : 'outil fail'});\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1370,
+        "y": 400,
+        "wires": [
+            [
+                "dbg_final",
+                "fn_set_http_ok",
+                "fn_trace_compact_out"
+            ]
+        ]
+    },
+    {
+        "id": "fn_health",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "04bis Health response",
+        "func": "msg.jarvis_trace.push({\n  step: 'health_response',\n  time: new Date().toISOString(),\n  ok: true\n});\n\nmsg.payload = {\n  ok: true,\n  message: 'Jarvis flow opérationnel',\n  intent: 'healthcheck',\n  debug: {\n    req_id: msg.req_id,\n    route: msg.jarvis.route\n  },\n  trace: msg.jarvis_trace\n};\n\nnode.status({fill:'green', shape:'dot', text:'health ok'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1100,
+        "y": 440,
+        "wires": [
+            [
+                "dbg_final",
+                "fn_set_http_ok",
+                "fn_trace_compact_out"
+            ]
+        ]
+    },
+    {
+        "id": "fn_unknown",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "04ter Unknown response",
+        "func": "msg.jarvis_trace.push({\n  step: 'unknown',\n  time: new Date().toISOString(),\n  reason: 'intent_not_matched'\n});\n\nmsg.payload = {\n  ok: false,\n  message: 'Intention inconnue. Exemples: liste les services de npm ; ajoute un proxy ; ping jarvis',\n  intent: 'unknown',\n  debug: {\n    req_id: msg.req_id,\n    route: msg.jarvis.route,\n    received_text: msg.payload.text\n  },\n  trace: msg.jarvis_trace\n};\n\nnode.status({fill:'red', shape:'ring', text:'unknown'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1090,
+        "y": 620,
+        "wires": [
+            [
+                "dbg_final",
+                "fn_set_http_ok",
+                "fn_trace_compact_out"
+            ]
+        ]
+    },
+    {
+        "id": "fn_set_http_ok",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "07 Prepare HTTP 200",
+        "func": "msg.statusCode = 200;\nnode.status({fill:'blue', shape:'ring', text:'réponse prête'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1720,
+        "y": 620,
+        "wires": [
+            [
+                "http_resp"
+            ]
+        ]
+    },
+    {
+        "id": "fn_trace_compact_out",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "D Debug compact sortie",
+        "func": "msg.payload = {\n  stage: 'output',\n  req_id: msg.payload.debug?.req_id || msg.req_id,\n  ok: msg.payload.ok,\n  intent: msg.payload.intent,\n  tool: msg.payload.tool || null,\n  message: msg.payload.message\n};\nnode.status({fill:'grey', shape:'ring', text:'sortie visible'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1730,
+        "y": 480,
+        "wires": [
+            [
+                "dbg_compact_out"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_compact_out",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "D' sortie compacte",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "payload",
+        "targetType": "msg",
+        "x": 1950,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "dbg_final",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "D réponse finale complète",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "payload",
+        "targetType": "msg",
+        "statusVal": "\"response ready\"",
+        "statusType": "jsonata",
+        "x": 1970,
+        "y": 440,
+        "wires": []
+    },
+    {
+        "id": "http_resp",
+        "type": "http response",
+        "z": "tab_jarvis_debug",
+        "name": "HTTP Response",
+        "statusCode": "",
+        "headers": {},
+        "x": 1980,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "catch_all",
+        "type": "catch",
+        "z": "tab_jarvis_debug",
+        "name": "Catch all",
+        "scope": null,
+        "uncaught": false,
+        "x": 600,
+        "y": 720,
+        "wires": [
+            [
+                "fn_error_response"
+            ]
+        ]
+    },
+    {
+        "id": "fn_error_response",
+        "type": "function",
+        "z": "tab_jarvis_debug",
+        "name": "ERR Format error response",
+        "func": "const err = msg.error || {};\nconst source = err.source || {};\n\nmsg.statusCode = 500;\nmsg.payload = {\n  ok: false,\n  message: 'Erreur dans le flow Jarvis',\n  error: {\n    message: err.message || 'unknown error',\n    source_id: source.id || null,\n    source_name: source.name || null,\n    source_type: source.type || null\n  },\n  debug: {\n    req_id: msg.req_id || null\n  }\n};\n\nnode.status({fill:'red', shape:'dot', text:'erreur'});\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "x": 1700,
+        "y": 720,
+        "wires": [
+            [
+                "dbg_error",
+                "http_resp"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_error",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "ERR debug erreur",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": true,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "\"error\"",
+        "statusType": "jsonata",
+        "x": 1970,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "status_http_tool",
+        "type": "status",
+        "z": "tab_jarvis_debug",
+        "name": "Status Run tool",
+        "scope": [
+            "http_tool"
+        ],
+        "x": 620,
+        "y": 840,
+        "wires": [
+            [
+                "dbg_status_http_tool"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_status_http_tool",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "SYS status node http_tool",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 1970,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "complete_http_resp",
+        "type": "complete",
+        "z": "tab_jarvis_debug",
+        "name": "Complete HTTP Response",
+        "scope": [
+            "http_resp"
+        ],
+        "uncaught": false,
+        "x": 650,
+        "y": 800,
+        "wires": [
+            [
+                "dbg_complete_http_resp"
+            ]
+        ]
+    },
+    {
+        "id": "dbg_complete_http_resp",
+        "type": "debug",
+        "z": "tab_jarvis_debug",
+        "name": "SYS réponse envoyée",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 1960,
+        "y": 800,
+        "wires": []
+    },
+    {
+        "id": "inj_health",
+        "type": "inject",
+        "z": "tab_jarvis_debug",
+        "name": "TEST health",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"channel\":\"openwebui\",\"user_id\":\"demo-user\",\"conversation_id\":\"conv-health\",\"message_id\":\"msg-health\",\"text\":\"ping jarvis\",\"attachments\":[],\"reply_policy\":\"same_channel\",\"meta\":{\"source\":\"inject\"}}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 160,
+        "wires": [
+            [
+                "fn_normalize"
+            ]
+        ]
+    },
+    {
+        "id": "inj_npm_list",
+        "type": "inject",
+        "z": "tab_jarvis_debug",
+        "name": "TEST npm list",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"channel\":\"openwebui\",\"user_id\":\"demo-user\",\"conversation_id\":\"conv-test-001\",\"message_id\":\"msg-test-001\",\"text\":\"liste les services de nginx proxy manager\",\"attachments\":[],\"reply_policy\":\"same_channel\",\"meta\":{\"source\":\"inject\"}}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 200,
+        "wires": [
+            [
+                "fn_normalize"
+            ]
+        ]
+    },
+    {
+        "id": "inj_unknown",
+        "type": "inject",
+        "z": "tab_jarvis_debug",
+        "name": "TEST unknown",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"channel\":\"openwebui\",\"user_id\":\"demo-user\",\"conversation_id\":\"conv-unknown\",\"message_id\":\"msg-unknown\",\"text\":\"quelle est la météo\",\"attachments\":[],\"reply_policy\":\"same_channel\",\"meta\":{\"source\":\"inject\"}}",
+        "payloadType": "json",
+        "x": 140,
+        "y": 120,
+        "wires": [
+            [
+                "fn_normalize"
+            ]
+        ]
+    }
 ]
