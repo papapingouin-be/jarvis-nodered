@@ -25,6 +25,9 @@
     .status { margin-top: .5rem; font-size: .9rem; }
     .ok { color: #047857; }
     .err { color: #b91c1c; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: .45rem; vertical-align: middle; }
+    th { font-weight: 600; }
   </style>
 </head>
 <body>
@@ -54,7 +57,7 @@
           <select id="cfgTool"></select>
         </label>
       </div>
-      <div id="configEditor" style="margin-top:.7rem;"></div>
+      <table id="configEditor" style="margin-top:.7rem;"></table>
     </section>
   </main>
 

@@ -62,31 +62,42 @@ async function renderEditor() {
   const valuesByKey = Object.fromEntries(data.items.map((item) => [item.key, item]));
 
   if (keys.length === 0) {
-    configEditor.innerHTML = '<div class="subtle">Aucun paramètre configuré pour cet outil.</div>';
+    configEditor.innerHTML = '<tr><td class="subtle">Aucun paramètre configuré pour cet outil.</td></tr>';
     return;
   }
 
-  configEditor.innerHTML = keys.map((key) => {
+  const header = `
+    <tr>
+      <th>Clé</th>
+      <th>Valeur</th>
+      <th>Info</th>
+      <th>Action</th>
+    </tr>
+  `;
+
+  const body = keys.map((key) => {
     const existing = valuesByKey[key];
-    const hint = FIELD_HINTS[key] ? `<div class="subtle">${FIELD_HINTS[key]}</div>` : '';
-    const updated = existing?.updated_at
-      ? `<div class="subtle">Dernière sauvegarde: ${existing.updated_at}</div>`
-      : '<div class="subtle">Pas encore sauvegardé</div>';
+    const updated = existing?.updated_at ? `Sauvegardé: ${existing.updated_at}` : 'Pas encore sauvegardé';
+    const hint = FIELD_HINTS[key] ? ` · ${FIELD_HINTS[key]}` : '';
 
     return `
-      <div class="card editor-card">
-        <label>${key}
+      <tr>
+        <td><code>${key}</code></td>
+        <td>
           <input data-key="${key}" type="password" value="${existing?.value ?? ''}" placeholder="Saisir une valeur" />
-        </label>
-        ${hint}
-        ${updated}
-        <div class="row" style="margin-top:.5rem;">
-          <button data-action="save" data-key="${key}">Enregistrer</button>
-          <button class="danger" data-action="delete" data-key="${key}">Supprimer</button>
-        </div>
-      </div>
+        </td>
+        <td class="subtle">${updated}${hint}</td>
+        <td>
+          <div class="row">
+            <button data-action="save" data-key="${key}">Enregistrer</button>
+            <button class="danger" data-action="delete" data-key="${key}">Supprimer</button>
+          </div>
+        </td>
+      </tr>
     `;
   }).join('');
+
+  configEditor.innerHTML = header + body;
 }
 
 async function reloadAll() {
@@ -118,7 +129,6 @@ async function deleteKey(key) {
 }
 
 document.getElementById('reloadAll').onclick = reloadAll;
-
 toolSelect.onchange = reloadAll;
 
 configEditor.onclick = async (event) => {
