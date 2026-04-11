@@ -18,7 +18,9 @@ Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des o
   - `PROXMOX_USER`
   - `PROXMOX_WEB`
 - `npm_service`
-  - liste vide
+  - `NPM_URL`
+  - `NPM_IDENTITY`
+  - `NPM_SECRET`
 
 ## Lancer localement
 
@@ -28,6 +30,24 @@ php -S 0.0.0.0:8080
 ```
 
 Puis ouvrir `http://localhost:8080`.
+
+## Dépannage flow-test / Node-RED
+
+Si vous voyez une erreur du type `getaddrinfo EAI_AGAIN toolbox_runner`, Node-RED ne
+résout pas le host `toolbox_runner`.
+
+Vous pouvez forcer l'URL du toolbox runner depuis le payload entrant, par exemple:
+
+```json
+{
+  "meta": {
+    "source": "config-web-flow-test",
+    "toolbox_runner_url": "http://localhost:8030"
+  }
+}
+```
+
+Le flow Jarvis donne priorité à `meta.toolbox_runner_url`, puis à `TOOLBOX_RUNNER_URL`.
 
 ## Base de données
 
