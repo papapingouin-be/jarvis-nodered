@@ -83,6 +83,14 @@ def _read_value(conn: sqlite3.Connection, namespace: str, key: str) -> str | Non
     return str(row["value"])
 
 
+def _read_value_first(conn: sqlite3.Connection, namespaces: tuple[str, ...], key: str) -> str | None:
+    for namespace in namespaces:
+        value = _read_value(conn, namespace, key)
+        if value:
+            return value
+    return None
+
+
 def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     instance = payload["instance"]
     password = instance.get("password")
@@ -159,7 +167,8 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     instance = _resolve_instance(conn, instance_name)
     if instance is None:
         fallback_keys = ("NPM_URL", "NPM_IDENTITY", "NPM_SECRET")
-        fallback_values = {key: _read_value(conn, "npm_service", key) for key in fallback_keys}
+        fallback_namespaces = ("npm_service", "npm")
+        fallback_values = {key: _read_value_first(conn, fallback_namespaces, key) for key in fallback_keys}
         missing_fallback_keys = [key for key, value in fallback_values.items() if not value]
         return {
             "instance_name": instance_name,
@@ -169,12 +178,14 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
             "instance_configured": False,
             "instance_source": None,
             "required_fallback_namespace": "npm_service",
+            "accepted_fallback_namespaces": ["npm_service", "npm"],
             "required_fallback_keys": list(fallback_keys),
             "missing_fallback_keys": missing_fallback_keys,
             "message": (
                 "No NPM instance credentials found for this instance. "
                 "Register one via `register_instance` or set fallback keys in "
-                "`sensitive_values` namespace `npm_service` (NPM_URL/NPM_IDENTITY/NPM_SECRET)."
+                "`sensitive_values` namespace `npm_service` (or legacy `npm`) "
+                "with NPM_URL/NPM_IDENTITY/NPM_SECRET."
             ),
         }
 
@@ -216,10 +227,12 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
         }
 
     # Fallback for config-web defaults: values stored by namespace `npm_service`.
+    # Also accept legacy namespace `npm` for backward compatibility.
     # This allows list_services(default) to work without a prior register_instance step.
-    base_url = _read_value(conn, "npm_service", "NPM_URL")
-    login = _read_value(conn, "npm_service", "NPM_IDENTITY")
-    password = _read_value(conn, "npm_service", "NPM_SECRET")
+    fallback_namespaces = ("npm_service", "npm")
+    base_url = _read_value_first(conn, fallback_namespaces, "NPM_URL")
+    login = _read_value_first(conn, fallback_namespaces, "NPM_IDENTITY")
+    password = _read_value_first(conn, fallback_namespaces, "NPM_SECRET")
     if base_url and login and password:
         return {
             "name": instance_name,
