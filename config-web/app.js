@@ -158,7 +158,9 @@ async function loadToolList() {
     .join('');
 
   setLabDiagnostics({
-    scanned_root: 'jarvis/toolbox/tools',
+    scanned_root: data.search_root || 'jarvis/toolbox/tools',
+    scanned_manifest_pattern: data.search_manifest_pattern || '**/manifest.json',
+    scanned_entrypoint_extension: data.search_entrypoint_extension || '.py',
     scanned_tools_count: availableTools.length,
     scanned_tools: availableTools.map((tool) => ({
       name: tool.name,
