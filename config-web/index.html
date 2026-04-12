@@ -75,6 +75,12 @@
     .contract-item { border:1px solid #2a3b62; border-radius:12px; padding:.65rem .7rem; background:#0b1324; }
     .contract-item h4 { margin:.1rem 0 .4rem; font-size:.93rem; }
     .contract-item code { font-size:.82rem; }
+    .modern-panel { border:1px solid #29406b; border-radius:14px; padding:.75rem; background:#0c162b; margin:.8rem 0; }
+    .modern-panel h4 { margin:.1rem 0 .45rem; font-size:.9rem; color:#cde0ff; }
+    .drop-zone { border:1px dashed #3f5f95; border-radius:14px; padding:.85rem; background:#0a1326; }
+    .db-active-path { margin:.45rem 0 .75rem; font-size:.85rem; color:#9ec0ff; }
+    .db-browser-actions { display:flex; gap:.5rem; flex-wrap:wrap; margin-top:.5rem; }
+    .chip { border:1px solid #2d4d7f; border-radius:999px; padding:.2rem .6rem; font-size:.78rem; color:#bed5ff; background:#0f1a32; display:inline-block; }
     @media (max-width: 1120px) {
       .shell, .split, .grid-2, .grid-3 { grid-template-columns: 1fr; }
       aside { border-right:none; border-bottom:1px solid var(--line); }
@@ -252,7 +258,11 @@
         <div class="grid-2">
           <div class="card">
             <h2>Configuration par namespace</h2>
-            <div class="small muted">Les champs ci-dessous correspondent aux clés réellement lues par les tools Python pour retrouver leur configuration en DB.</div>
+            <div class="small muted">Chaque namespace = un groupe de secrets lu par un type de tool. Clique sur <strong>Charger</strong> pour afficher les clés déjà enregistrées dans la DB active, puis modifie/ajoute les valeurs.</div>
+            <div class="modern-panel">
+              <h4>À quoi sert “Configuration par namespace / Charger” ?</h4>
+              <div class="small muted">Exemple : <span class="chip">runtime</span> contient l’URL du runner, <span class="chip">npm_service</span> contient les credentials NPM. <strong>Charger</strong> ne lance rien : il lit juste les valeurs de ce namespace dans la table <code>sensitive_values</code>.</div>
+            </div>
             <div class="row">
               <div>
                 <label>Namespace</label>
@@ -270,8 +280,9 @@
             </div>
           </div>
           <div class="card">
-            <h2>Tables SQLite</h2>
-            <div class="small muted" style="margin-bottom:.5rem;">Le dossier exploré sert à choisir un fichier DB. Quand tu sélectionnes un fichier <code>.db</code>, il met à jour automatiquement le champ <strong>Chemin DB SQLite</strong> (DB active).</div>
+            <h2>DB Manager moderne</h2>
+            <div class="db-active-path">DB active : <code id="dbActivePath">non sélectionnée</code></div>
+            <div class="small muted" style="margin-bottom:.5rem;">Une seule zone de gestion : choisir la DB active, la télécharger localement (browser), ou uploader un fichier DB depuis ton poste.</div>
             <div class="row" style="margin-bottom:.8rem;">
               <div>
                 <label>Dossier exploré</label>
@@ -280,19 +291,30 @@
               <div><button id="dbBrowseRefresh" class="secondary">Rafraîchir</button></div>
             </div>
             <div id="dbBrowseList" class="list-box" style="margin-bottom:.8rem;"></div>
-            <div class="row" style="margin-bottom:.8rem;">
-              <div>
-                <label>Importer depuis</label>
-                <input id="dbImportPath" placeholder="/workspace/backup/source.db" />
+            <div class="modern-panel">
+              <h4>Transfert navigateur ↔ serveur</h4>
+              <div class="drop-zone">
+                <label>Uploader une DB depuis le navigateur</label>
+                <input id="dbUploadFile" type="file" accept=".db,.sqlite,.sqlite3,application/x-sqlite3" />
+                <div class="db-browser-actions">
+                  <button id="dbUploadBtn" class="warn">Uploader et remplacer la DB active</button>
+                  <button id="dbDownloadBtn" class="success">Télécharger la DB active</button>
+                </div>
               </div>
-              <div><button id="dbImportBtn" class="warn">Importer DB</button></div>
             </div>
-            <div class="row" style="margin-bottom:.8rem;">
+            <div class="row" style="margin-bottom:.8rem;margin-top:.8rem;">
               <div>
-                <label>Exporter vers</label>
+                <label>Exporter vers (chemin serveur)</label>
                 <input id="dbExportPath" placeholder="/workspace/backup/export.db" />
               </div>
               <div><button id="dbExportBtn" class="success">Exporter DB</button></div>
+            </div>
+            <div class="row" style="margin-bottom:.8rem;">
+              <div>
+                <label>Importer depuis (chemin serveur)</label>
+                <input id="dbImportPath" placeholder="/workspace/backup/source.db" />
+              </div>
+              <div><button id="dbImportBtn" class="warn">Importer DB</button></div>
             </div>
             <pre id="dbTransferOutput" style="min-height:80px;">Aucun import/export.</pre>
             <div class="row">

@@ -2,10 +2,9 @@
 
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
-
 function fail(string $message, int $status = 400): never {
     http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['error' => $message], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -419,6 +418,15 @@ function resolve_target_path(string $path): string {
     return rtrim($parent, '/') . '/' . basename($absolute);
 }
 
+function parse_payload(): array {
+    $isMultipart = isset($_SERVER['CONTENT_TYPE']) && str_contains((string)$_SERVER['CONTENT_TYPE'], 'multipart/form-data');
+    if ($isMultipart) {
+        return $_POST;
+    }
+    $raw = file_get_contents('php://input') ?: '{}';
+    return json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+}
+
 function browse_paths(?string $path): array {
     $target = $path !== null && trim($path) !== '' ? trim($path) : dirname(default_db_path());
     $current = resolve_existing_path($target);
@@ -466,8 +474,8 @@ function browse_paths(?string $path): array {
 }
 
 try {
-    $payload = json_decode(file_get_contents('php://input') ?: '{}', true, flags: JSON_THROW_ON_ERROR);
-    $action = $payload['action'] ?? null;
+    $payload = parse_payload();
+    $action = $payload['action'] ?? ($_GET['action'] ?? null);
     if (!is_string($action) || $action === '') {
         fail('action manquante');
     }
@@ -482,11 +490,19 @@ try {
         'run_python_tool',
         'list_tables',
         'get_table_rows',
+        'download_db',
+        'upload_db',
     ];
+    $dbPath = isset($payload['db_path'])
+        ? (string)$payload['db_path']
+        : (isset($_GET['db_path']) ? (string)$_GET['db_path'] : null);
     $pdo = in_array($action, $actionsRequiringDb, true)
-        ? connect_db(isset($payload['db_path']) ? (string)$payload['db_path'] : null)
+        ? connect_db($dbPath)
         : null;
-    error_log('[config-web/api] action=' . $action . ' db=' . ((string)($payload['db_path'] ?? '')));
+    error_log('[config-web/api] action=' . $action . ' db=' . ((string)($dbPath ?? '')));
+    if ($action !== 'download_db') {
+        header('Content-Type: application/json; charset=utf-8');
+    }
 
     switch ($action) {
         case 'healthcheck':
@@ -708,6 +724,53 @@ try {
                 'ok' => true,
                 'source_path' => $source,
                 'target_path' => $target,
+                'size' => filesize($target) ?: 0,
+            ]);
+            break;
+
+        case 'download_db':
+            $sourcePath = $dbPath ?: default_db_path();
+            $source = resolve_existing_path($sourcePath);
+            if (!is_file($source)) {
+                fail('DB source introuvable', 404);
+            }
+            header_remove('Content-Type');
+            header('Content-Type: application/octet-stream');
+            header('Content-Disposition: attachment; filename="' . basename($source) . '"');
+            header('Content-Length: ' . ((string)(filesize($source) ?: 0)));
+            readfile($source);
+            break;
+
+        case 'upload_db':
+            if (!isset($_FILES['file']) || !is_array($_FILES['file'])) {
+                fail('fichier DB manquant');
+            }
+            $tmpPath = (string)($_FILES['file']['tmp_name'] ?? '');
+            $originalName = (string)($_FILES['file']['name'] ?? 'upload.db');
+            if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+                fail('upload invalide', 400);
+            }
+            if (!preg_match('/\.(db|sqlite|sqlite3)$/i', $originalName)) {
+                fail('extension DB attendue (.db/.sqlite/.sqlite3)', 400);
+            }
+            $target = resolve_target_path($dbPath ?: default_db_path());
+            $backupPath = null;
+            if (is_file($target)) {
+                $backupPath = $target . '.bak.' . gmdate('Ymd_His');
+                if (!copy($target, $backupPath)) {
+                    fail('échec backup DB avant upload', 500);
+                }
+            }
+            if (!move_uploaded_file($tmpPath, $target)) {
+                fail('échec remplacement DB cible', 500);
+            }
+            connect_db($target);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'ok' => true,
+                'uploaded_name' => $originalName,
+                'target_path' => $target,
+                'backup_path' => $backupPath,
                 'size' => filesize($target) ?: 0,
             ]);
             break;

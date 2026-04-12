@@ -52,6 +52,10 @@ const els = {
   dbBrowsePath: document.getElementById('dbBrowsePath'),
   dbBrowseRefresh: document.getElementById('dbBrowseRefresh'),
   dbBrowseList: document.getElementById('dbBrowseList'),
+  dbActivePath: document.getElementById('dbActivePath'),
+  dbUploadFile: document.getElementById('dbUploadFile'),
+  dbUploadBtn: document.getElementById('dbUploadBtn'),
+  dbDownloadBtn: document.getElementById('dbDownloadBtn'),
   dbImportPath: document.getElementById('dbImportPath'),
   dbImportBtn: document.getElementById('dbImportBtn'),
   dbExportPath: document.getElementById('dbExportPath'),
@@ -90,12 +94,12 @@ const DB_NAMESPACE_PRESETS = {
     { key: 'NPM_IDENTITY', value: 'admin@example.com' },
     { key: 'NPM_SECRET', value: 'change-me' },
   ],
-  npm: [
-    { key: 'NPM_URL', value: 'http://npm:81' },
-    { key: 'NPM_IDENTITY', value: 'admin@example.com' },
-    { key: 'NPM_SECRET', value: 'change-me' },
-  ],
   proxmox: [{ key: 'PROXMOX_PASSWORD', value: 'change-me' }],
+};
+
+const NAMESPACE_ALIASES = {
+  npm: 'npm_service',
+  npm_legacy: 'npm_service',
 };
 
 function loadSettings() {
@@ -132,6 +136,7 @@ function fileName(path) {
 
 function syncDbContext() {
   const dbPath = els.dbPath.value.trim();
+  els.dbActivePath.textContent = dbPath || 'non sélectionnée';
   if (!dbPath) return;
   const parent = parentPath(dbPath);
   if (els.dbBrowsePath.value.trim() !== parent) {
@@ -508,10 +513,22 @@ async function explainLastRun() {
 function loadNamespacesFromHealthcheck() {
   const namespaces = new Set(Array.isArray(state.healthcheck?.namespaces) ? state.healthcheck.namespaces : []);
   Object.keys(DB_NAMESPACE_PRESETS).forEach(ns => namespaces.add(ns));
-  const namespacesList = [...namespaces].sort();
+  const normalizedMap = new Map();
+  [...namespaces].forEach((raw) => {
+    const canonical = NAMESPACE_ALIASES[raw] || raw;
+    if (!normalizedMap.has(canonical)) normalizedMap.set(canonical, []);
+    normalizedMap.get(canonical).push(raw);
+  });
+  const namespacesList = [...normalizedMap.keys()].sort();
   if (!namespacesList.length) return;
-  const current = els.cfgNamespace.value;
-  els.cfgNamespace.innerHTML = namespacesList.map(ns => `<option value="${ns}">${ns}</option>`).join('');
+  const currentRaw = els.cfgNamespace.value;
+  const current = NAMESPACE_ALIASES[currentRaw] || currentRaw;
+  els.cfgNamespace.innerHTML = namespacesList.map((ns) => {
+    const aliases = normalizedMap.get(ns) || [];
+    const extra = aliases.filter(item => item !== ns);
+    const label = extra.length ? `${ns} (alias: ${extra.join(', ')})` : ns;
+    return `<option value="${ns}">${label}</option>`;
+  }).join('');
   if (namespacesList.includes(current)) els.cfgNamespace.value = current;
 }
 
@@ -615,6 +632,31 @@ async function importDb() {
   await refreshHealth();
   await loadTables();
   await loadNamespace();
+}
+
+async function uploadDbFromBrowser() {
+  const file = els.dbUploadFile.files?.[0];
+  if (!file) throw new Error('sélectionne un fichier DB');
+  const form = new FormData();
+  form.append('action', 'upload_db');
+  form.append('db_path', els.dbPath.value.trim());
+  form.append('file', file, file.name);
+  const res = await fetch('api.php', { method: 'POST', body: form });
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  els.dbTransferOutput.textContent = pretty(data);
+  await refreshHealth();
+  await loadTables();
+  await loadNamespace();
+}
+
+function downloadDbToBrowser() {
+  const dbPath = els.dbPath.value.trim();
+  if (!dbPath) throw new Error('db_path requis');
+  const qs = new URLSearchParams({ action: 'download_db', db_path: dbPath });
+  window.open(`api.php?${qs.toString()}`, '_blank', 'noopener');
 }
 
 async function loadSelectedTable() {
@@ -727,6 +769,14 @@ function bindEvents() {
   els.loadNamespace.onclick = () => loadNamespace();
   els.seedToolFields.onclick = () => seedNamespaceFields();
   els.dbBrowseRefresh.onclick = () => browseDbPaths(els.dbBrowsePath.value.trim() || null);
+  els.dbUploadBtn.onclick = async () => {
+    try { await uploadDbFromBrowser(); }
+    catch (e) { els.dbTransferOutput.textContent = pretty({ error: e.message || String(e) }); }
+  };
+  els.dbDownloadBtn.onclick = () => {
+    try { downloadDbToBrowser(); }
+    catch (e) { els.dbTransferOutput.textContent = pretty({ error: e.message || String(e) }); }
+  };
   els.dbImportBtn.onclick = async () => {
     try { await importDb(); }
     catch (e) { els.dbTransferOutput.textContent = pretty({ error: e.message || String(e) }); }
@@ -742,6 +792,7 @@ function bindEvents() {
 
 async function bootstrap() {
   loadSettings();
+  syncDbContext();
   bindEvents();
   initTabs();
   els.flowPayload.value = pretty(defaultFlowPayload());
