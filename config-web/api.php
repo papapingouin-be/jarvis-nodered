@@ -228,7 +228,13 @@ try {
             break;
 
         case 'list_python_tools':
-            echo json_encode(['ok' => true, 'items' => list_python_tools()]);
+            echo json_encode([
+                'ok' => true,
+                'search_root' => tools_root(),
+                'search_manifest_pattern' => '**/manifest.json',
+                'search_entrypoint_extension' => '.py',
+                'items' => list_python_tools(),
+            ]);
             break;
 
         case 'get_tool_code':
