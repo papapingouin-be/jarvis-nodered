@@ -42,6 +42,9 @@ const runNpmQuickBtn = document.getElementById('runNpmQuick');
 const refreshLabBtn = document.getElementById('refreshLab');
 const pythonToolList = document.getElementById('pythonToolList');
 const labDiagnostics = document.getElementById('labDiagnostics');
+const flowSelectedTool = document.getElementById('flowSelectedTool');
+const flowDbPath = document.getElementById('flowDbPath');
+const flowRunStatus = document.getElementById('flowRunStatus');
 const codeEditorTool = document.getElementById('codeEditorTool');
 const codeEditorPath = document.getElementById('codeEditorPath');
 const codeEditor = document.getElementById('codeEditor');
@@ -62,7 +65,17 @@ function status(msg, ok = true) {
 function dbPath() {
   const path = dbPathInput.value.trim();
   localStorage.setItem('jarvis_db_path', path);
+  updateFlowContext();
   return path;
+}
+
+function updateFlowContext(statusValue) {
+  const db = dbPathInput.value.trim();
+  flowDbPath.textContent = db || 'non défini';
+  flowSelectedTool.textContent = labToolSelect.value || '-';
+  if (statusValue) {
+    flowRunStatus.textContent = statusValue;
+  }
 }
 
 async function api(action, payload = {}) {
@@ -186,6 +199,7 @@ async function loadToolList() {
     labInput.value = '{}';
     labResult.textContent = 'Aucun fichier Python détecté.';
     codeEditorPath.textContent = 'Aucun fichier chargé';
+    updateFlowContext('aucun outil détecté');
     return;
   }
 
@@ -194,8 +208,10 @@ async function loadToolList() {
   } else {
     labInput.value = '{}';
     setLabResult({ warning: 'Aucun outil exécutable détecté via manifest.json' });
+    updateFlowContext('manifest manquant');
   }
   await loadToolCode(codeEditorTool.value || availablePythonFiles[0].path);
+  updateFlowContext('prêt');
 }
 
 function toolDefaultInput(toolName) {
@@ -208,11 +224,15 @@ function toolDefaultInput(toolName) {
 
 async function selectLabTool(toolName) {
   labToolSelect.value = toolName;
-  labInput.value = prettyJson(toolDefaultInput(toolName));
+  const defaultInput = toolDefaultInput(toolName);
+  labInput.value = prettyJson(Object.keys(defaultInput).length ? defaultInput : {
+    note: 'Aucun sample_input défini pour cet outil',
+  });
   setLabResult({
     info: 'Prêt à exécuter',
     tool: toolName,
   });
+  updateFlowContext('outil sélectionné');
 }
 
 async function runLabTool() {
@@ -232,6 +252,7 @@ async function runLabTool() {
     status: 'running',
     tool,
   });
+  updateFlowContext('en cours');
 
   const result = await api('run_python_tool', {
     tool,
@@ -239,6 +260,7 @@ async function runLabTool() {
   });
 
   setLabResult(result);
+  updateFlowContext(result?.response?.status || 'terminé');
 }
 
 async function runAllLabTools() {
@@ -253,6 +275,7 @@ async function runAllLabTools() {
     total_tools: availableTools.length,
     started_at: startedAt,
   });
+  updateFlowContext('batch en cours');
 
   for (const tool of availableTools) {
     const input = toolDefaultInput(tool.name);
@@ -287,6 +310,7 @@ async function runAllLabTools() {
   };
 
   setLabResult(summary);
+  updateFlowContext('batch terminé');
   setLabDiagnostics({
     ...readLabDiagnostics(),
     last_batch_run: summary,
@@ -365,6 +389,7 @@ async function deleteKey(key) {
 document.getElementById('reloadAll').onclick = reloadAll;
 toolSelect.onchange = reloadAll;
 labToolSelect.onchange = () => selectLabTool(labToolSelect.value);
+dbPathInput.onchange = () => updateFlowContext();
 runLabBtn.onclick = async () => {
   try {
     await runLabTool();
@@ -372,6 +397,7 @@ runLabBtn.onclick = async () => {
   } catch (e) {
     status(e.message, false);
     setLabResult({ error: e.message });
+    updateFlowContext('erreur');
   }
 };
 runAllLabBtn.onclick = async () => {
@@ -381,6 +407,7 @@ runAllLabBtn.onclick = async () => {
   } catch (e) {
     status(e.message, false);
     setLabResult({ error: e.message });
+    updateFlowContext('erreur');
   }
 };
 runNpmQuickBtn.onclick = async () => {
@@ -390,6 +417,7 @@ runNpmQuickBtn.onclick = async () => {
   } catch (e) {
     status(e.message, false);
     setLabResult({ error: e.message });
+    updateFlowContext('erreur');
   }
 };
 refreshLabBtn.onclick = reloadAll;
@@ -469,4 +497,5 @@ function initToolSelect() {
 
 initTabs();
 initToolSelect();
+updateFlowContext('initialisation');
 reloadAll();
