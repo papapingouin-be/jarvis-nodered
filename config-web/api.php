@@ -133,6 +133,7 @@ function sample_from_schema(array $schema): mixed {
 
 function list_python_tools(): array {
     $tools = [];
+    $realToolsRoot = realpath(tools_root()) ?: '';
     foreach (discover_manifest_paths(tools_root()) as $manifestPath) {
         $manifest = json_decode(file_get_contents($manifestPath) ?: '{}', true);
         if (!is_array($manifest)) {
@@ -142,10 +143,9 @@ function list_python_tools(): array {
         if (pathinfo($entrypoint, PATHINFO_EXTENSION) !== 'py') {
             continue;
         }
-        $toolName = (string)($manifest['name'] ?? basename(dirname($manifestPath)));
         $toolDir = dirname($manifestPath);
         $toolCodePath = realpath($toolDir . DIRECTORY_SEPARATOR . $entrypoint);
-        if (!$toolCodePath || !str_starts_with($toolCodePath, realpath(tools_root()) ?: '')) {
+        if (!$toolCodePath || ($realToolsRoot !== '' && !str_starts_with($toolCodePath, $realToolsRoot))) {
             continue;
         }
         $sampleInput = [];
@@ -155,9 +155,9 @@ function list_python_tools(): array {
                 $sampleInput = $sample;
             }
         }
-        $version = (string)($manifest['version'] ?? $manifest['tool_version'] ?? gmdate('Y.m.d.His', filemtime($toolCodePath) ?: time()));
+        $version = (string)($manifest['version'] ?? $manifest['tool_version'] ?? 'v0');
         $tools[] = [
-            'name' => $toolName,
+            'name' => (string)($manifest['name'] ?? basename(dirname($manifestPath))),
             'version' => $version,
             'description' => (string)($manifest['description'] ?? ''),
             'entrypoint' => $entrypoint,
@@ -254,12 +254,6 @@ function toolbox_runner_url(?PDO $pdo): string {
     return $dbUrl !== '' ? $dbUrl : $defaultUrl;
 }
 
-
-function list_namespaces(PDO $pdo): array {
-    $stmt = $pdo->query('SELECT DISTINCT namespace FROM sensitive_values ORDER BY namespace');
-    return $stmt->fetchAll();
-}
-
 function list_tables(PDO $pdo): array {
     $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
     return $stmt->fetchAll();
@@ -278,6 +272,11 @@ function get_table_rows(PDO $pdo, string $table, int $limit = 100, int $offset =
         'columns' => array_map(static fn(array $row) => $row['name'], $columns),
         'rows' => $stmt->fetchAll(),
     ];
+}
+
+function list_namespaces(PDO $pdo): array {
+    $stmt = $pdo->query("SELECT DISTINCT namespace FROM sensitive_values ORDER BY namespace");
+    return array_values(array_filter(array_map(static fn(array $r) => (string)($r['namespace'] ?? ''), $stmt->fetchAll())));
 }
 
 try {
@@ -319,14 +318,16 @@ try {
                 'tools_root_exists' => is_dir(tools_root()),
                 'tools_count' => count(list_python_tools()),
                 'python_files_count' => count(list_python_files()),
+                'tools_preview' => array_slice(list_python_tools(), 0, 20),
+                'python_files_preview' => array_slice(list_python_files(), 0, 50),
                 'tables' => list_tables($pdo),
                 'namespaces' => list_namespaces($pdo),
-                'tools_preview' => array_map(static fn(array $t) => ['name' => $t['name'], 'version' => $t['version'], 'entrypoint' => $t['entrypoint']], array_slice(list_python_tools(), 0, 20)),
                 'runner_url' => $runnerUrl,
                 'runner_health' => $runnerHealth,
                 'runner_error' => $runnerError,
             ]);
             break;
+
         case 'upsert_sensitive':
             $stmt = $pdo->prepare("INSERT INTO sensitive_values(namespace, key, value)
                 VALUES(:namespace, :key, :value)
@@ -466,10 +467,6 @@ try {
                 'http_code' => $httpCode,
                 'response' => $json,
             ]);
-            break;
-
-        case 'list_namespaces':
-            echo json_encode(['ok' => true, 'items' => list_namespaces($pdo)]);
             break;
 
         case 'list_tables':

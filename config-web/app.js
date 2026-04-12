@@ -1,3 +1,4 @@
+
 const els = {
   navButtons: [...document.querySelectorAll('.nav-btn')],
   views: [...document.querySelectorAll('.view')],
@@ -68,7 +69,7 @@ const state = {
   lastRun: null,
   runs: [],
   editorTab: 'json',
-  health: null,
+  healthcheck: null,
 };
 
 function loadSettings() {
@@ -112,27 +113,6 @@ function setBadge(el, text, type = '') {
   el.className = `badge ${type}`.trim();
 }
 
-
-function normalizeRows(items) { return Array.isArray(items) ? items : []; }
-
-function updateKpisFromHealth(data) {
-  if (!data) return;
-  els.kpiTools.textContent = Number(data.tools_count || 0);
-  els.kpiPyFiles.textContent = Number(data.python_files_count || 0);
-}
-
-function renderNamespaces(namespaces, preferred = null) {
-  const rows = normalizeRows(namespaces);
-  const current = preferred || els.cfgNamespace.value;
-  if (rows.length) {
-    els.cfgNamespace.innerHTML = rows.map(item => {
-      const ns = typeof item === 'string' ? item : item.namespace;
-      return `<option value="${ns}">${ns}</option>`;
-    }).join('');
-    if (current && [...els.cfgNamespace.options].some(opt => opt.value === current)) els.cfgNamespace.value = current;
-  }
-}
-
 async function api(action, payload = {}) {
   logUi("api request", { action, payload });
   const res = await fetch('api.php', {
@@ -140,7 +120,9 @@ async function api(action, payload = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, db_path: els.dbPath.value.trim(), ...payload }),
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!res.ok || data.error) {
     logUi("api error", { action, status: res.status, data });
     throw new Error(data.error || `HTTP ${res.status}`);
@@ -197,10 +179,7 @@ function defaultFlowPayload() {
     attachments: [],
     timestamp: new Date().toISOString(),
     reply_policy: 'same_channel',
-    meta: {
-      source: 'devlab-flow-test',
-      toolbox_runner_url: 'http://localhost:8030',
-    },
+    meta: { source: 'devlab-flow-test', toolbox_runner_url: 'http://localhost:8030' },
   };
 }
 
@@ -208,6 +187,19 @@ function switchView(name) {
   els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
   els.views.forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
   window.location.hash = name;
+}
+
+function normalizeTool(tool) {
+  if (!tool) return null;
+  const version = tool.version || tool.tool_version || tool.manifest_version || 'v0';
+  return {
+    ...tool,
+    version,
+    description: tool.description || '',
+    sample_input: tool.sample_input || {},
+    required_fields: tool.required_fields || [],
+    input_schema: tool.input_schema || {},
+  };
 }
 
 function renderBuilder(tool) {
@@ -222,9 +214,7 @@ function renderBuilder(tool) {
     return `<div style="margin-bottom:.65rem;"><label>${label}</label><input data-builder-key="${key}" data-builder-type="${meta?.type || 'string'}" value="${(meta?.enum?.[0] ?? meta?.default ?? '')}" type="${type}" /></div>`;
   }).join('');
   els.builderWrap.innerHTML = `<div class="small muted" style="margin-bottom:.6rem;">Builder rapide basé sur le manifest.</div>${html}`;
-  [...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(input => {
-    input.addEventListener('input', builderToJson);
-  });
+  [...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(input => input.addEventListener('input', builderToJson));
 }
 
 function builderToJson() {
@@ -245,16 +235,16 @@ function renderToolList() {
   const tools = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || (t.description || '').toLowerCase().includes(filter));
   els.toolList.innerHTML = tools.map(tool => `
     <button class="tool-item ${state.currentTool?.name === tool.name ? 'active' : ''}" data-tool-name="${tool.name}">
-      <div class="status-line"><strong>${tool.name}</strong><span class="badge" title="Version du tool selon le manifest ou la date du fichier">v${tool.version || '?'}</span></div>
+      <div class="status-line"><strong>${tool.name}</strong><span class="badge">${tool.version}</span></div>
       <div class="small muted">${tool.description || 'sans description'}</div>
-      <div class="small muted">${tool.entrypoint}</div>
+      <div class="small muted">${tool.entrypoint || ''}</div>
     </button>
   `).join('') || '<div class="muted">Aucun outil.</div>';
   [...els.toolList.querySelectorAll('[data-tool-name]')].forEach(btn => btn.onclick = () => selectTool(btn.dataset.toolName));
 }
 
 function renderToolSelect() {
-  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name} · v${tool.version || '?'}</option>`).join('');
+  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name} · ${tool.version}</option>`).join('');
   if (state.currentTool) els.toolSelect.value = state.currentTool.name;
 }
 
@@ -271,7 +261,7 @@ function selectTool(toolName) {
   renderToolSelect();
   renderBuilder(tool);
   loadToolSample(tool);
-  els.toolOutput.textContent = pretty({ info: 'Tool sélectionné', tool: tool.name, required_fields: tool.required_fields });
+  els.toolOutput.textContent = pretty({ info: 'Tool sélectionné', tool: tool.name, version: tool.version, required_fields: tool.required_fields });
   els.toolDiagnostics.textContent = pretty({
     aide: 'Séquence du Tool Lab',
     etapes: [
@@ -282,7 +272,7 @@ function selectTool(toolName) {
       '5. La trace visuelle = étapes exécutées par le backend DevLab.'
     ],
     tool: tool.name,
-    version: tool.version || '?',
+    version: tool.version,
     required_fields: tool.required_fields || [],
     conseil: 'Pour forcer un backend via proxy, mets par exemple proxy:http://192.168.11.206:8090 dans URL Dev backend.'
   });
@@ -304,8 +294,10 @@ function renderTrace(trace) {
 }
 
 function renderDashboard() {
-  els.kpiTools.textContent = state.tools.length;
-  els.kpiPyFiles.textContent = state.pyFiles.length;
+  const fallbackTools = state.healthcheck?.tools_count || 0;
+  const fallbackFiles = state.healthcheck?.python_files_count || 0;
+  els.kpiTools.textContent = state.tools.length || fallbackTools;
+  els.kpiPyFiles.textContent = state.pyFiles.length || fallbackFiles;
   els.kpiRuns.textContent = state.runs.length;
   els.dashboardRuns.innerHTML = state.runs.slice(0, 6).map(run => `
     <div class="trace-step ${run.status === 'ok' ? 'ok' : 'failed'}" style="margin-bottom:.5rem;">
@@ -314,14 +306,31 @@ function renderDashboard() {
     </div>`).join('') || '<div class="muted">Aucun run enregistré.</div>';
 }
 
+function hydrateInventoryFromHealthcheck(data) {
+  if (!data) return;
+  state.healthcheck = data;
+  if ((!state.tools || state.tools.length === 0) && Array.isArray(data.tools_preview) && data.tools_preview.length) {
+    state.tools = data.tools_preview.map(normalizeTool);
+    logUi('inventory fallback note', { source: 'healthcheck.tools_preview', count: state.tools.length });
+  }
+  if ((!state.pyFiles || state.pyFiles.length === 0) && Array.isArray(data.python_files_preview) && data.python_files_preview.length) {
+    state.pyFiles = data.python_files_preview;
+    logUi('inventory fallback note', { source: 'healthcheck.python_files_preview', count: state.pyFiles.length });
+  }
+  renderToolSelect();
+  renderToolList();
+  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
+  renderCodeFiles();
+  renderDashboard();
+}
+
 async function refreshHealth() {
   const health = await settled('healthcheck', () => api('healthcheck'));
   if (health.ok) {
     const data = health.value;
-    state.health = data;
-    updateKpisFromHealth(data);
-    renderNamespaces(data.namespaces || [], els.cfgNamespace.value);
-    setBadge(els.healthDb, data.tools_root_exists ? `DB ${normalizeRows(data.tables).length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
+    state.healthcheck = data;
+    hydrateInventoryFromHealthcheck(data);
+    setBadge(els.healthDb, data.tools_root_exists ? `DB ${data.tables.length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
     if (data.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
     else if (data.runner_error) setBadge(els.healthRunner, 'Runner KO', 'err');
     else setBadge(els.healthRunner, 'Runner ?', 'warn');
@@ -345,24 +354,21 @@ async function refreshHealth() {
 async function loadInventory() {
   const toolsResult = await settled('list_python_tools', () => api('list_python_tools'));
   const filesResult = await settled('list_python_files', () => api('list_python_files'));
-  state.tools = toolsResult.ok ? normalizeRows(toolsResult.value.items) : [];
-  state.pyFiles = filesResult.ok ? normalizeRows(filesResult.value.items) : [];
-  if ((!state.tools.length || !state.pyFiles.length) && state.health) {
-    logUi('inventory fallback note', {
-      tools_from_healthcheck: state.health.tools_count,
-      py_files_from_healthcheck: state.health.python_files_count,
-      tools_api_count: state.tools.length,
-      files_api_count: state.pyFiles.length,
-      tools_root: state.health.tools_root,
-      repo_root: state.health.repo_root,
-      tools_preview: state.health.tools_preview || []
-    });
+
+  const fetchedTools = toolsResult.ok ? (toolsResult.value.items || []).map(normalizeTool) : [];
+  const fetchedFiles = filesResult.ok ? (filesResult.value.items || []) : [];
+
+  if (fetchedTools.length) state.tools = fetchedTools;
+  if (fetchedFiles.length) state.pyFiles = fetchedFiles;
+
+  hydrateInventoryFromHealthcheck(state.healthcheck);
+
+  if (!fetchedTools.length && state.healthcheck?.tools_count) {
+    logUi('inventory fallback note', { reason: 'list_python_tools empty', tools_count: state.healthcheck.tools_count });
   }
-  renderToolSelect();
-  renderToolList();
-  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
-  renderCodeFiles();
-  renderDashboard();
+  if (!fetchedFiles.length && state.healthcheck?.python_files_count) {
+    logUi('inventory fallback note', { reason: 'list_python_files empty', python_files_count: state.healthcheck.python_files_count });
+  }
 }
 
 function renderCodeFiles() {
@@ -444,12 +450,21 @@ async function explainLastRun() {
   switchView('llm');
 }
 
+function loadNamespacesFromHealthcheck() {
+  const namespaces = Array.isArray(state.healthcheck?.namespaces) ? state.healthcheck.namespaces : [];
+  if (!namespaces.length) return;
+  const current = els.cfgNamespace.value;
+  els.cfgNamespace.innerHTML = namespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
+  if (namespaces.includes(current)) els.cfgNamespace.value = current;
+}
+
 async function loadNamespace() {
+  loadNamespacesFromHealthcheck();
   const ns = els.cfgNamespace.value;
   const data = await api('list_sensitive', { namespace: ns });
-  const rows = normalizeRows(data.items);
+  const rows = data.items || [];
   if (rows.length === 0) {
-    els.sensitiveTable.innerHTML = `<tr><td colspan="3" class="muted">Aucune valeur pour <code>${ns}</code>. Vérifie le chemin DB et le namespace chargé.</td></tr>`;
+    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucune valeur dans ce namespace. Le tool peut tout de même fonctionner si ses secrets sont ailleurs ou s’il utilise des valeurs en dur/fallback.</td></tr>';
     return;
   }
   els.sensitiveTable.innerHTML = rows.map(row => `
@@ -463,16 +478,17 @@ async function loadNamespace() {
     const key = btn.dataset.saveSensitive;
     const input = els.sensitiveTable.querySelector(`[data-sensitive-key="${key}"]`);
     await api('upsert_sensitive', { namespace: ns, key, value: input.value });
+    await refreshHealth();
     await loadNamespace();
   });
 }
 
 async function loadTables() {
-  const result = await settled('list_tables', () => api('list_tables'));
-  const items = result.ok ? normalizeRows(result.value.items) : normalizeRows(state.health?.tables);
+  const data = await api('list_tables');
+  const items = data.items || [];
   els.dbTableSelect.innerHTML = items.map(item => `<option value="${item.name}">${item.name}</option>`).join('');
   if (!items.length) {
-    els.dbTableWrap.innerHTML = '<div class="muted">Aucune table détectée. Vérifie le chemin DB.</div>';
+    els.dbTableWrap.innerHTML = '<div class="muted">Aucune table détectée.</div>';
     return;
   }
   await loadSelectedTable();
@@ -492,9 +508,8 @@ function escapeHtml(value) {
 }
 
 async function loadRuns() {
-  const result = await settled('runs.list', () => devApi('/runs/list', { db_path: els.dbPath.value.trim(), limit: 100, offset: 0 }));
-  const data = result.ok ? result.value : { items: [] };
-  state.runs = normalizeRows(data.items);
+  const data = await devApi('/runs/list', { db_path: els.dbPath.value.trim(), limit: 100, offset: 0 });
+  state.runs = data.items || [];
   els.runsList.innerHTML = state.runs.map(run => `
     <button class="tool-item" data-run-id="${run.run_id}">
       <div class="status-line"><strong>${run.tool_name}</strong><span class="badge">${run.mode}</span><span class="badge ${run.status === 'ok' ? 'ok' : 'err'}">${run.status}</span></div>
@@ -529,7 +544,8 @@ function initTabs() {
     els.builderWrap.style.display = state.editorTab === 'builder' ? 'block' : 'none';
     els.toolInput.style.display = state.editorTab === 'json' ? 'block' : 'none';
   });
-  els.builderWrap.style.display = 'none';
+  els.builderWrap.style.display = 'block';
+  els.toolInput.style.display = 'none';
 }
 
 function bindEvents() {
@@ -559,9 +575,7 @@ function bindEvents() {
   };
   els.quickFlow.onclick = () => switchView('flow');
   els.flowReset.onclick = () => { els.flowPayload.value = pretty(defaultFlowPayload()); };
-  els.flowSend.onclick = async () => {
-    try { await sendFlow(); } catch (e) { els.flowResponse.textContent = pretty({ error: e.message }); }
-  };
+  els.flowSend.onclick = async () => { try { await sendFlow(); } catch (e) { els.flowResponse.textContent = pretty({ error: e.message }); } };
   els.loadCodeBtn.onclick = () => loadCode();
   els.lintCodeBtn.onclick = () => lintCode();
   els.saveCodeBtn.onclick = () => saveCode();
