@@ -50,6 +50,7 @@ const saveCodeBtn = document.getElementById('saveCode');
 const openNpmCodeBtn = document.getElementById('openNpmCode');
 
 let availableTools = [];
+let availablePythonFiles = [];
 
 dbPathInput.value = localStorage.getItem('jarvis_db_path') || '';
 
@@ -143,43 +144,58 @@ function readLabDiagnostics() {
 }
 
 async function loadToolList() {
-  const data = await api('list_python_tools');
-  availableTools = data.items || [];
+  const [toolsData, filesData] = await Promise.all([
+    api('list_python_tools'),
+    api('list_python_files'),
+  ]);
+  availableTools = toolsData.items || [];
+  availablePythonFiles = filesData.items || [];
 
-  const options = availableTools
+  const toolOptions = availableTools
     .map((tool) => `<option value="${tool.name}">${tool.name}</option>`)
     .join('');
+  const fileOptions = availablePythonFiles
+    .map((file) => `<option value="${file.path}">${file.path}</option>`)
+    .join('');
 
-  labToolSelect.innerHTML = options;
-  codeEditorTool.innerHTML = options;
+  labToolSelect.innerHTML = toolOptions;
+  codeEditorTool.innerHTML = fileOptions;
 
-  pythonToolList.innerHTML = availableTools
-    .map((tool) => `<li><code>${tool.name}</code> · <span class="subtle">${tool.entrypoint}</span></li>`)
+  pythonToolList.innerHTML = availablePythonFiles
+    .map((file) => `<li><code>${file.path}</code> · <span class="subtle">${file.manifest_exists ? 'manifest OK' : 'sans manifest'} · ${file.size} octets</span></li>`)
     .join('');
 
   setLabDiagnostics({
-    scanned_root: data.search_root || 'jarvis/toolbox/tools',
-    scanned_manifest_pattern: data.search_manifest_pattern || '**/manifest.json',
-    scanned_entrypoint_extension: data.search_entrypoint_extension || '.py',
-    scanned_tools_count: availableTools.length,
+    scanned_root: filesData.search_root || 'jarvis/toolbox/tools',
+    scanned_python_pattern: filesData.search_python_pattern || '**/*.py',
+    scanned_manifest_pattern: toolsData.search_manifest_pattern || '**/manifest.json',
+    scanned_entrypoint_extension: toolsData.search_entrypoint_extension || '.py',
+    scanned_python_files_count: availablePythonFiles.length,
+    scanned_tool_runnables_count: availableTools.length,
+    scanned_python_files: availablePythonFiles,
     scanned_tools: availableTools.map((tool) => ({
       name: tool.name,
       entrypoint: tool.entrypoint,
       manifest_path: tool.manifest_path,
       code_path: tool.code_path,
     })),
-    note: 'Liste détectée automatiquement depuis les manifest.json (pas de liste codée en dur).',
+    note: 'Les fichiers .py sont listés même sans manifest. Seuls les outils avec manifest+entrypoint sont exécutables.',
   });
 
-  if (availableTools.length === 0) {
+  if (availablePythonFiles.length === 0) {
     labInput.value = '{}';
-    labResult.textContent = 'Aucun outil Python détecté.';
+    labResult.textContent = 'Aucun fichier Python détecté.';
     codeEditorPath.textContent = 'Aucun fichier chargé';
     return;
   }
 
-  await selectLabTool(labToolSelect.value || availableTools[0].name);
-  await loadToolCode(codeEditorTool.value || availableTools[0].name);
+  if (availableTools.length > 0) {
+    await selectLabTool(labToolSelect.value || availableTools[0].name);
+  } else {
+    labInput.value = '{}';
+    setLabResult({ warning: 'Aucun outil exécutable détecté via manifest.json' });
+  }
+  await loadToolCode(codeEditorTool.value || availablePythonFiles[0].path);
 }
 
 function toolDefaultInput(toolName) {
@@ -202,7 +218,7 @@ async function selectLabTool(toolName) {
 async function runLabTool() {
   const tool = labToolSelect.value;
   if (!tool) {
-    throw new Error('Aucun outil sélectionné');
+    throw new Error('Aucun outil exécutable sélectionné. Vérifiez les manifest.json.');
   }
 
   let input;
@@ -296,24 +312,24 @@ async function loadToolCode(toolName) {
     return;
   }
   codeEditorTool.value = toolName;
-  const data = await api('get_tool_code', { tool: toolName });
+  const data = await api('get_python_file', { path: toolName });
   codeEditor.value = data.code;
   codeEditorPath.textContent = data.path;
 }
 
 async function saveToolCode() {
-  const tool = codeEditorTool.value;
-  if (!tool) {
+  const path = codeEditorTool.value;
+  if (!path) {
     throw new Error('Aucun outil sélectionné pour sauvegarde');
   }
 
-  const data = await api('save_tool_code', {
-    tool,
+  const data = await api('save_python_file', {
+    path,
     code: codeEditor.value,
   });
 
   codeEditorPath.textContent = data.path;
-  status(`Code Python sauvegardé pour ${tool}`);
+  status(`Code Python sauvegardé: ${data.path}`);
   await loadToolList();
 }
 
@@ -394,11 +410,11 @@ saveCodeBtn.onclick = async () => {
 };
 openNpmCodeBtn.onclick = async () => {
   try {
-    const npmTool = availableTools.find((item) => item.name === 'npm_service');
-    if (!npmTool) {
-      throw new Error("L'outil npm_service n'est pas disponible");
+    const npmFile = availablePythonFiles.find((item) => item.path.endsWith('npm_service/tool.py'));
+    if (!npmFile) {
+      throw new Error('Fichier npm_service/tool.py introuvable');
     }
-    await loadToolCode('npm_service');
+    await loadToolCode(npmFile.path);
     status('Code chargé pour npm_service');
   } catch (e) {
     status(e.message, false);
