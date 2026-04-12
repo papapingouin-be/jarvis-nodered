@@ -1,501 +1,492 @@
-const TOOL_PARAMS = {
-  runtime: [
-    'TOOLBOX_RUNNER_URL',
-  ],
-  proxmox: [
-    'PROXMOX_API_TOKEN_ID',
-    'PROXMOX_API_TOKEN_SECRET',
-    'PROXMOX_HOST',
-    'PROXMOX_PASSWORD',
-    'PROXMOX_SSH_PORT',
-    'PROXMOX_USER',
-    'PROXMOX_WEB',
-  ],
-  npm_service: [
-    'NPM_URL',
-    'NPM_IDENTITY',
-    'NPM_SECRET',
-  ],
+const els = {
+  navButtons: [...document.querySelectorAll('.nav-btn')],
+  views: [...document.querySelectorAll('.view')],
+  dbPath: document.getElementById('dbPath'),
+  flowEndpoint: document.getElementById('flowEndpoint'),
+  devBackendUrl: document.getElementById('devBackendUrl'),
+  healthDb: document.getElementById('healthDb'),
+  healthRunner: document.getElementById('healthRunner'),
+  healthDev: document.getElementById('healthDev'),
+  healthLlm: document.getElementById('healthLlm'),
+  kpiTools: document.getElementById('kpiTools'),
+  kpiPyFiles: document.getElementById('kpiPyFiles'),
+  kpiRuns: document.getElementById('kpiRuns'),
+  dashboardRuns: document.getElementById('dashboardRuns'),
+  toolList: document.getElementById('toolList'),
+  toolSelect: document.getElementById('toolSelect'),
+  toolSearch: document.getElementById('toolSearch'),
+  runMode: document.getElementById('runMode'),
+  toolInput: document.getElementById('toolInput'),
+  toolOutput: document.getElementById('toolOutput'),
+  toolDiagnostics: document.getElementById('toolDiagnostics'),
+  toolTrace: document.getElementById('toolTrace'),
+  validateInput: document.getElementById('validateInput'),
+  runTool: document.getElementById('runTool'),
+  explainRun: document.getElementById('explainRun'),
+  builderWrap: document.getElementById('builderWrap'),
+  btnLoadSample: document.getElementById('btnLoadSample'),
+  quickNpmDirect: document.getElementById('quickNpmDirect'),
+  quickNpmRunner: document.getElementById('quickNpmRunner'),
+  quickFlow: document.getElementById('quickFlow'),
+  flowPayload: document.getElementById('flowPayload'),
+  flowResponse: document.getElementById('flowResponse'),
+  flowSend: document.getElementById('flowSend'),
+  flowReset: document.getElementById('flowReset'),
+  codeFileList: document.getElementById('codeFileList'),
+  codeFileSelect: document.getElementById('codeFileSelect'),
+  codeLanguage: document.getElementById('codeLanguage'),
+  codeEditor: document.getElementById('codeEditor'),
+  loadCodeBtn: document.getElementById('loadCodeBtn'),
+  lintCodeBtn: document.getElementById('lintCodeBtn'),
+  saveCodeBtn: document.getElementById('saveCodeBtn'),
+  lintResult: document.getElementById('lintResult'),
+  codeMeta: document.getElementById('codeMeta'),
+  cfgNamespace: document.getElementById('cfgNamespace'),
+  loadNamespace: document.getElementById('loadNamespace'),
+  sensitiveTable: document.getElementById('sensitiveTable'),
+  dbTableSelect: document.getElementById('dbTableSelect'),
+  loadTableBtn: document.getElementById('loadTableBtn'),
+  dbTableWrap: document.getElementById('dbTableWrap'),
+  refreshRuns: document.getElementById('refreshRuns'),
+  runsList: document.getElementById('runsList'),
+  runDetail: document.getElementById('runDetail'),
+  llmQuestion: document.getElementById('llmQuestion'),
+  llmExplain: document.getElementById('llmExplain'),
+  llmOutput: document.getElementById('llmOutput'),
 };
 
-const TOOL_LABELS = {
-  runtime: 'runtime',
-  proxmox: 'proxmox',
-  npm_service: 'npm_service',
+const storage = {
+  dbPath: 'jarvis_db_path',
+  flowEndpoint: 'jarvis_flow_endpoint',
+  devBackendUrl: 'jarvis_dev_backend_url',
 };
 
-const FIELD_HINTS = {
-  NPM_URL: 'Format attendu: http://192.168.12.250:81/api',
-  TOOLBOX_RUNNER_URL: 'Format attendu: http://localhost:8030',
+const state = {
+  tools: [],
+  pyFiles: [],
+  currentTool: null,
+  lastRun: null,
+  runs: [],
+  editorTab: 'json',
 };
 
-const globalStatus = document.getElementById('globalStatus');
-const dbPathInput = document.getElementById('dbPath');
-const toolSelect = document.getElementById('cfgTool');
-const configEditor = document.getElementById('configEditor');
-const labToolSelect = document.getElementById('labTool');
-const labInput = document.getElementById('labInput');
-const labResult = document.getElementById('labResult');
-const runLabBtn = document.getElementById('runLab');
-const runAllLabBtn = document.getElementById('runAllLab');
-const runNpmQuickBtn = document.getElementById('runNpmQuick');
-const refreshLabBtn = document.getElementById('refreshLab');
-const pythonToolList = document.getElementById('pythonToolList');
-const labDiagnostics = document.getElementById('labDiagnostics');
-const flowSelectedTool = document.getElementById('flowSelectedTool');
-const flowDbPath = document.getElementById('flowDbPath');
-const flowRunStatus = document.getElementById('flowRunStatus');
-const codeEditorTool = document.getElementById('codeEditorTool');
-const codeEditorPath = document.getElementById('codeEditorPath');
-const codeEditor = document.getElementById('codeEditor');
-const loadCodeBtn = document.getElementById('loadCode');
-const saveCodeBtn = document.getElementById('saveCode');
-const openNpmCodeBtn = document.getElementById('openNpmCode');
-
-let availableTools = [];
-let availablePythonFiles = [];
-
-dbPathInput.value = localStorage.getItem('jarvis_db_path') || '';
-
-function status(msg, ok = true) {
-  globalStatus.className = `status ${ok ? 'ok' : 'err'}`;
-  globalStatus.textContent = msg;
+function loadSettings() {
+  els.dbPath.value = localStorage.getItem(storage.dbPath) || '';
+  els.flowEndpoint.value = localStorage.getItem(storage.flowEndpoint) || 'http://localhost:1880/jarvis/inbound';
+  els.devBackendUrl.value = localStorage.getItem(storage.devBackendUrl) || 'proxy';
 }
 
-function dbPath() {
-  const path = dbPathInput.value.trim();
-  localStorage.setItem('jarvis_db_path', path);
-  updateFlowContext();
-  return path;
+function saveSettings() {
+  localStorage.setItem(storage.dbPath, els.dbPath.value.trim());
+  localStorage.setItem(storage.flowEndpoint, els.flowEndpoint.value.trim());
+  localStorage.setItem(storage.devBackendUrl, els.devBackendUrl.value.trim());
 }
 
-function updateFlowContext(statusValue) {
-  const db = dbPathInput.value.trim();
-  flowDbPath.textContent = db || 'non défini';
-  flowSelectedTool.textContent = labToolSelect.value || '-';
-  if (statusValue) {
-    flowRunStatus.textContent = statusValue;
-  }
+function pretty(v) { return JSON.stringify(v, null, 2); }
+
+function setBadge(el, text, type = '') {
+  el.textContent = text;
+  el.className = `badge ${type}`.trim();
 }
 
 async function api(action, payload = {}) {
   const res = await fetch('api.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, db_path: dbPath(), ...payload }),
+    body: JSON.stringify({ action, db_path: els.dbPath.value.trim(), ...payload }),
   });
   const data = await res.json();
-  if (!res.ok || data.error) {
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
-async function renderEditor() {
-  const tool = toolSelect.value;
-  const keys = TOOL_PARAMS[tool] || [];
-  const data = await api('list_sensitive', { namespace: tool });
-  const valuesByKey = Object.fromEntries(data.items.map((item) => [item.key, item]));
+async function devApi(path, body = null, method = 'POST', query = null) {
+  const base = els.devBackendUrl.value.trim();
+  if (base === 'proxy' || !base) {
+    const res = await fetch('devproxy.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path, body, method, query }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+  let url = `${base.replace(/\/$/, '')}${path}`;
+  if (query) url += `?${new URLSearchParams(query).toString()}`;
+  const res = await fetch(url, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: method === 'GET' ? undefined : JSON.stringify(body || {}),
+  });
+  const data = await res.json();
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
 
-  if (keys.length === 0) {
-    configEditor.innerHTML = '<tr><td class="subtle">Aucun paramètre configuré pour cet outil.</td></tr>';
+function defaultFlowPayload() {
+  return {
+    channel: 'openwebui',
+    user_id: 'demo-user',
+    conversation_id: `conv-${Date.now()}`,
+    message_id: `msg-${Date.now()}`,
+    text: 'liste les services npm',
+    attachments: [],
+    timestamp: new Date().toISOString(),
+    reply_policy: 'same_channel',
+    meta: {
+      source: 'devlab-flow-test',
+      toolbox_runner_url: 'http://localhost:8030',
+    },
+  };
+}
+
+function switchView(name) {
+  els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
+  els.views.forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
+  window.location.hash = name;
+}
+
+function renderBuilder(tool) {
+  const schema = tool?.input_schema;
+  if (!schema || !schema.properties) {
+    els.builderWrap.innerHTML = '<div class="muted">Aucun builder disponible.</div>';
     return;
   }
-
-  const header = `
-    <tr>
-      <th>Clé</th>
-      <th>Valeur</th>
-      <th>Info</th>
-      <th>Action</th>
-    </tr>
-  `;
-
-  const body = keys.map((key) => {
-    const existing = valuesByKey[key];
-    const updated = existing?.updated_at ? `Sauvegardé: ${existing.updated_at}` : 'Pas encore sauvegardé';
-    const hint = FIELD_HINTS[key] ? ` · ${FIELD_HINTS[key]}` : '';
-
-    return `
-      <tr>
-        <td><code>${key}</code></td>
-        <td>
-          <input data-key="${key}" type="text" value="${existing?.value ?? ''}" placeholder="Saisir une valeur" />
-        </td>
-        <td class="subtle">${updated}${hint}</td>
-        <td>
-          <div class="row">
-            <button data-action="save" data-key="${key}">Enregistrer</button>
-            <button class="danger" data-action="delete" data-key="${key}">Supprimer</button>
-          </div>
-        </td>
-      </tr>
-    `;
+  const html = Object.entries(schema.properties).map(([key, meta]) => {
+    const type = meta?.type === 'integer' ? 'number' : 'text';
+    const label = `${key}${(tool.required_fields || []).includes(key) ? ' *' : ''}`;
+    return `<div style="margin-bottom:.65rem;"><label>${label}</label><input data-builder-key="${key}" data-builder-type="${meta?.type || 'string'}" value="${(meta?.enum?.[0] ?? meta?.default ?? '')}" type="${type}" /></div>`;
   }).join('');
-
-  configEditor.innerHTML = header + body;
+  els.builderWrap.innerHTML = `<div class="small muted" style="margin-bottom:.6rem;">Builder rapide basé sur le manifest.</div>${html}`;
+  [...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(input => {
+    input.addEventListener('input', builderToJson);
+  });
 }
 
-function prettyJson(value) {
-  return JSON.stringify(value, null, 2);
+function builderToJson() {
+  const out = {};
+  [...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(input => {
+    const key = input.dataset.builderKey;
+    const type = input.dataset.builderType;
+    if (input.value === '') return;
+    if (type === 'integer' || type === 'number') out[key] = Number(input.value);
+    else if (type === 'boolean') out[key] = input.value === 'true';
+    else out[key] = input.value;
+  });
+  els.toolInput.value = pretty(out);
 }
 
-function setLabResult(payload) {
-  labResult.textContent = prettyJson(payload);
+function renderToolList() {
+  const filter = els.toolSearch.value.trim().toLowerCase();
+  const tools = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || (t.description || '').toLowerCase().includes(filter));
+  els.toolList.innerHTML = tools.map(tool => `
+    <button class="tool-item ${state.currentTool?.name === tool.name ? 'active' : ''}" data-tool-name="${tool.name}">
+      <div><strong>${tool.name}</strong></div>
+      <div class="small muted">${tool.description || 'sans description'}</div>
+      <div class="small muted">${tool.entrypoint}</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun outil.</div>';
+  [...els.toolList.querySelectorAll('[data-tool-name]')].forEach(btn => btn.onclick = () => selectTool(btn.dataset.toolName));
 }
 
-function setLabDiagnostics(payload) {
-  labDiagnostics.textContent = prettyJson(payload);
+function renderToolSelect() {
+  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name}</option>`).join('');
+  if (state.currentTool) els.toolSelect.value = state.currentTool.name;
 }
 
-function readLabDiagnostics() {
+function loadToolSample(tool) {
+  const sample = tool?.sample_input && Object.keys(tool.sample_input).length ? tool.sample_input : {};
+  els.toolInput.value = pretty(sample);
+}
+
+function selectTool(toolName) {
+  const tool = state.tools.find(t => t.name === toolName);
+  if (!tool) return;
+  state.currentTool = tool;
+  renderToolList();
+  renderToolSelect();
+  renderBuilder(tool);
+  loadToolSample(tool);
+  els.toolOutput.textContent = pretty({ info: 'Tool sélectionné', tool: tool.name, required_fields: tool.required_fields });
+  els.toolDiagnostics.textContent = 'Aucun diagnostic.';
+  els.toolTrace.innerHTML = '';
+}
+
+function renderTrace(trace) {
+  if (!trace?.spans?.length) {
+    els.toolTrace.innerHTML = '<div class="muted">Pas de trace disponible.</div>';
+    return;
+  }
+  els.toolTrace.innerHTML = trace.spans.map(span => `
+    <div class="trace-step ${span.status}">
+      <div class="status-line"><strong>${span.name}</strong><span class="badge ${span.status === 'ok' ? 'ok' : span.status === 'failed' ? 'err' : 'warn'}">${span.status}</span></div>
+      <div class="small muted">${span.t0_ms ?? 0} ms → ${span.t1_ms ?? '?'} ms</div>
+      <pre>${pretty(span.data || span.error || {})}</pre>
+    </div>
+  `).join('');
+}
+
+function renderDashboard() {
+  els.kpiTools.textContent = state.tools.length;
+  els.kpiPyFiles.textContent = state.pyFiles.length;
+  els.kpiRuns.textContent = state.runs.length;
+  els.dashboardRuns.innerHTML = state.runs.slice(0, 6).map(run => `
+    <div class="trace-step ${run.status === 'ok' ? 'ok' : 'failed'}" style="margin-bottom:.5rem;">
+      <div class="status-line"><strong>${run.tool_name}</strong><span class="badge">${run.mode}</span><span class="badge ${run.status === 'ok' ? 'ok' : 'err'}">${run.status}</span></div>
+      <div class="small muted">${run.started_at} · ${run.duration_ms} ms</div>
+    </div>`).join('') || '<div class="muted">Aucun run enregistré.</div>';
+}
+
+async function refreshHealth() {
   try {
-    return JSON.parse(labDiagnostics.textContent || '{}');
+    const tables = await api('list_tables');
+    setBadge(els.healthDb, `DB ${tables.items.length} tables`, 'ok');
+  } catch (e) {
+    setBadge(els.healthDb, 'DB KO', 'err');
+  }
+  try {
+    const res = await fetch('api.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'run_python_tool', db_path: els.dbPath.value.trim(), tool: 'example_echo', input: { message: 'ping' } }),
+    });
+    const data = await res.json();
+    setBadge(els.healthRunner, data?.response?.ok ? 'Runner OK' : 'Runner ?', data?.response?.ok ? 'ok' : 'warn');
   } catch {
-    return {};
+    setBadge(els.healthRunner, 'Runner KO', 'err');
+  }
+  try {
+    const data = await devApi('/health', null, 'GET');
+    setBadge(els.healthDev, data.status === 'ok' ? 'Dev OK' : 'Dev ?', data.status === 'ok' ? 'ok' : 'warn');
+  } catch {
+    setBadge(els.healthDev, 'Dev KO', 'err');
+  }
+  try {
+    const res = await fetch((location.origin + '/services/llm_adapter/health').replace(/\/config-web$/, ''));
+    setBadge(els.healthLlm, res.ok ? 'LLM ?' : 'LLM ?');
+  } catch {
+    setBadge(els.healthLlm, 'LLM via adapter', 'warn');
   }
 }
 
-async function loadToolList() {
-  const [toolsData, filesData] = await Promise.all([
-    api('list_python_tools'),
-    api('list_python_files'),
-  ]);
-  availableTools = toolsData.items || [];
-  availablePythonFiles = filesData.items || [];
+async function loadInventory() {
+  const [toolsData, filesData] = await Promise.all([api('list_python_tools'), api('list_python_files')]);
+  state.tools = toolsData.items || [];
+  state.pyFiles = filesData.items || [];
+  renderToolSelect();
+  renderToolList();
+  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
+  renderCodeFiles();
+}
 
-  const toolOptions = availableTools
-    .map((tool) => `<option value="${tool.name}">${tool.name}</option>`)
-    .join('');
-  const fileOptions = availablePythonFiles
-    .map((file) => `<option value="${file.path}">${file.path}</option>`)
-    .join('');
-
-  labToolSelect.innerHTML = toolOptions;
-  codeEditorTool.innerHTML = fileOptions;
-
-  pythonToolList.innerHTML = availablePythonFiles
-    .map((file) => `<li><code>${file.path}</code> · <span class="subtle">${file.manifest_exists ? 'manifest OK' : 'sans manifest'} · ${file.size} octets</span></li>`)
-    .join('');
-
-  setLabDiagnostics({
-    scanned_root: filesData.search_root || 'jarvis/toolbox/tools',
-    scanned_python_pattern: filesData.search_python_pattern || '**/*.py',
-    scanned_manifest_pattern: toolsData.search_manifest_pattern || '**/manifest.json',
-    scanned_entrypoint_extension: toolsData.search_entrypoint_extension || '.py',
-    scanned_python_files_count: availablePythonFiles.length,
-    scanned_tool_runnables_count: availableTools.length,
-    scanned_python_files: availablePythonFiles,
-    scanned_tools: availableTools.map((tool) => ({
-      name: tool.name,
-      entrypoint: tool.entrypoint,
-      manifest_path: tool.manifest_path,
-      code_path: tool.code_path,
-    })),
-    note: 'Les fichiers .py sont listés même sans manifest. Seuls les outils avec manifest+entrypoint sont exécutables.',
+function renderCodeFiles() {
+  els.codeFileSelect.innerHTML = state.pyFiles.map(file => `<option value="${file.path}">${file.path}</option>`).join('');
+  els.codeFileList.innerHTML = state.pyFiles.map(file => `
+    <button class="tool-item" data-file-path="${file.path}">
+      <div><strong>${file.filename}</strong></div>
+      <div class="small muted">${file.path}</div>
+      <div class="small muted">${file.manifest_exists ? 'manifest OK' : 'sans manifest'} · ${file.size} octets</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun fichier Python.</div>';
+  [...els.codeFileList.querySelectorAll('[data-file-path]')].forEach(btn => btn.onclick = () => {
+    els.codeFileSelect.value = btn.dataset.filePath;
+    loadCode();
   });
-
-  if (availablePythonFiles.length === 0) {
-    labInput.value = '{}';
-    labResult.textContent = 'Aucun fichier Python détecté.';
-    codeEditorPath.textContent = 'Aucun fichier chargé';
-    updateFlowContext('aucun outil détecté');
-    return;
-  }
-
-  if (availableTools.length > 0) {
-    await selectLabTool(labToolSelect.value || availableTools[0].name);
-  } else {
-    labInput.value = '{}';
-    setLabResult({ warning: 'Aucun outil exécutable détecté via manifest.json' });
-    updateFlowContext('manifest manquant');
-  }
-  await loadToolCode(codeEditorTool.value || availablePythonFiles[0].path);
-  updateFlowContext('prêt');
 }
 
-function toolDefaultInput(toolName) {
-  const tool = availableTools.find((item) => item.name === toolName);
-  if (!tool) {
-    return {};
-  }
-  return tool.sample_input || {};
+async function loadCode() {
+  const path = els.codeFileSelect.value;
+  if (!path) return;
+  const data = await api('get_python_file', { path });
+  els.codeEditor.value = data.code;
+  els.codeMeta.textContent = pretty({ path: data.path, size: data.code.length, db_path: els.dbPath.value.trim() || '/tmp/jarvis_infra.db' });
 }
 
-async function selectLabTool(toolName) {
-  labToolSelect.value = toolName;
-  const defaultInput = toolDefaultInput(toolName);
-  labInput.value = prettyJson(Object.keys(defaultInput).length ? defaultInput : {
-    note: 'Aucun sample_input défini pour cet outil',
-  });
-  setLabResult({
-    info: 'Prêt à exécuter',
-    tool: toolName,
-  });
-  updateFlowContext('outil sélectionné');
+async function saveCode() {
+  const path = els.codeFileSelect.value;
+  const data = await api('save_python_file', { path, code: els.codeEditor.value });
+  els.codeMeta.textContent = pretty({ saved: true, path: data.path, length: els.codeEditor.value.length });
 }
 
-async function runLabTool() {
-  const tool = labToolSelect.value;
-  if (!tool) {
-    throw new Error('Aucun outil exécutable sélectionné. Vérifiez les manifest.json.');
-  }
+async function lintCode() {
+  const language = els.codeLanguage.value;
+  const filename = els.codeFileSelect.value ? els.codeFileSelect.value.split('/').pop() : `snippet.${language === 'python' ? 'py' : language === 'json' ? 'json' : 'js'}`;
+  const data = await devApi('/lint', { code: els.codeEditor.value, language, filename });
+  els.lintResult.textContent = pretty(data);
+}
 
+async function validateToolInput() {
+  if (!state.currentTool) return;
   let input;
-  try {
-    input = JSON.parse(labInput.value || '{}');
-  } catch (e) {
-    throw new Error(`JSON input invalide: ${e.message}`);
+  try { input = JSON.parse(els.toolInput.value || '{}'); }
+  catch (e) { els.toolDiagnostics.textContent = pretty({ valid: false, errors: [e.message] }); return; }
+  const data = await devApi('/validate', { schema: state.currentTool.input_schema || {}, payload: input });
+  els.toolDiagnostics.textContent = pretty(data);
+}
+
+async function executeTool(mode = null, quickPayload = null) {
+  if (!state.currentTool) return;
+  let input;
+  if (quickPayload) input = quickPayload;
+  else {
+    try { input = JSON.parse(els.toolInput.value || '{}'); }
+    catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message }); return; }
   }
-
-  setLabResult({
-    status: 'running',
-    tool,
-  });
-  updateFlowContext('en cours');
-
-  const result = await api('run_python_tool', {
-    tool,
+  const data = await devApi('/run', {
+    tool: state.currentTool.name,
+    mode: mode || els.runMode.value,
+    db_path: els.dbPath.value.trim(),
     input,
+    options: { timeout_s: 30, store_run: true, redaction: true },
   });
-
-  setLabResult(result);
-  updateFlowContext(result?.response?.status || 'terminé');
+  state.lastRun = data;
+  els.toolOutput.textContent = pretty(data.output);
+  els.toolDiagnostics.textContent = pretty(data.diagnostics);
+  renderTrace(data.trace);
+  await loadRuns();
+  renderDashboard();
 }
 
-async function runAllLabTools() {
-  if (availableTools.length === 0) {
-    throw new Error("Aucun outil Python détecté dans jarvis/toolbox/tools.");
-  }
-
-  const startedAt = new Date().toISOString();
-  const results = [];
-  setLabResult({
-    status: 'running_all',
-    total_tools: availableTools.length,
-    started_at: startedAt,
-  });
-  updateFlowContext('batch en cours');
-
-  for (const tool of availableTools) {
-    const input = toolDefaultInput(tool.name);
-    try {
-      const result = await api('run_python_tool', {
-        tool: tool.name,
-        input,
-      });
-      results.push({
-        tool: tool.name,
-        ok: true,
-        http_code: result.http_code,
-        response_status: result.response?.status || null,
-      });
-    } catch (e) {
-      results.push({
-        tool: tool.name,
-        ok: false,
-        error: e.message,
-      });
-    }
-  }
-
-  const summary = {
-    status: 'completed_all',
-    started_at: startedAt,
-    ended_at: new Date().toISOString(),
-    total_tools: availableTools.length,
-    ok_count: results.filter((item) => item.ok).length,
-    fail_count: results.filter((item) => !item.ok).length,
-    results,
-  };
-
-  setLabResult(summary);
-  updateFlowContext('batch terminé');
-  setLabDiagnostics({
-    ...readLabDiagnostics(),
-    last_batch_run: summary,
-  });
-}
-
-async function runQuickNpmTest() {
-  const npmTool = availableTools.find((item) => item.name === 'npm_service');
-  if (!npmTool) {
-    throw new Error(`L'outil npm_service n'est pas disponible. Outils détectés: ${availableTools.map((tool) => tool.name).join(', ') || 'aucun'}. Cliquez d'abord sur "Rafraîchir la liste".`);
-  }
-
-  labToolSelect.value = 'npm_service';
-  const quickInput = {
-    operation: 'list_services',
-  };
-  labInput.value = prettyJson(quickInput);
-  await runLabTool();
-}
-
-async function loadToolCode(toolName) {
-  if (!toolName) {
+async function explainLastRun() {
+  if (!state.lastRun) {
+    els.llmOutput.textContent = 'Aucun run disponible.';
     return;
   }
-  codeEditorTool.value = toolName;
-  const data = await api('get_python_file', { path: toolName });
-  codeEditor.value = data.code;
-  codeEditorPath.textContent = data.path;
+  const data = await devApi('/llm/explain', { run: state.lastRun, trace: state.lastRun.trace, question: els.llmQuestion.value.trim() || undefined });
+  els.llmOutput.textContent = pretty(data);
+  els.toolDiagnostics.textContent = pretty(data);
+  switchView('llm');
 }
 
-async function saveToolCode() {
-  const path = codeEditorTool.value;
-  if (!path) {
-    throw new Error('Aucun outil sélectionné pour sauvegarde');
-  }
-
-  const data = await api('save_python_file', {
-    path,
-    code: codeEditor.value,
-  });
-
-  codeEditorPath.textContent = data.path;
-  status(`Code Python sauvegardé: ${data.path}`);
-  await loadToolList();
-}
-
-async function reloadAll() {
-  try {
-    await renderEditor();
-    await loadToolList();
-    status('Chargement OK');
-  } catch (e) {
-    status(e.message, false);
-  }
-}
-
-async function saveKey(key) {
-  const input = configEditor.querySelector(`input[data-key="${key}"]`);
-  if (!input || input.value.trim() === '') {
-    throw new Error(`Valeur vide pour ${key}`);
-  }
-  await api('upsert_sensitive', {
-    namespace: toolSelect.value,
-    key,
-    value: input.value.trim(),
-  });
-}
-
-async function deleteKey(key) {
-  await api('delete_sensitive', {
-    namespace: toolSelect.value,
-    key,
-  });
-}
-
-document.getElementById('reloadAll').onclick = reloadAll;
-toolSelect.onchange = reloadAll;
-labToolSelect.onchange = () => selectLabTool(labToolSelect.value);
-dbPathInput.onchange = () => updateFlowContext();
-runLabBtn.onclick = async () => {
-  try {
-    await runLabTool();
-    status(`Exécution de ${labToolSelect.value} terminée`);
-  } catch (e) {
-    status(e.message, false);
-    setLabResult({ error: e.message });
-    updateFlowContext('erreur');
-  }
-};
-runAllLabBtn.onclick = async () => {
-  try {
-    await runAllLabTools();
-    status('Test global des outils terminé');
-  } catch (e) {
-    status(e.message, false);
-    setLabResult({ error: e.message });
-    updateFlowContext('erreur');
-  }
-};
-runNpmQuickBtn.onclick = async () => {
-  try {
-    await runQuickNpmTest();
-    status('Test rapide npm_service terminé');
-  } catch (e) {
-    status(e.message, false);
-    setLabResult({ error: e.message });
-    updateFlowContext('erreur');
-  }
-};
-refreshLabBtn.onclick = reloadAll;
-loadCodeBtn.onclick = async () => {
-  try {
-    await loadToolCode(codeEditorTool.value);
-    status(`Code chargé pour ${codeEditorTool.value}`);
-  } catch (e) {
-    status(e.message, false);
-  }
-};
-saveCodeBtn.onclick = async () => {
-  try {
-    await saveToolCode();
-  } catch (e) {
-    status(e.message, false);
-  }
-};
-openNpmCodeBtn.onclick = async () => {
-  try {
-    const npmFile = availablePythonFiles.find((item) => item.path.endsWith('npm_service/tool.py'));
-    if (!npmFile) {
-      throw new Error('Fichier npm_service/tool.py introuvable');
-    }
-    await loadToolCode(npmFile.path);
-    status('Code chargé pour npm_service');
-  } catch (e) {
-    status(e.message, false);
-  }
-};
-
-configEditor.onclick = async (event) => {
-  const target = event.target;
-  if (!(target instanceof HTMLElement)) {
+async function loadNamespace() {
+  const ns = els.cfgNamespace.value;
+  const data = await api('list_sensitive', { namespace: ns });
+  const rows = data.items || [];
+  if (rows.length === 0) {
+    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucune valeur.</td></tr>';
     return;
   }
-  const action = target.dataset.action;
-  const key = target.dataset.key;
-  if (!action || !key) {
-    return;
-  }
+  els.sensitiveTable.innerHTML = rows.map(row => `
+    <tr>
+      <td><code>${row.key}</code></td>
+      <td><input data-sensitive-key="${row.key}" value="${String(row.value).replace(/"/g, '&quot;')}" /></td>
+      <td><button class="secondary" data-save-sensitive="${row.key}">Save</button></td>
+    </tr>
+  `).join('');
+  [...els.sensitiveTable.querySelectorAll('[data-save-sensitive]')].forEach(btn => btn.onclick = async () => {
+    const key = btn.dataset.saveSensitive;
+    const input = els.sensitiveTable.querySelector(`[data-sensitive-key="${key}"]`);
+    await api('upsert_sensitive', { namespace: ns, key, value: input.value });
+    await loadNamespace();
+  });
+}
 
-  try {
-    if (action === 'save') {
-      await saveKey(key);
-      status(`${key} enregistré`);
-    }
-    if (action === 'delete') {
-      await deleteKey(key);
-      status(`${key} supprimé (si existant)`);
-    }
-    await renderEditor();
-  } catch (e) {
-    status(e.message, false);
-  }
-};
+async function loadTables() {
+  const data = await api('list_tables');
+  els.dbTableSelect.innerHTML = (data.items || []).map(item => `<option value="${item.name}">${item.name}</option>`).join('');
+}
 
+async function loadSelectedTable() {
+  const table = els.dbTableSelect.value;
+  if (!table) return;
+  const data = await api('get_table_rows', { table, limit: 100, offset: 0 });
+  const head = `<tr>${data.columns.map(col => `<th>${col}</th>`).join('')}</tr>`;
+  const body = data.rows.map(row => `<tr>${data.columns.map(col => `<td>${escapeHtml(String(row[col] ?? ''))}</td>`).join('')}</tr>`).join('');
+  els.dbTableWrap.innerHTML = `<table><thead>${head}</thead><tbody>${body || `<tr><td colspan="${data.columns.length}">Aucune ligne.</td></tr>`}</tbody></table>`;
+}
+
+function escapeHtml(value) {
+  return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function loadRuns() {
+  const data = await devApi('/runs/list', { db_path: els.dbPath.value.trim(), limit: 100, offset: 0 });
+  state.runs = data.items || [];
+  els.runsList.innerHTML = state.runs.map(run => `
+    <button class="tool-item" data-run-id="${run.run_id}">
+      <div class="status-line"><strong>${run.tool_name}</strong><span class="badge">${run.mode}</span><span class="badge ${run.status === 'ok' ? 'ok' : 'err'}">${run.status}</span></div>
+      <div class="small muted">${run.started_at} · ${run.duration_ms} ms</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun run.</div>';
+  [...els.runsList.querySelectorAll('[data-run-id]')].forEach(btn => btn.onclick = async () => {
+    const data = await devApi(`/runs/${btn.dataset.runId}`, null, 'GET', { db_path: els.dbPath.value.trim() });
+    els.runDetail.textContent = pretty(data.item);
+  });
+}
+
+async function sendFlow() {
+  const endpoint = els.flowEndpoint.value.trim();
+  if (!endpoint) throw new Error('Endpoint Node-RED requis');
+  const payload = JSON.parse(els.flowPayload.value || '{}');
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const contentType = res.headers.get('content-type') || '';
+  const body = contentType.includes('application/json') ? await res.json() : await res.text();
+  els.flowResponse.textContent = typeof body === 'string' ? body : pretty(body);
+}
 
 function initTabs() {
-  const buttons = document.querySelectorAll('.tab-btn');
-  const panels = document.querySelectorAll('.tab-panel');
-
-  buttons.forEach((btn) => {
-    btn.onclick = () => {
-      const target = btn.dataset.tab;
-      buttons.forEach((b) => b.classList.toggle('active', b === btn));
-      panels.forEach((panel) => panel.classList.toggle('active', panel.id === target));
-    };
+  const tabButtons = [...document.querySelectorAll('[data-editor-tab]')];
+  tabButtons.forEach(btn => btn.onclick = () => {
+    state.editorTab = btn.dataset.editorTab;
+    tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+    els.builderWrap.style.display = state.editorTab === 'builder' ? 'block' : 'none';
+    els.toolInput.style.display = state.editorTab === 'json' ? 'block' : 'none';
   });
+  els.builderWrap.style.display = 'none';
 }
 
-function initToolSelect() {
-  toolSelect.innerHTML = Object.keys(TOOL_PARAMS)
-    .map((tool) => `<option value="${tool}">${TOOL_LABELS[tool] || tool}</option>`)
-    .join('');
+function bindEvents() {
+  els.navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
+  els.dbPath.addEventListener('change', saveSettings);
+  els.flowEndpoint.addEventListener('change', saveSettings);
+  els.devBackendUrl.addEventListener('change', saveSettings);
+  els.toolSearch.addEventListener('input', renderToolList);
+  els.toolSelect.addEventListener('change', () => selectTool(els.toolSelect.value));
+  els.btnLoadSample.onclick = () => { if (state.currentTool) loadToolSample(state.currentTool); };
+  els.validateInput.onclick = validateToolInput;
+  els.runTool.onclick = () => executeTool();
+  els.explainRun.onclick = explainLastRun;
+  els.quickNpmDirect.onclick = async () => {
+    if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
+    await executeTool('direct', { operation: 'list_services', instance_name: 'default' });
+    switchView('tools');
+  };
+  els.quickNpmRunner.onclick = async () => {
+    if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
+    await executeTool('runner', { operation: 'list_services', instance_name: 'default' });
+    switchView('tools');
+  };
+  els.quickFlow.onclick = () => switchView('flow');
+  els.flowReset.onclick = () => { els.flowPayload.value = pretty(defaultFlowPayload()); };
+  els.flowSend.onclick = async () => {
+    try { await sendFlow(); } catch (e) { els.flowResponse.textContent = pretty({ error: e.message }); }
+  };
+  els.loadCodeBtn.onclick = () => loadCode();
+  els.lintCodeBtn.onclick = () => lintCode();
+  els.saveCodeBtn.onclick = () => saveCode();
+  els.loadNamespace.onclick = () => loadNamespace();
+  els.loadTableBtn.onclick = () => loadSelectedTable();
+  els.refreshRuns.onclick = () => loadRuns();
+  els.llmExplain.onclick = explainLastRun;
 }
 
-initTabs();
-initToolSelect();
-updateFlowContext('initialisation');
-reloadAll();
+async function bootstrap() {
+  loadSettings();
+  bindEvents();
+  initTabs();
+  els.flowPayload.value = pretty(defaultFlowPayload());
+  await Promise.all([refreshHealth(), loadInventory(), loadTables(), loadNamespace(), loadRuns()]);
+  renderDashboard();
+  const hash = location.hash.replace('#', '');
+  if (hash) switchView(hash);
+  if (els.codeFileSelect.value) await loadCode();
+}
+
+bootstrap().catch(err => {
+  console.error(err);
+  els.toolOutput.textContent = pretty({ error: err.message });
+});

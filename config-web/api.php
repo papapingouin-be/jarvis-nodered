@@ -53,14 +53,14 @@ function tools_root(): string {
 
 function discover_manifest_paths(string $root): array {
     $paths = [];
+    if (!is_dir($root)) {
+        return [];
+    }
     $iter = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
     );
     foreach ($iter as $fileInfo) {
-        if (!$fileInfo instanceof SplFileInfo) {
-            continue;
-        }
-        if (!$fileInfo->isFile()) {
+        if (!$fileInfo instanceof SplFileInfo || !$fileInfo->isFile()) {
             continue;
         }
         if ($fileInfo->getFilename() !== 'manifest.json') {
@@ -74,14 +74,14 @@ function discover_manifest_paths(string $root): array {
 
 function discover_python_paths(string $root): array {
     $paths = [];
+    if (!is_dir($root)) {
+        return [];
+    }
     $iter = new RecursiveIteratorIterator(
         new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
     );
     foreach ($iter as $fileInfo) {
-        if (!$fileInfo instanceof SplFileInfo) {
-            continue;
-        }
-        if (!$fileInfo->isFile()) {
+        if (!$fileInfo instanceof SplFileInfo || !$fileInfo->isFile()) {
             continue;
         }
         if ($fileInfo->getExtension() !== 'py') {
@@ -108,7 +108,6 @@ function sample_from_schema(array $schema): mixed {
         if (!is_array($properties)) {
             return new stdClass();
         }
-
         foreach ($properties as $name => $childSchema) {
             if (!is_string($name) || !is_array($childSchema)) {
                 continue;
@@ -134,26 +133,21 @@ function sample_from_schema(array $schema): mixed {
 
 function list_python_tools(): array {
     $tools = [];
-    $manifestPaths = discover_manifest_paths(tools_root());
-
-    foreach ($manifestPaths as $manifestPath) {
+    foreach (discover_manifest_paths(tools_root()) as $manifestPath) {
         $manifest = json_decode(file_get_contents($manifestPath) ?: '{}', true);
         if (!is_array($manifest)) {
             continue;
         }
-
         $entrypoint = (string)($manifest['entrypoint'] ?? 'tool.py');
         if (pathinfo($entrypoint, PATHINFO_EXTENSION) !== 'py') {
             continue;
         }
-
         $toolName = (string)($manifest['name'] ?? basename(dirname($manifestPath)));
         $toolDir = dirname($manifestPath);
         $toolCodePath = realpath($toolDir . DIRECTORY_SEPARATOR . $entrypoint);
-        if (!$toolCodePath || !str_starts_with($toolCodePath, realpath(tools_root()))) {
+        if (!$toolCodePath || !str_starts_with($toolCodePath, realpath(tools_root()) ?: '')) {
             continue;
         }
-
         $sampleInput = [];
         if (isset($manifest['input_schema']) && is_array($manifest['input_schema'])) {
             $sample = sample_from_schema($manifest['input_schema']);
@@ -161,17 +155,19 @@ function list_python_tools(): array {
                 $sampleInput = $sample;
             }
         }
-
         $tools[] = [
             'name' => $toolName,
+            'description' => (string)($manifest['description'] ?? ''),
             'entrypoint' => $entrypoint,
             'manifest_path' => str_replace(repo_root() . '/', '', $manifestPath),
             'code_path' => str_replace(repo_root() . '/', '', $toolCodePath),
             'sample_input' => $sampleInput,
             'required_fields' => $manifest['input_schema']['required'] ?? [],
+            'input_schema' => $manifest['input_schema'] ?? new stdClass(),
+            'output_schema' => $manifest['output_schema'] ?? new stdClass(),
+            'action_types' => $manifest['action_types'] ?? [],
         ];
     }
-
     return $tools;
 }
 
@@ -182,18 +178,15 @@ function list_python_files(): array {
     if ($realRoot === false) {
         return [];
     }
-
     foreach (discover_python_paths($root) as $path) {
         $realPath = realpath($path);
         if ($realPath === false || !str_starts_with($realPath, $realRoot)) {
             continue;
         }
-
         $relativePath = str_replace(repo_root() . '/', '', $realPath);
         $toolDir = dirname($relativePath);
         $manifestPath = $toolDir . '/manifest.json';
         $manifestExists = is_file(repo_root() . '/' . $manifestPath);
-
         $files[] = [
             'path' => $relativePath,
             'tool_dir' => $toolDir,
@@ -204,7 +197,6 @@ function list_python_files(): array {
             'mtime' => gmdate('c', filemtime($realPath) ?: time()),
         ];
     }
-
     return $files;
 }
 
@@ -221,11 +213,7 @@ function read_python_file(string $relativePath): array {
     if ($code === false) {
         fail('impossible de lire le fichier Python', 500);
     }
-
-    return [
-        'path' => str_replace(repo_root() . '/', '', $absPath),
-        'code' => $code,
-    ];
+    return ['path' => str_replace(repo_root() . '/', '', $absPath), 'code' => $code];
 }
 
 function save_python_file(string $relativePath, string $code): array {
@@ -240,9 +228,7 @@ function save_python_file(string $relativePath, string $code): array {
     if (file_put_contents($absPath, $code) === false) {
         fail('impossible de sauvegarder le fichier Python', 500);
     }
-    return [
-        'path' => str_replace(repo_root() . '/', '', $absPath),
-    ];
+    return ['path' => str_replace(repo_root() . '/', '', $absPath)];
 }
 
 function find_tool(array $tools, string $name): ?array {
@@ -264,6 +250,26 @@ function toolbox_runner_url(?PDO $pdo): string {
     $row = $stmt->fetch();
     $dbUrl = is_array($row) ? (string)($row['value'] ?? '') : '';
     return $dbUrl !== '' ? $dbUrl : $defaultUrl;
+}
+
+function list_tables(PDO $pdo): array {
+    $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
+    return $stmt->fetchAll();
+}
+
+function get_table_rows(PDO $pdo, string $table, int $limit = 100, int $offset = 0): array {
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) {
+        fail('nom de table invalide', 400);
+    }
+    $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+    $stmt = $pdo->prepare('SELECT * FROM ' . $table . ' LIMIT :limit OFFSET :offset');
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
+    $stmt->execute();
+    return [
+        'columns' => array_map(static fn(array $row) => $row['name'], $columns),
+        'rows' => $stmt->fetchAll(),
+    ];
 }
 
 try {
@@ -312,10 +318,7 @@ try {
                 ':key' => as_string($payload, 'key'),
             ]);
             $item = $stmt->fetch();
-            echo json_encode([
-                'ok' => true,
-                'item' => $item !== false ? $item : null,
-            ]);
+            echo json_encode(['ok' => true, 'item' => $item !== false ? $item : null]);
             break;
 
         case 'list_python_tools':
@@ -390,7 +393,6 @@ try {
             if ($requestBody === false) {
                 fail('impossible de sérialiser la requête run_tool', 500);
             }
-
             $ch = curl_init($url);
             if ($ch === false) {
                 fail('impossible d\'initialiser cURL', 500);
@@ -402,27 +404,34 @@ try {
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_TIMEOUT => 60,
             ]);
-
             $raw = curl_exec($ch);
             $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
             $curlError = curl_error($ch);
             curl_close($ch);
-
             if ($raw === false) {
                 fail('erreur réseau toolbox_runner: ' . $curlError, 502);
             }
-
             $json = json_decode($raw, true);
             if (!is_array($json)) {
                 fail('réponse non JSON de toolbox_runner', 502);
             }
-
             echo json_encode([
                 'ok' => true,
                 'runner_url' => $runnerUrl,
                 'http_code' => $httpCode,
                 'response' => $json,
             ]);
+            break;
+
+        case 'list_tables':
+            echo json_encode(['ok' => true, 'items' => list_tables($pdo)]);
+            break;
+
+        case 'get_table_rows':
+            $table = as_string($payload, 'table');
+            $limit = isset($payload['limit']) ? max(1, min(500, (int)$payload['limit'])) : 100;
+            $offset = isset($payload['offset']) ? max(0, (int)$payload['offset']) : 0;
+            echo json_encode(['ok' => true] + get_table_rows($pdo, $table, $limit, $offset));
             break;
 
         default:
