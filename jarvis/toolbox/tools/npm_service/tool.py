@@ -13,7 +13,7 @@ ACTIONS = {"list", "add", "delete"}
 
 
 def _db_path() -> Path:
-    return Path(os.getenv("JARVIS_INFRA_DB", "/tmp/jarvis_infra.db"))
+    return Path(os.getenv("JARVIS_INFRA_DB", str(Path(__file__).resolve().parents[3] / "database" / "db.db")))
 
 
 def _connect() -> sqlite3.Connection:

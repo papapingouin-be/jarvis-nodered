@@ -22,7 +22,7 @@ function as_string(array $src, string $key, bool $required = true): ?string {
 }
 
 function connect_db(?string $requestedPath): PDO {
-    $dbPath = $requestedPath ?: (getenv('JARVIS_INFRA_DB') ?: '/tmp/jarvis_infra.db');
+    $dbPath = $requestedPath ?: (getenv('JARVIS_INFRA_DB') ?: default_db_path());
     $dir = dirname($dbPath);
     if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
         fail('impossible de créer le dossier de la DB', 500);
@@ -35,6 +35,10 @@ function connect_db(?string $requestedPath): PDO {
     ensure_infra_schema($pdo);
 
     return $pdo;
+}
+
+function default_db_path(): string {
+    return repo_root() . '/jarvis/database/db.db';
 }
 
 function ensure_infra_schema(PDO $pdo): void {
@@ -95,7 +99,7 @@ function db_contract(): array {
         'db_path_resolution' => [
             'payload.db_path',
             'env.JARVIS_INFRA_DB',
-            '/tmp/jarvis_infra.db',
+            default_db_path(),
         ],
         'tables' => [
             [

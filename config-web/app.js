@@ -409,7 +409,7 @@ async function loadCode() {
   if (!path) return;
   const data = await api('get_python_file', { path });
   els.codeEditor.value = data.code;
-  els.codeMeta.textContent = pretty({ path: data.path, size: data.code.length, db_path: els.dbPath.value.trim() || '/tmp/jarvis_infra.db' });
+  els.codeMeta.textContent = pretty({ path: data.path, size: data.code.length, db_path: els.dbPath.value.trim() || '/workspace/jarvis-nodered/jarvis/database/db.db' });
 }
 
 async function saveCode() {
