@@ -28,12 +28,13 @@ Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des o
 
 Un menu **Laboratoire outils .py** est disponible dans l'UI pour:
 
-- lister les outils Python détectés depuis `jarvis/toolbox/tools/*/manifest.json`;
+- lister **tous les fichiers `.py`** détectés sous `jarvis/toolbox/tools/**` (même sans manifest) ;
+- distinguer les fichiers "exécutables" (manifest + entrypoint Python valide) des fichiers seulement éditables ;
 - scanner le répertoire des outils et afficher un diagnostic détaillé (manifest/entrypoint) ;
 - préremplir un JSON d'input proche de l'usage réel (selon le `input_schema`);
 - exécuter l'outil via `toolbox_runner` (`POST /v1/run`) et afficher la réponse brute;
 - exécuter un test global **Tester tous les outils** qui lance chaque outil détecté automatiquement ;
-- charger/éditer/sauvegarder le fichier `tool.py` (ou l'entrypoint Python déclaré).
+- charger/éditer/sauvegarder n'importe quel fichier `.py` détecté.
 - accès direct `npm_service` avec:
   - bouton **Test rapide npm_service** (préremplit `{"operation":"list_services"}` puis exécute),
   - bouton **Ouvrir npm_service/tool.py** dans l'éditeur.

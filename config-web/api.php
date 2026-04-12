@@ -72,6 +72,27 @@ function discover_manifest_paths(string $root): array {
     return $paths;
 }
 
+function discover_python_paths(string $root): array {
+    $paths = [];
+    $iter = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iter as $fileInfo) {
+        if (!$fileInfo instanceof SplFileInfo) {
+            continue;
+        }
+        if (!$fileInfo->isFile()) {
+            continue;
+        }
+        if ($fileInfo->getExtension() !== 'py') {
+            continue;
+        }
+        $paths[] = $fileInfo->getPathname();
+    }
+    sort($paths);
+    return $paths;
+}
+
 function sample_from_schema(array $schema): mixed {
     if (array_key_exists('default', $schema)) {
         return $schema['default'];
@@ -152,6 +173,76 @@ function list_python_tools(): array {
     }
 
     return $tools;
+}
+
+function list_python_files(): array {
+    $files = [];
+    $root = tools_root();
+    $realRoot = realpath($root);
+    if ($realRoot === false) {
+        return [];
+    }
+
+    foreach (discover_python_paths($root) as $path) {
+        $realPath = realpath($path);
+        if ($realPath === false || !str_starts_with($realPath, $realRoot)) {
+            continue;
+        }
+
+        $relativePath = str_replace(repo_root() . '/', '', $realPath);
+        $toolDir = dirname($relativePath);
+        $manifestPath = $toolDir . '/manifest.json';
+        $manifestExists = is_file(repo_root() . '/' . $manifestPath);
+
+        $files[] = [
+            'path' => $relativePath,
+            'tool_dir' => $toolDir,
+            'filename' => basename($relativePath),
+            'manifest_path' => $manifestPath,
+            'manifest_exists' => $manifestExists,
+            'size' => filesize($realPath) ?: 0,
+            'mtime' => gmdate('c', filemtime($realPath) ?: time()),
+        ];
+    }
+
+    return $files;
+}
+
+function read_python_file(string $relativePath): array {
+    $absPath = realpath(repo_root() . '/' . $relativePath);
+    $realRoot = realpath(tools_root());
+    if (!$absPath || !$realRoot || !str_starts_with($absPath, $realRoot)) {
+        fail('fichier Python hors périmètre autorisé', 403);
+    }
+    if (!is_file($absPath) || pathinfo($absPath, PATHINFO_EXTENSION) !== 'py') {
+        fail('fichier Python introuvable', 404);
+    }
+    $code = file_get_contents($absPath);
+    if ($code === false) {
+        fail('impossible de lire le fichier Python', 500);
+    }
+
+    return [
+        'path' => str_replace(repo_root() . '/', '', $absPath),
+        'code' => $code,
+    ];
+}
+
+function save_python_file(string $relativePath, string $code): array {
+    $absPath = realpath(repo_root() . '/' . $relativePath);
+    $realRoot = realpath(tools_root());
+    if (!$absPath || !$realRoot || !str_starts_with($absPath, $realRoot)) {
+        fail('fichier Python hors périmètre autorisé', 403);
+    }
+    if (!is_file($absPath) || pathinfo($absPath, PATHINFO_EXTENSION) !== 'py') {
+        fail('fichier Python introuvable', 404);
+    }
+    if (file_put_contents($absPath, $code) === false) {
+        fail('impossible de sauvegarder le fichier Python', 500);
+    }
+    return [
+        'path' => str_replace(repo_root() . '/', '', $absPath),
+    ];
 }
 
 function find_tool(array $tools, string $name): ?array {
@@ -237,6 +328,15 @@ try {
             ]);
             break;
 
+        case 'list_python_files':
+            echo json_encode([
+                'ok' => true,
+                'search_root' => tools_root(),
+                'search_python_pattern' => '**/*.py',
+                'items' => list_python_files(),
+            ]);
+            break;
+
         case 'get_tool_code':
             $toolName = as_string($payload, 'tool');
             $tools = list_python_tools();
@@ -252,6 +352,11 @@ try {
             echo json_encode(['ok' => true, 'path' => $tool['code_path'], 'code' => $code]);
             break;
 
+        case 'get_python_file':
+            $path = as_string($payload, 'path');
+            echo json_encode(['ok' => true] + read_python_file($path));
+            break;
+
         case 'save_tool_code':
             $toolName = as_string($payload, 'tool');
             $code = as_string($payload, 'code');
@@ -265,6 +370,12 @@ try {
                 fail('impossible de sauvegarder le code outil', 500);
             }
             echo json_encode(['ok' => true, 'path' => $tool['code_path']]);
+            break;
+
+        case 'save_python_file':
+            $path = as_string($payload, 'path');
+            $code = as_string($payload, 'code');
+            echo json_encode(['ok' => true] + save_python_file($path, $code));
             break;
 
         case 'run_python_tool':
