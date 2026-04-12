@@ -91,6 +91,7 @@
                 <select id="labTool"></select>
               </label>
               <button id="runLab">Exécuter</button>
+              <button id="runAllLab">Tester tous les outils</button>
               <button id="runNpmQuick">Test rapide npm_service</button>
               <button id="refreshLab">Rafraîchir la liste</button>
             </div>
@@ -100,6 +101,8 @@
             <div class="subtle">Le payload envoyé est: <code>{ "tool": "...", "input": {...} }</code> sur <code>/v1/run</code>.</div>
             <h3 style="margin:.9rem 0 .4rem;">Retour de l'outil</h3>
             <pre id="labResult">Aucune exécution</pre>
+            <h3 style="margin:.9rem 0 .4rem;">Diagnostic scan + tests</h3>
+            <pre id="labDiagnostics">Aucun diagnostic</pre>
           </div>
         </div>
       </section>
