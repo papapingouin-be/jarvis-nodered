@@ -127,32 +127,40 @@ async function api(action, payload = {}) {
 }
 
 async function devApi(path, body = null, method = 'POST', query = null) {
-  const base = els.devBackendUrl.value.trim();
-  logUi("devApi request", { path, method, query, via: base === 'proxy' || !base ? 'proxy' : base });
-  if (base === 'proxy' || !base) {
+  const rawBase = els.devBackendUrl.value.trim();
+  const proxyOverride = rawBase.startsWith('proxy:') ? rawBase.slice('proxy:'.length).trim() : null;
+  const useProxy = rawBase === 'proxy' || rawBase === '' || rawBase.startsWith('proxy:');
+  logUi('devApi request', { path, method, query, via: useProxy ? 'proxy' : rawBase, proxyOverride });
+
+  if (useProxy) {
     const res = await fetch('devproxy.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, body, method, query }),
+      body: JSON.stringify({ path, body, method, query, base_url: proxyOverride || undefined }),
     });
-    const data = await res.json();
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!res.ok || data.error) {
-      logUi("devApi proxy error", { path, status: res.status, data });
-      throw new Error(data.error || `HTTP ${res.status}`);
+      logUi('devApi proxy error', { path, status: res.status, data });
+      throw new Error(data.error || text || `HTTP ${res.status}`);
     }
     return data;
   }
-  let url = `${base.replace(/\/$/, '')}${path}`;
+
+  let url = `${rawBase.replace(/\/$/, '')}${path}`;
   if (query) url += `?${new URLSearchParams(query).toString()}`;
   const res = await fetch(url, {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: method === 'GET' ? undefined : JSON.stringify(body || {}),
   });
-  const data = await res.json();
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   if (!res.ok || data.error) {
-    logUi("devApi direct error", { path, status: res.status, data });
-    throw new Error(data.error || `HTTP ${res.status}`);
+    logUi('devApi direct error', { path, status: res.status, data });
+    throw new Error(data.error || text || `HTTP ${res.status}`);
   }
   return data;
 }
@@ -242,7 +250,19 @@ function selectTool(toolName) {
   renderBuilder(tool);
   loadToolSample(tool);
   els.toolOutput.textContent = pretty({ info: 'Tool sélectionné', tool: tool.name, required_fields: tool.required_fields });
-  els.toolDiagnostics.textContent = 'Aucun diagnostic.';
+  els.toolDiagnostics.textContent = pretty({
+    aide: 'Séquence du Tool Lab',
+    etapes: [
+      '1. Le JSON de gauche = uniquement ton input manuel.',
+      '2. Les secrets et paramètres DB ne sont pas copiés automatiquement dans ce JSON, sauf si le tool le prévoit.',
+      '3. En mode direct/runner, le tool peut ensuite lire la DB lui-même.',
+      '4. La sortie = résultat final du tool.',
+      '5. La trace visuelle = étapes exécutées par le backend DevLab.'
+    ],
+    tool: tool.name,
+    required_fields: tool.required_fields || [],
+    conseil: 'Pour forcer un backend via proxy, mets par exemple proxy:http://192.168.11.206:8090 dans URL Dev backend.'
+  });
   els.toolTrace.innerHTML = '';
 }
 
@@ -476,18 +496,22 @@ function bindEvents() {
   els.toolSearch.addEventListener('input', renderToolList);
   els.toolSelect.addEventListener('change', () => selectTool(els.toolSelect.value));
   els.btnLoadSample.onclick = () => { if (state.currentTool) loadToolSample(state.currentTool); };
-  els.validateInput.onclick = validateToolInput;
-  els.runTool.onclick = () => executeTool();
-  els.explainRun.onclick = explainLastRun;
+  els.validateInput.onclick = async () => { try { await validateToolInput(); } catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message || String(e) }); logUi('validate input error', e.message || String(e)); } };
+  els.runTool.onclick = async () => { try { await executeTool(); } catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message || String(e) }); logUi('runTool error', e.message || String(e)); } };
+  els.explainRun.onclick = async () => { try { await explainLastRun(); } catch (e) { els.llmOutput.textContent = pretty({ error: e.message || String(e) }); logUi('explainRun error', e.message || String(e)); } };
   els.quickNpmDirect.onclick = async () => {
-    if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
-    await executeTool('direct', { operation: 'list_services', instance_name: 'default' });
-    switchView('tools');
+    try {
+      if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
+      await executeTool('direct', { operation: 'list_services', instance_name: 'default' });
+      switchView('tools');
+    } catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message || String(e) }); logUi('quickNpmDirect error', e.message || String(e)); }
   };
   els.quickNpmRunner.onclick = async () => {
-    if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
-    await executeTool('runner', { operation: 'list_services', instance_name: 'default' });
-    switchView('tools');
+    try {
+      if (state.tools.find(t => t.name === 'npm_service')) selectTool('npm_service');
+      await executeTool('runner', { operation: 'list_services', instance_name: 'default' });
+      switchView('tools');
+    } catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message || String(e) }); logUi('quickNpmRunner error', e.message || String(e)); }
   };
   els.quickFlow.onclick = () => switchView('flow');
   els.flowReset.onclick = () => { els.flowPayload.value = pretty(defaultFlowPayload()); };

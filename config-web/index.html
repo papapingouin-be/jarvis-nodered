@@ -107,9 +107,9 @@
       <input id="dbPath" placeholder="/tmp/jarvis_infra.db" />
       <label style="margin-top:.8rem;">Endpoint Node-RED</label>
       <input id="flowEndpoint" placeholder="http://localhost:1880/jarvis/inbound" />
-      <label style="margin-top:.8rem;">URL Dev backend</label>
-      <input id="devBackendUrl" value="proxy" />
-      <div class="footer-note" style="margin-top:.8rem;">Laisse <code>proxy</code> pour passer par <code>devproxy.php</code>.</div>
+      <label style="margin-top:.8rem;" title="proxy = passe par devproxy.php. proxy:http://IP:8090 = passe par le proxy PHP mais force cette URL backend. http://IP:8090 = appel direct navigateur vers le backend.">URL Dev backend</label>
+      <input id="devBackendUrl" value="proxy" title="Exemples : proxy | proxy:http://192.168.11.206:8090 | http://192.168.11.206:8090" />
+      <div class="footer-note" style="margin-top:.8rem;">Laisse <code>proxy</code> pour passer par <code>devproxy.php</code>. Utilise <code>proxy:http://IP:8090</code> si le nom Docker <code>devlab_backend</code> n’est pas résolu par le conteneur PHP.</div>
     </aside>
 
     <main>
@@ -151,8 +151,8 @@
                   <select id="toolSelect"></select>
                 </div>
                 <div>
-                  <label>Mode d’exécution</label>
-                  <select id="runMode">
+                  <label title="Direct = exécute le tool via le backend DevLab. Runner = passe par toolbox_runner pour tester l’intégration réelle.">Mode d’exécution</label>
+                  <select id="runMode" title="Direct = plus simple pour déboguer le tool. Runner = plus proche du comportement réel Jarvis.">
                     <option value="direct">Direct</option>
                     <option value="runner">Runner</option>
                   </select>
@@ -163,21 +163,22 @@
                 <button class="ghost" data-editor-tab="json">JSON brut</button>
                 <button class="ghost" id="btnLoadSample">Charger exemple</button>
               </div>
-              <div id="builderWrap"></div>
-              <textarea id="toolInput" spellcheck="false"></textarea>
+              <div class="small muted" style="margin:.2rem 0 .7rem;">Le JSON ci-dessous est ton <strong>input manuel</strong>. Les données de la DB ne sont pas injectées dedans automatiquement, sauf si le tool a été conçu pour ça. En général, le tool lit la DB lui-même pendant l’exécution.</div>
+              <div id="builderWrap" title="Builder rapide basé sur le manifest du tool."></div>
+              <textarea id="toolInput" spellcheck="false" title="Input manuel envoyé au tool."></textarea>
               <div class="row" style="margin-top:.8rem;">
-                <button id="validateInput" class="secondary">Valider input</button>
-                <button id="runTool">Exécuter</button>
-                <button id="explainRun" class="success">Expliquer le run</button>
+                <button id="validateInput" class="secondary" title="Valide la forme du JSON par rapport au schema du tool.">Valider input</button>
+                <button id="runTool" title="Exécute le tool avec le mode choisi ci-dessus.">Exécuter</button>
+                <button id="explainRun" class="success" title="Demande une explication LLM du dernier run.">Expliquer le run</button>
               </div>
             </div>
             <div class="grid-2">
-              <div class="card"><h3>Sortie</h3><pre id="toolOutput">Aucune exécution.</pre></div>
-              <div class="card"><h3>Diagnostics</h3><pre id="toolDiagnostics">Aucun diagnostic.</pre></div>
+              <div class="card"><h3>Sortie</h3><pre id="toolOutput" title="Résultat final renvoyé par le tool.">Aucune exécution.</pre></div>
+              <div class="card"><h3>Diagnostics</h3><div class="small muted" style="margin-bottom:.5rem;">Cette zone explique la séquence : input manuel, usage éventuel de la DB, erreurs, indices de debug et résumé du run.</div><pre id="toolDiagnostics" title="Informations de debug lisibles pour comprendre la séquence d’exécution.">Aucun diagnostic.</pre></div>
             </div>
             <div class="card">
               <h2>Trace visuelle</h2>
-              <div id="toolTrace" class="trace"></div>
+              <div id="toolTrace" class="trace" title="Chaque bloc représente une étape réellement exécutée : validation, DB, HTTP, parsing, sortie."></div>
             </div>
           </div>
         </div>
