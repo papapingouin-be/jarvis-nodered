@@ -112,6 +112,7 @@
         <input id="dbPath" placeholder="/workspace/jarvis-nodered/jarvis/database/db.db" />
         <button id="browseDbPath" class="secondary" type="button" style="max-width:140px;">Explorer</button>
       </div>
+      <div class="footer-note">Ce chemin est la DB active utilisée par le badge santé, les tools et le DB Lab.</div>
       <label style="margin-top:.8rem;">Endpoint Node-RED</label>
       <input id="flowEndpoint" placeholder="http://localhost:1880/jarvis/inbound" />
       <label style="margin-top:.8rem;" title="proxy = passe par devproxy.php. proxy:http://IP:8090 = passe par le proxy PHP mais force cette URL backend. http://IP:8090 = appel direct navigateur vers le backend.">URL Dev backend</label>
@@ -270,6 +271,7 @@
           </div>
           <div class="card">
             <h2>Tables SQLite</h2>
+            <div class="small muted" style="margin-bottom:.5rem;">Le dossier exploré sert à choisir un fichier DB. Quand tu sélectionnes un fichier <code>.db</code>, il met à jour automatiquement le champ <strong>Chemin DB SQLite</strong> (DB active).</div>
             <div class="row" style="margin-bottom:.8rem;">
               <div>
                 <label>Dossier exploré</label>

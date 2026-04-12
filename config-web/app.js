@@ -102,6 +102,9 @@ function loadSettings() {
   els.dbPath.value = localStorage.getItem(storage.dbPath) || '';
   els.flowEndpoint.value = localStorage.getItem(storage.flowEndpoint) || 'http://localhost:1880/jarvis/inbound';
   els.devBackendUrl.value = localStorage.getItem(storage.devBackendUrl) || 'proxy';
+  if (!els.dbBrowsePath.value && els.dbPath.value.trim()) {
+    els.dbBrowsePath.value = parentPath(els.dbPath.value.trim());
+  }
 }
 
 function saveSettings() {
@@ -111,6 +114,30 @@ function saveSettings() {
 }
 
 function pretty(v) { return JSON.stringify(v, null, 2); }
+
+function parentPath(path) {
+  if (!path) return '';
+  const normalized = path.replace(/\/+$/, '');
+  const idx = normalized.lastIndexOf('/');
+  if (idx <= 0) return '/';
+  return normalized.slice(0, idx);
+}
+
+function fileName(path) {
+  if (!path) return '';
+  const normalized = path.replace(/\/+$/, '');
+  const idx = normalized.lastIndexOf('/');
+  return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+}
+
+function syncDbContext() {
+  const dbPath = els.dbPath.value.trim();
+  if (!dbPath) return;
+  const parent = parentPath(dbPath);
+  if (els.dbBrowsePath.value.trim() !== parent) {
+    els.dbBrowsePath.value = parent;
+  }
+}
 
 function logUi(...args) {
   const line = `[${new Date().toISOString()}] ` + args.map(v => typeof v === 'string' ? v : pretty(v)).join(' ');
@@ -356,7 +383,8 @@ async function refreshHealth() {
     const data = health.value;
     state.healthcheck = data;
     hydrateInventoryFromHealthcheck(data);
-    setBadge(els.healthDb, data.tools_root_exists ? `DB ${data.tables.length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
+    const dbLabel = fileName(els.dbPath.value.trim()) || 'sqlite';
+    setBadge(els.healthDb, data.tools_root_exists ? `DB ${data.tables.length} tables · ${dbLabel}` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
     if (data.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
     else if (data.runner_error) setBadge(els.healthRunner, 'Runner KO', 'err');
     else setBadge(els.healthRunner, 'Runner ?', 'warn');
@@ -564,8 +592,10 @@ async function browseDbPaths(targetPath = null) {
         return;
       }
       els.dbPath.value = path;
+      syncDbContext();
       saveSettings();
-      loadTables().catch(err => logUi('loadTables after browse error', err.message || String(err)));
+      Promise.all([loadTables(), refreshHealth()])
+        .catch(err => logUi('db select refresh error', err.message || String(err)));
     };
   });
 }
@@ -659,7 +689,12 @@ function initTabs() {
 
 function bindEvents() {
   els.navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
-  els.dbPath.addEventListener('change', saveSettings);
+  els.dbPath.addEventListener('change', async () => {
+    saveSettings();
+    syncDbContext();
+    await settled('dbPath refreshHealth', () => refreshHealth());
+    await settled('dbPath loadTables', () => loadTables());
+  });
   els.browseDbPath.onclick = () => switchView('db');
   els.flowEndpoint.addEventListener('change', saveSettings);
   els.devBackendUrl.addEventListener('change', saveSettings);
