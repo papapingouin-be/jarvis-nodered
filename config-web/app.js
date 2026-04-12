@@ -37,9 +37,11 @@ const labToolSelect = document.getElementById('labTool');
 const labInput = document.getElementById('labInput');
 const labResult = document.getElementById('labResult');
 const runLabBtn = document.getElementById('runLab');
+const runAllLabBtn = document.getElementById('runAllLab');
 const runNpmQuickBtn = document.getElementById('runNpmQuick');
 const refreshLabBtn = document.getElementById('refreshLab');
 const pythonToolList = document.getElementById('pythonToolList');
+const labDiagnostics = document.getElementById('labDiagnostics');
 const codeEditorTool = document.getElementById('codeEditorTool');
 const codeEditorPath = document.getElementById('codeEditorPath');
 const codeEditor = document.getElementById('codeEditor');
@@ -128,6 +130,18 @@ function setLabResult(payload) {
   labResult.textContent = prettyJson(payload);
 }
 
+function setLabDiagnostics(payload) {
+  labDiagnostics.textContent = prettyJson(payload);
+}
+
+function readLabDiagnostics() {
+  try {
+    return JSON.parse(labDiagnostics.textContent || '{}');
+  } catch {
+    return {};
+  }
+}
+
 async function loadToolList() {
   const data = await api('list_python_tools');
   availableTools = data.items || [];
@@ -142,6 +156,18 @@ async function loadToolList() {
   pythonToolList.innerHTML = availableTools
     .map((tool) => `<li><code>${tool.name}</code> · <span class="subtle">${tool.entrypoint}</span></li>`)
     .join('');
+
+  setLabDiagnostics({
+    scanned_root: 'jarvis/toolbox/tools',
+    scanned_tools_count: availableTools.length,
+    scanned_tools: availableTools.map((tool) => ({
+      name: tool.name,
+      entrypoint: tool.entrypoint,
+      manifest_path: tool.manifest_path,
+      code_path: tool.code_path,
+    })),
+    note: 'Liste détectée automatiquement depuis les manifest.json (pas de liste codée en dur).',
+  });
 
   if (availableTools.length === 0) {
     labInput.value = '{}';
@@ -197,10 +223,62 @@ async function runLabTool() {
   setLabResult(result);
 }
 
+async function runAllLabTools() {
+  if (availableTools.length === 0) {
+    throw new Error("Aucun outil Python détecté dans jarvis/toolbox/tools.");
+  }
+
+  const startedAt = new Date().toISOString();
+  const results = [];
+  setLabResult({
+    status: 'running_all',
+    total_tools: availableTools.length,
+    started_at: startedAt,
+  });
+
+  for (const tool of availableTools) {
+    const input = toolDefaultInput(tool.name);
+    try {
+      const result = await api('run_python_tool', {
+        tool: tool.name,
+        input,
+      });
+      results.push({
+        tool: tool.name,
+        ok: true,
+        http_code: result.http_code,
+        response_status: result.response?.status || null,
+      });
+    } catch (e) {
+      results.push({
+        tool: tool.name,
+        ok: false,
+        error: e.message,
+      });
+    }
+  }
+
+  const summary = {
+    status: 'completed_all',
+    started_at: startedAt,
+    ended_at: new Date().toISOString(),
+    total_tools: availableTools.length,
+    ok_count: results.filter((item) => item.ok).length,
+    fail_count: results.filter((item) => !item.ok).length,
+    results,
+  };
+
+  setLabResult(summary);
+  setLabDiagnostics({
+    ...readLabDiagnostics(),
+    last_batch_run: summary,
+  });
+}
+
 async function runQuickNpmTest() {
   const npmTool = availableTools.find((item) => item.name === 'npm_service');
   if (!npmTool) {
-    throw new Error("L'outil npm_service n'est pas disponible");
+    throw new Error(`L'outil npm_service n'est pas disponible. Outils détectés: ${availableTools.map((tool) => tool.name).join(', ') || 'aucun'}. Cliquez d'abord sur "Rafraîchir la liste".`);
   }
 
   labToolSelect.value = 'npm_service';
@@ -273,6 +351,15 @@ runLabBtn.onclick = async () => {
   try {
     await runLabTool();
     status(`Exécution de ${labToolSelect.value} terminée`);
+  } catch (e) {
+    status(e.message, false);
+    setLabResult({ error: e.message });
+  }
+};
+runAllLabBtn.onclick = async () => {
+  try {
+    await runAllLabTools();
+    status('Test global des outils terminé');
   } catch (e) {
     status(e.message, false);
     setLabResult({ error: e.message });
