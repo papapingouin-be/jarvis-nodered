@@ -71,6 +71,10 @@
     .tabs button.active { background:#1d4ed8; }
     .hint { border-left:3px solid var(--accent); padding-left:.8rem; color:#d8e5ff; }
     .footer-note { color:var(--muted); font-size:.84rem; }
+    .contract-grid { display:grid; gap:.6rem; margin-top:.8rem; }
+    .contract-item { border:1px solid #2a3b62; border-radius:12px; padding:.65rem .7rem; background:#0b1324; }
+    .contract-item h4 { margin:.1rem 0 .4rem; font-size:.93rem; }
+    .contract-item code { font-size:.82rem; }
     @media (max-width: 1120px) {
       .shell, .split, .grid-2, .grid-3 { grid-template-columns: 1fr; }
       aside { border-right:none; border-bottom:1px solid var(--line); }
@@ -244,6 +248,7 @@
         <div class="grid-2">
           <div class="card">
             <h2>Configuration par namespace</h2>
+            <div class="small muted">Les champs ci-dessous correspondent aux clés réellement lues par les tools Python pour retrouver leur configuration en DB.</div>
             <div class="row">
               <div>
                 <label>Namespace</label>
@@ -256,6 +261,9 @@
               <div><button id="loadNamespace" class="secondary">Charger</button></div>
             </div>
             <table style="margin-top:.8rem;"><thead><tr><th>Clé</th><th>Valeur</th><th></th></tr></thead><tbody id="sensitiveTable"></tbody></table>
+            <div style="margin-top:.8rem;">
+              <button id="seedToolFields" class="ghost">Préremplir champs requis</button>
+            </div>
           </div>
           <div class="card">
             <h2>Tables SQLite</h2>
@@ -267,6 +275,7 @@
               <div><button id="loadTableBtn" class="secondary">Ouvrir</button></div>
             </div>
             <div id="dbTableWrap" style="margin-top:.8rem; overflow:auto;"></div>
+            <div id="dbContractWrap" class="contract-grid"></div>
           </div>
         </div>
       </section>

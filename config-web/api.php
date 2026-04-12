@@ -32,6 +32,12 @@ function connect_db(?string $requestedPath): PDO {
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 
+    ensure_infra_schema($pdo);
+
+    return $pdo;
+}
+
+function ensure_infra_schema(PDO $pdo): void {
     $pdo->exec("CREATE TABLE IF NOT EXISTS sensitive_values (
         namespace TEXT NOT NULL,
         key TEXT NOT NULL,
@@ -40,7 +46,97 @@ function connect_db(?string $requestedPath): PDO {
         PRIMARY KEY(namespace, key)
     )");
 
-    return $pdo;
+    $pdo->exec("CREATE TABLE IF NOT EXISTS npm_instances (
+        name TEXT PRIMARY KEY,
+        base_url TEXT NOT NULL,
+        login TEXT NOT NULL,
+        password TEXT,
+        password_secret_key TEXT,
+        CHECK (
+            (password IS NOT NULL AND password_secret_key IS NULL)
+            OR (password IS NULL AND password_secret_key IS NOT NULL)
+        )
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS npm_services (
+        domain TEXT PRIMARY KEY,
+        instance_name TEXT NOT NULL,
+        forward_host TEXT NOT NULL,
+        forward_port INTEGER NOT NULL,
+        scheme TEXT NOT NULL DEFAULT 'http',
+        FOREIGN KEY(instance_name) REFERENCES npm_instances(name)
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS proxmox_targets (
+        name TEXT PRIMARY KEY,
+        ip TEXT NOT NULL,
+        api_path TEXT NOT NULL DEFAULT '/api2/json',
+        login TEXT NOT NULL,
+        password TEXT,
+        password_secret_key TEXT,
+        node TEXT NOT NULL,
+        CHECK (
+            (password IS NOT NULL AND password_secret_key IS NULL)
+            OR (password IS NULL AND password_secret_key IS NOT NULL)
+        )
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS ct_services (
+        name TEXT PRIMARY KEY,
+        target_name TEXT NOT NULL,
+        ctid INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        FOREIGN KEY(target_name) REFERENCES proxmox_targets(name)
+    )");
+}
+
+function db_contract(): array {
+    return [
+        'db_path_resolution' => [
+            'payload.db_path',
+            'env.JARVIS_INFRA_DB',
+            '/tmp/jarvis_infra.db',
+        ],
+        'tables' => [
+            [
+                'name' => 'sensitive_values',
+                'used_by' => ['config-web', 'sensitive_store', 'npm_service', 'proxmox_ct'],
+                'columns' => ['namespace', 'key', 'value', 'updated_at'],
+            ],
+            [
+                'name' => 'npm_instances',
+                'used_by' => ['npm_service'],
+                'columns' => ['name', 'base_url', 'login', 'password', 'password_secret_key'],
+            ],
+            [
+                'name' => 'npm_services',
+                'used_by' => ['npm_service'],
+                'columns' => ['domain', 'instance_name', 'forward_host', 'forward_port', 'scheme'],
+            ],
+            [
+                'name' => 'proxmox_targets',
+                'used_by' => ['proxmox_ct'],
+                'columns' => ['name', 'ip', 'api_path', 'login', 'password', 'password_secret_key', 'node'],
+            ],
+            [
+                'name' => 'ct_services',
+                'used_by' => ['proxmox_ct'],
+                'columns' => ['name', 'target_name', 'ctid', 'path'],
+            ],
+            [
+                'name' => 'devlab_runs',
+                'used_by' => ['devlab_backend'],
+                'columns' => ['run_id', 'tool_name', 'mode', 'status', 'started_at', 'ended_at', 'duration_ms', 'summary', 'payload_json', 'output_json', 'trace_json', 'diag_json'],
+                'note' => 'Créée automatiquement par services/devlab_backend.',
+            ],
+        ],
+        'required_sensitive_keys' => [
+            'runtime' => ['TOOLBOX_RUNNER_URL'],
+            'npm_service' => ['NPM_URL', 'NPM_IDENTITY', 'NPM_SECRET'],
+            'npm_legacy' => ['NPM_URL', 'NPM_IDENTITY', 'NPM_SECRET'],
+            'proxmox' => ['<clé libre pour password_secret_key>'],
+        ],
+    ];
 }
 
 function repo_root(): string {
@@ -325,7 +421,12 @@ try {
                 'runner_url' => $runnerUrl,
                 'runner_health' => $runnerHealth,
                 'runner_error' => $runnerError,
+                'db_contract' => db_contract(),
             ]);
+            break;
+
+        case 'db_contract':
+            echo json_encode(['ok' => true, 'contract' => db_contract()]);
             break;
 
         case 'upsert_sensitive':
