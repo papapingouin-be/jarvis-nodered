@@ -14,6 +14,21 @@ services:
       GIT_BRIDGE_URL: http://git_bridge:8040
       LOG_BRIDGE_URL: http://log_bridge:8050
       REPO_PATH: /workspace/jarvis-nodered
+      
+  devlab_backend:
+    image: python:3.11-slim
+    working_dir: /app
+    volumes:
+      - ${JARVIS_HOST_ROOT:-.}:/app
+    env_file:
+      - .env
+    environment:
+      PYTHONPATH: /app
+      TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
+      LLM_ADAPTER_URL: http://llm_adapter:8010
+    command: bash -lc "REQ=/app/services/devlab_backend/requirements.txt; [ -f "$REQ" ] || REQ=services/devlab_backend/requirements.txt; if [ -f "$REQ" ]; then pip install --no-cache-dir -r "$REQ"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic jsonschema ruff; fi && uvicorn services.devlab_backend.app:app --host 0.0.0.0 --port 8090"
+    ports:
+      - "8090:8090"
 
   llm_adapter:
     image: python:3.11-slim
