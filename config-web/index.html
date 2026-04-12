@@ -36,6 +36,17 @@
     .grid { display: grid; grid-template-columns: 320px 1fr; gap: .9rem; }
     pre { background: #0b1020; color: #e5e7eb; border-radius: 8px; padding: .8rem; overflow: auto; min-height: 180px; }
     ul.tool-list { padding-left: 1.1rem; margin: .3rem 0 0; }
+    .flow-steps { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: .7rem; margin: .8rem 0; align-items: stretch; }
+    .flow-step { border: 1px solid #d1d5db; border-radius: 10px; padding: .7rem; background: #f9fafb; position: relative; }
+    .flow-step .num { display: inline-flex; width: 1.4rem; height: 1.4rem; align-items: center; justify-content: center; background:#1f2937; color:#fff; border-radius: 999px; font-size: .78rem; margin-right: .35rem; }
+    .flow-step h4 { margin: 0 0 .45rem; font-size: .9rem; }
+    .flow-step p { margin: 0; font-size: .83rem; color:#4b5563; }
+    .flow-arrow { display:flex; align-items:center; justify-content:center; color:#6b7280; font-size: 1.1rem; font-weight: 700; }
+    details.inline-editor { margin-top: .65rem; border: 1px solid #d1d5db; border-radius: 8px; padding: .4rem .55rem; background:#fff; }
+    details.inline-editor summary { cursor: pointer; font-size: .88rem; color:#111827; font-weight: 600; }
+    .step-meta { margin-top: .35rem; font-size: .8rem; color:#374151; }
+    .step-meta code { font-size: .78rem; }
+    @media (max-width: 960px) { .flow-steps { grid-template-columns: 1fr; } .flow-arrow { transform: rotate(90deg); } }
     @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -79,7 +90,32 @@
     <section class="tab-panel" id="labTab">
       <section class="card">
         <h2>Laboratoire de test des outils Python</h2>
-        <div class="subtle">Exécute les outils <code>.py</code> via <code>toolbox_runner</code> avec un JSON d'entrée comme en conditions réelles, affiche le retour brut et permet l'édition du fichier Python.</div>
+        <div class="subtle">Interface didactique du flux réel : entrée utilisateur → récupération DB → moteur d'exécution → retour d'information.</div>
+        <div class="flow-steps" aria-label="Séquence réelle du flux laboratoire">
+          <div class="flow-step">
+            <h4><span class="num">1</span>Entrée</h4>
+            <p>Choisir l'outil et préparer le JSON d'input réel.</p>
+            <div class="step-meta">Outil sélectionné : <code id="flowSelectedTool">-</code></div>
+          </div>
+          <div class="flow-arrow">➜</div>
+          <div class="flow-step">
+            <h4><span class="num">2</span>Données DB</h4>
+            <p>Lire les paramètres sensibles stockés en SQLite.</p>
+            <div class="step-meta">DB : <code id="flowDbPath">non défini</code></div>
+          </div>
+          <div class="flow-arrow">➜</div>
+          <div class="flow-step">
+            <h4><span class="num">3</span>Moteur</h4>
+            <p>Exécution via <code>toolbox_runner</code> (<code>/v1/run</code>).</p>
+            <div class="step-meta">Payload : <code>{ tool, input }</code></div>
+          </div>
+          <div class="flow-arrow">➜</div>
+          <div class="flow-step">
+            <h4><span class="num">4</span>Retour</h4>
+            <p>Afficher la réponse brute et le diagnostic pour comprendre le résultat.</p>
+            <div class="step-meta">Statut : <code id="flowRunStatus">idle</code></div>
+          </div>
+        </div>
         <div class="grid" style="margin-top:.8rem;">
           <div>
             <h3 style="margin:.1rem 0 .5rem;">Fichiers Python détectés</h3>
@@ -95,10 +131,18 @@
               <button id="runNpmQuick">Test rapide npm_service</button>
               <button id="refreshLab">Rafraîchir la liste</button>
             </div>
-            <label style="margin-top:.7rem;">Entrée JSON (input réel)
-              <textarea id="labInput" spellcheck="false"></textarea>
-            </label>
-            <div class="subtle">Le payload envoyé est: <code>{ "tool": "...", "input": {...} }</code> sur <code>/v1/run</code>.</div>
+            <details class="inline-editor" open>
+              <summary>Étape 1 — Entrée JSON (input réel)</summary>
+              <label style="margin-top:.5rem;">Entrée JSON (input réel)
+                <textarea id="labInput" spellcheck="false"></textarea>
+              </label>
+              <div class="subtle">Prérempli automatiquement à partir du <code>sample_input</code> du manifest de l'outil.</div>
+            </details>
+            <details class="inline-editor">
+              <summary>Édition avancée à la demande</summary>
+              <div class="subtle" style="margin-top:.5rem;">Modifier ici seulement si vous voulez simuler un cas spécifique. Sinon laissez le JSON proposé.</div>
+            </details>
+            <div class="subtle" style="margin-top:.6rem;">Payload réellement envoyé : <code>{ "tool": "...", "input": {...} }</code> sur <code>/v1/run</code>.</div>
             <h3 style="margin:.9rem 0 .4rem;">Retour de l'outil</h3>
             <pre id="labResult">Aucune exécution</pre>
             <h3 style="margin:.9rem 0 .4rem;">Diagnostic scan + tests</h3>
