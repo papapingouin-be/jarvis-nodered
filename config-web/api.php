@@ -51,10 +51,69 @@ function tools_root(): string {
     return repo_root() . '/jarvis/toolbox/tools';
 }
 
+function discover_manifest_paths(string $root): array {
+    $paths = [];
+    $iter = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iter as $fileInfo) {
+        if (!$fileInfo instanceof SplFileInfo) {
+            continue;
+        }
+        if (!$fileInfo->isFile()) {
+            continue;
+        }
+        if ($fileInfo->getFilename() !== 'manifest.json') {
+            continue;
+        }
+        $paths[] = $fileInfo->getPathname();
+    }
+    sort($paths);
+    return $paths;
+}
+
+function sample_from_schema(array $schema): mixed {
+    if (array_key_exists('default', $schema)) {
+        return $schema['default'];
+    }
+    if (isset($schema['enum']) && is_array($schema['enum']) && count($schema['enum']) > 0) {
+        return $schema['enum'][0];
+    }
+
+    $type = $schema['type'] ?? null;
+    if ($type === 'object') {
+        $out = [];
+        $properties = $schema['properties'] ?? [];
+        if (!is_array($properties)) {
+            return new stdClass();
+        }
+
+        foreach ($properties as $name => $childSchema) {
+            if (!is_string($name) || !is_array($childSchema)) {
+                continue;
+            }
+            $out[$name] = sample_from_schema($childSchema);
+        }
+        return $out;
+    }
+    if ($type === 'array') {
+        return [];
+    }
+    if ($type === 'integer' || $type === 'number') {
+        return 0;
+    }
+    if ($type === 'boolean') {
+        return false;
+    }
+    if ($type === 'string') {
+        return '';
+    }
+    return null;
+}
+
 function list_python_tools(): array {
     $tools = [];
-    $manifestPaths = glob(tools_root() . '/*/manifest.json') ?: [];
-    sort($manifestPaths);
+    $manifestPaths = discover_manifest_paths(tools_root());
 
     foreach ($manifestPaths as $manifestPath) {
         $manifest = json_decode(file_get_contents($manifestPath) ?: '{}', true);
@@ -75,30 +134,10 @@ function list_python_tools(): array {
         }
 
         $sampleInput = [];
-        $schema = $manifest['input_schema']['properties'] ?? [];
-        if (is_array($schema)) {
-            foreach ($schema as $key => $meta) {
-                if (!is_string($key) || !is_array($meta)) {
-                    continue;
-                }
-                if (array_key_exists('default', $meta)) {
-                    $sampleInput[$key] = $meta['default'];
-                    continue;
-                }
-                $type = $meta['type'] ?? null;
-                if ($type === 'string') {
-                    $sampleInput[$key] = '';
-                } elseif ($type === 'number' || $type === 'integer') {
-                    $sampleInput[$key] = 0;
-                } elseif ($type === 'boolean') {
-                    $sampleInput[$key] = false;
-                } elseif ($type === 'array') {
-                    $sampleInput[$key] = [];
-                } elseif ($type === 'object') {
-                    $sampleInput[$key] = new stdClass();
-                } else {
-                    $sampleInput[$key] = null;
-                }
+        if (isset($manifest['input_schema']) && is_array($manifest['input_schema'])) {
+            $sample = sample_from_schema($manifest['input_schema']);
+            if (is_array($sample)) {
+                $sampleInput = $sample;
             }
         }
 
@@ -108,6 +147,7 @@ function list_python_tools(): array {
             'manifest_path' => str_replace(repo_root() . '/', '', $manifestPath),
             'code_path' => str_replace(repo_root() . '/', '', $toolCodePath),
             'sample_input' => $sampleInput,
+            'required_fields' => $manifest['input_schema']['required'] ?? [],
         ];
     }
 

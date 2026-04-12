@@ -1,4 +1,36 @@
 {
+  "example_echo": {
+    "name": "example_echo",
+    "description": "Retourne le message fourni",
+    "action_types": [
+      "analysis",
+      "run_tool"
+    ],
+    "entrypoint": "tool.py",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ]
+    },
+    "output_schema": {
+      "type": "object",
+      "properties": {
+        "echo": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "echo"
+      ]
+    },
+    "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/example_echo"
+  },
   "npm_service": {
     "name": "npm_service",
     "description": "Gestion des services Nginx Proxy Manager et génération de requêtes API",
@@ -428,37 +460,5 @@
       ]
     },
     "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/sensitive_store"
-  },
-  "example_echo": {
-    "name": "example_echo",
-    "description": "Retourne le message fourni",
-    "action_types": [
-      "analysis",
-      "run_tool"
-    ],
-    "entrypoint": "tool.py",
-    "input_schema": {
-      "type": "object",
-      "properties": {
-        "message": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "message"
-      ]
-    },
-    "output_schema": {
-      "type": "object",
-      "properties": {
-        "echo": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "echo"
-      ]
-    },
-    "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/example_echo"
   }
 }
