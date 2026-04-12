@@ -108,7 +108,10 @@
 
       <div class="nav-title">Contexte</div>
       <label>Chemin DB SQLite</label>
-      <input id="dbPath" placeholder="/workspace/jarvis-nodered/jarvis/database/db.db" />
+      <div class="row">
+        <input id="dbPath" placeholder="/workspace/jarvis-nodered/jarvis/database/db.db" />
+        <button id="browseDbPath" class="secondary" type="button" style="max-width:140px;">Explorer</button>
+      </div>
       <label style="margin-top:.8rem;">Endpoint Node-RED</label>
       <input id="flowEndpoint" placeholder="http://localhost:1880/jarvis/inbound" />
       <label style="margin-top:.8rem;" title="proxy = passe par devproxy.php. proxy:http://IP:8090 = passe par le proxy PHP mais force cette URL backend. http://IP:8090 = appel direct navigateur vers le backend.">URL Dev backend</label>
@@ -267,6 +270,29 @@
           </div>
           <div class="card">
             <h2>Tables SQLite</h2>
+            <div class="row" style="margin-bottom:.8rem;">
+              <div>
+                <label>Dossier exploré</label>
+                <input id="dbBrowsePath" placeholder="/workspace/jarvis-nodered/jarvis/database" />
+              </div>
+              <div><button id="dbBrowseRefresh" class="secondary">Rafraîchir</button></div>
+            </div>
+            <div id="dbBrowseList" class="list-box" style="margin-bottom:.8rem;"></div>
+            <div class="row" style="margin-bottom:.8rem;">
+              <div>
+                <label>Importer depuis</label>
+                <input id="dbImportPath" placeholder="/workspace/backup/source.db" />
+              </div>
+              <div><button id="dbImportBtn" class="warn">Importer DB</button></div>
+            </div>
+            <div class="row" style="margin-bottom:.8rem;">
+              <div>
+                <label>Exporter vers</label>
+                <input id="dbExportPath" placeholder="/workspace/backup/export.db" />
+              </div>
+              <div><button id="dbExportBtn" class="success">Exporter DB</button></div>
+            </div>
+            <pre id="dbTransferOutput" style="min-height:80px;">Aucun import/export.</pre>
             <div class="row">
               <div>
                 <label>Table</label>
