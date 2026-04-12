@@ -45,9 +45,11 @@ const els = {
   cfgNamespace: document.getElementById('cfgNamespace'),
   loadNamespace: document.getElementById('loadNamespace'),
   sensitiveTable: document.getElementById('sensitiveTable'),
+  seedToolFields: document.getElementById('seedToolFields'),
   dbTableSelect: document.getElementById('dbTableSelect'),
   loadTableBtn: document.getElementById('loadTableBtn'),
   dbTableWrap: document.getElementById('dbTableWrap'),
+  dbContractWrap: document.getElementById('dbContractWrap'),
   refreshRuns: document.getElementById('refreshRuns'),
   runsList: document.getElementById('runsList'),
   runDetail: document.getElementById('runDetail'),
@@ -70,6 +72,21 @@ const state = {
   runs: [],
   editorTab: 'json',
   healthcheck: null,
+};
+
+const DB_NAMESPACE_PRESETS = {
+  runtime: [{ key: 'TOOLBOX_RUNNER_URL', value: 'http://toolbox_runner:8030' }],
+  npm_service: [
+    { key: 'NPM_URL', value: 'http://npm:81' },
+    { key: 'NPM_IDENTITY', value: 'admin@example.com' },
+    { key: 'NPM_SECRET', value: 'change-me' },
+  ],
+  npm: [
+    { key: 'NPM_URL', value: 'http://npm:81' },
+    { key: 'NPM_IDENTITY', value: 'admin@example.com' },
+    { key: 'NPM_SECRET', value: 'change-me' },
+  ],
+  proxmox: [{ key: 'PROXMOX_PASSWORD', value: 'change-me' }],
 };
 
 function loadSettings() {
@@ -334,6 +351,7 @@ async function refreshHealth() {
     if (data.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
     else if (data.runner_error) setBadge(els.healthRunner, 'Runner KO', 'err');
     else setBadge(els.healthRunner, 'Runner ?', 'warn');
+    renderDbContract();
     logUi('healthcheck payload', data);
   } else {
     setBadge(els.healthDb, 'DB KO', 'err');
@@ -391,7 +409,7 @@ async function loadCode() {
   if (!path) return;
   const data = await api('get_python_file', { path });
   els.codeEditor.value = data.code;
-  els.codeMeta.textContent = pretty({ path: data.path, size: data.code.length, db_path: els.dbPath.value.trim() || '/tmp/jarvis_infra.db' });
+  els.codeMeta.textContent = pretty({ path: data.path, size: data.code.length, db_path: els.dbPath.value.trim() || '/workspace/jarvis-nodered/jarvis/database/db.db' });
 }
 
 async function saveCode() {
@@ -451,11 +469,13 @@ async function explainLastRun() {
 }
 
 function loadNamespacesFromHealthcheck() {
-  const namespaces = Array.isArray(state.healthcheck?.namespaces) ? state.healthcheck.namespaces : [];
-  if (!namespaces.length) return;
+  const namespaces = new Set(Array.isArray(state.healthcheck?.namespaces) ? state.healthcheck.namespaces : []);
+  Object.keys(DB_NAMESPACE_PRESETS).forEach(ns => namespaces.add(ns));
+  const namespacesList = [...namespaces].sort();
+  if (!namespacesList.length) return;
   const current = els.cfgNamespace.value;
-  els.cfgNamespace.innerHTML = namespaces.map(ns => `<option value="${ns}">${ns}</option>`).join('');
-  if (namespaces.includes(current)) els.cfgNamespace.value = current;
+  els.cfgNamespace.innerHTML = namespacesList.map(ns => `<option value="${ns}">${ns}</option>`).join('');
+  if (namespacesList.includes(current)) els.cfgNamespace.value = current;
 }
 
 async function loadNamespace() {
@@ -483,6 +503,20 @@ async function loadNamespace() {
   });
 }
 
+async function seedNamespaceFields() {
+  const ns = els.cfgNamespace.value;
+  const presets = DB_NAMESPACE_PRESETS[ns] || [];
+  if (!presets.length) {
+    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucun préremplissage défini pour ce namespace.</td></tr>';
+    return;
+  }
+  for (const item of presets) {
+    await api('upsert_sensitive', { namespace: ns, key: item.key, value: item.value });
+  }
+  await refreshHealth();
+  await loadNamespace();
+}
+
 async function loadTables() {
   const data = await api('list_tables');
   const items = data.items || [];
@@ -492,6 +526,7 @@ async function loadTables() {
     return;
   }
   await loadSelectedTable();
+  renderDbContract();
 }
 
 async function loadSelectedTable() {
@@ -505,6 +540,22 @@ async function loadSelectedTable() {
 
 function escapeHtml(value) {
   return value.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function renderDbContract() {
+  const contract = state.healthcheck?.db_contract?.tables || [];
+  if (!contract.length) {
+    els.dbContractWrap.innerHTML = '<div class="muted">Contrat DB indisponible.</div>';
+    return;
+  }
+  els.dbContractWrap.innerHTML = contract.map((item) => `
+    <div class="contract-item">
+      <h4>${item.name}</h4>
+      <div class="small muted">Tools: ${(item.used_by || []).join(', ') || '-'}</div>
+      <div class="small"><code>${(item.columns || []).join(', ')}</code></div>
+      ${item.note ? `<div class="small muted">${item.note}</div>` : ''}
+    </div>
+  `).join('');
 }
 
 async function loadRuns() {
@@ -580,6 +631,7 @@ function bindEvents() {
   els.lintCodeBtn.onclick = () => lintCode();
   els.saveCodeBtn.onclick = () => saveCode();
   els.loadNamespace.onclick = () => loadNamespace();
+  els.seedToolFields.onclick = () => seedNamespaceFields();
   els.loadTableBtn.onclick = () => loadSelectedTable();
   els.refreshRuns.onclick = () => loadRuns();
   els.llmExplain.onclick = explainLastRun;

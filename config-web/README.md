@@ -2,10 +2,20 @@
 
 Interface web sobre (HTML/JS/PHP) pour gérer les valeurs de configuration des outils Jarvis.
 
-## Ce qui est stocké
+## Schéma DB partagé (config-web + toolbox)
 
-- `sensitive_values` uniquement (`namespace`, `key`, `value`).
-- Les `CT services` et `NPM services` **ne sont pas stockés en DB**: ces informations sont transmises au moment d'exécuter l'outil.
+`config-web` et les tools Python utilisent **la même SQLite** (`JARVIS_INFRA_DB`, défaut `jarvis/database/db.db` dans le repo).
+
+Tables principales:
+
+- `sensitive_values` (`namespace`, `key`, `value`, `updated_at`)
+- `npm_instances` (`name`, `base_url`, `login`, `password`, `password_secret_key`)
+- `npm_services` (`domain`, `instance_name`, `forward_host`, `forward_port`, `scheme`)
+- `proxmox_targets` (`name`, `ip`, `api_path`, `login`, `password`, `password_secret_key`, `node`)
+- `ct_services` (`name`, `target_name`, `ctid`, `path`)
+- `devlab_runs` (créée par `devlab_backend` pour l'historique d'exécution)
+
+Le backend `config-web/api.php` initialise maintenant ce schéma au démarrage pour que la DB soit explicite et stable.
 
 ## Outils/paramètres affichés
 
@@ -95,4 +105,6 @@ Par défaut, `api.php` utilise:
 
 1. `db_path` envoyé par le front (si renseigné), sinon
 2. la variable d'environnement `JARVIS_INFRA_DB`, sinon
-3. `/tmp/jarvis_infra.db`
+3. `jarvis/database/db.db` (chemin absolu: `/workspace/jarvis-nodered/jarvis/database/db.db` dans ce workspace)
+
+Dans **DB Lab**, le bouton **Préremplir champs requis** ajoute automatiquement les clés minimales attendues par les tools (par ex. `runtime/TOOLBOX_RUNNER_URL`, `npm_service/NPM_URL`, `NPM_IDENTITY`, `NPM_SECRET`), afin de pouvoir enregistrer la configuration directement en DB avant exécution.

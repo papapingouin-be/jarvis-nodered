@@ -20,7 +20,7 @@ from services.toolbox_runner.registry import build_registry
 
 ROOT = Path(__file__).resolve().parents[0]
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = Path(os.getenv("JARVIS_INFRA_DB", "/tmp/jarvis_infra.db"))
+DEFAULT_DB = Path(os.getenv("JARVIS_INFRA_DB", str(REPO_ROOT / "jarvis" / "database" / "db.db")))
 DEFAULT_TOOL_TIMEOUT_S = int(os.getenv("DEVLAB_TOOL_TIMEOUT_S", os.getenv("TOOL_TIMEOUT_S", "30")))
 TOOLBOX_RUNNER_URL = os.getenv("TOOLBOX_RUNNER_URL", "http://toolbox_runner:8030")
 LLM_ADAPTER_URL = os.getenv("LLM_ADAPTER_URL", "http://llm_adapter:8010")
