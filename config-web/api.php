@@ -379,6 +379,92 @@ function list_namespaces(PDO $pdo): array {
     return array_values(array_filter(array_map(static fn(array $r) => (string)($r['namespace'] ?? ''), $stmt->fetchAll())));
 }
 
+function is_allowed_path(string $path): bool {
+    $allowedRoots = [
+        realpath(repo_root()) ?: repo_root(),
+        realpath(dirname(repo_root())) ?: dirname(repo_root()),
+    ];
+    foreach ($allowedRoots as $root) {
+        if ($root !== '' && str_starts_with($path, $root)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function resolve_existing_path(string $path): string {
+    $real = realpath($path);
+    if ($real === false) {
+        fail('chemin introuvable: ' . $path, 404);
+    }
+    if (!is_allowed_path($real)) {
+        fail('chemin hors périmètre autorisé', 403);
+    }
+    return $real;
+}
+
+function resolve_target_path(string $path): string {
+    $path = trim($path);
+    if ($path === '') {
+        fail('chemin cible requis');
+    }
+    $absolute = str_starts_with($path, '/') ? $path : (repo_root() . '/' . $path);
+    $parent = realpath(dirname($absolute));
+    if ($parent === false || !is_dir($parent)) {
+        fail('dossier parent introuvable pour la cible', 400);
+    }
+    if (!is_allowed_path($parent)) {
+        fail('dossier cible hors périmètre autorisé', 403);
+    }
+    return rtrim($parent, '/') . '/' . basename($absolute);
+}
+
+function browse_paths(?string $path): array {
+    $target = $path !== null && trim($path) !== '' ? trim($path) : dirname(default_db_path());
+    $current = resolve_existing_path($target);
+    if (!is_dir($current)) {
+        fail('le chemin doit être un dossier', 400);
+    }
+    $items = [];
+    $entries = scandir($current);
+    if ($entries === false) {
+        fail('impossible de lire le dossier', 500);
+    }
+    foreach ($entries as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+        $full = $current . DIRECTORY_SEPARATOR . $entry;
+        $real = realpath($full);
+        if ($real === false || !is_allowed_path($real)) {
+            continue;
+        }
+        $isDir = is_dir($real);
+        if (!$isDir && !preg_match('/\.(db|sqlite|sqlite3)$/i', $entry)) {
+            continue;
+        }
+        $items[] = [
+            'name' => $entry,
+            'path' => $real,
+            'type' => $isDir ? 'dir' : 'file',
+            'size' => $isDir ? null : (filesize($real) ?: 0),
+            'writable' => is_writable($real),
+        ];
+    }
+    usort($items, static function (array $a, array $b): int {
+        if ($a['type'] !== $b['type']) {
+            return $a['type'] === 'dir' ? -1 : 1;
+        }
+        return strcmp((string)$a['name'], (string)$b['name']);
+    });
+    $parent = dirname($current);
+    return [
+        'current_path' => $current,
+        'parent_path' => $parent !== $current && is_allowed_path($parent) ? $parent : null,
+        'items' => $items,
+    ];
+}
+
 try {
     $payload = json_decode(file_get_contents('php://input') ?: '{}', true, flags: JSON_THROW_ON_ERROR);
     $action = $payload['action'] ?? null;
@@ -386,7 +472,20 @@ try {
         fail('action manquante');
     }
 
-    $pdo = connect_db(isset($payload['db_path']) ? (string)$payload['db_path'] : null);
+    $actionsRequiringDb = [
+        'healthcheck',
+        'db_contract',
+        'upsert_sensitive',
+        'delete_sensitive',
+        'list_sensitive',
+        'get_sensitive',
+        'run_python_tool',
+        'list_tables',
+        'get_table_rows',
+    ];
+    $pdo = in_array($action, $actionsRequiringDb, true)
+        ? connect_db(isset($payload['db_path']) ? (string)$payload['db_path'] : null)
+        : null;
     error_log('[config-web/api] action=' . $action . ' db=' . ((string)($payload['db_path'] ?? '')));
 
     switch ($action) {
@@ -575,14 +674,71 @@ try {
             break;
 
         case 'list_tables':
+            if (!$pdo instanceof PDO) {
+                fail('connexion DB indisponible', 500);
+            }
             echo json_encode(['ok' => true, 'items' => list_tables($pdo)]);
             break;
 
         case 'get_table_rows':
+            if (!$pdo instanceof PDO) {
+                fail('connexion DB indisponible', 500);
+            }
             $table = as_string($payload, 'table');
             $limit = isset($payload['limit']) ? max(1, min(500, (int)$payload['limit'])) : 100;
             $offset = isset($payload['offset']) ? max(0, (int)$payload['offset']) : 0;
             echo json_encode(['ok' => true] + get_table_rows($pdo, $table, $limit, $offset));
+            break;
+
+        case 'browse_paths':
+            echo json_encode(['ok' => true] + browse_paths(isset($payload['path']) ? (string)$payload['path'] : null));
+            break;
+
+        case 'export_db':
+            $sourcePath = isset($payload['db_path']) ? (string)$payload['db_path'] : default_db_path();
+            $source = resolve_existing_path($sourcePath);
+            if (!is_file($source)) {
+                fail('DB source introuvable', 404);
+            }
+            $target = resolve_target_path(as_string($payload, 'target_path'));
+            if (!copy($source, $target)) {
+                fail('échec export DB', 500);
+            }
+            echo json_encode([
+                'ok' => true,
+                'source_path' => $source,
+                'target_path' => $target,
+                'size' => filesize($target) ?: 0,
+            ]);
+            break;
+
+        case 'import_db':
+            $source = resolve_existing_path(as_string($payload, 'source_path'));
+            if (!is_file($source)) {
+                fail('fichier import introuvable', 404);
+            }
+            $targetInput = isset($payload['target_path']) && (string)$payload['target_path'] !== ''
+                ? (string)$payload['target_path']
+                : ((string)($payload['db_path'] ?? default_db_path()));
+            $target = resolve_target_path($targetInput);
+            $backupPath = null;
+            if (is_file($target)) {
+                $backupPath = $target . '.bak.' . gmdate('Ymd_His');
+                if (!copy($target, $backupPath)) {
+                    fail('échec backup DB avant import', 500);
+                }
+            }
+            if (!copy($source, $target)) {
+                fail('échec import DB', 500);
+            }
+            connect_db($target);
+            echo json_encode([
+                'ok' => true,
+                'source_path' => $source,
+                'target_path' => $target,
+                'backup_path' => $backupPath,
+                'size' => filesize($target) ?: 0,
+            ]);
             break;
 
         default:

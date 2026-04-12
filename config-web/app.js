@@ -3,6 +3,7 @@ const els = {
   navButtons: [...document.querySelectorAll('.nav-btn')],
   views: [...document.querySelectorAll('.view')],
   dbPath: document.getElementById('dbPath'),
+  browseDbPath: document.getElementById('browseDbPath'),
   flowEndpoint: document.getElementById('flowEndpoint'),
   devBackendUrl: document.getElementById('devBackendUrl'),
   healthDb: document.getElementById('healthDb'),
@@ -48,6 +49,14 @@ const els = {
   seedToolFields: document.getElementById('seedToolFields'),
   dbTableSelect: document.getElementById('dbTableSelect'),
   loadTableBtn: document.getElementById('loadTableBtn'),
+  dbBrowsePath: document.getElementById('dbBrowsePath'),
+  dbBrowseRefresh: document.getElementById('dbBrowseRefresh'),
+  dbBrowseList: document.getElementById('dbBrowseList'),
+  dbImportPath: document.getElementById('dbImportPath'),
+  dbImportBtn: document.getElementById('dbImportBtn'),
+  dbExportPath: document.getElementById('dbExportPath'),
+  dbExportBtn: document.getElementById('dbExportBtn'),
+  dbTransferOutput: document.getElementById('dbTransferOutput'),
   dbTableWrap: document.getElementById('dbTableWrap'),
   dbContractWrap: document.getElementById('dbContractWrap'),
   refreshRuns: document.getElementById('refreshRuns'),
@@ -529,6 +538,55 @@ async function loadTables() {
   renderDbContract();
 }
 
+async function browseDbPaths(targetPath = null) {
+  const payload = {};
+  if (targetPath) payload.path = targetPath;
+  const data = await api('browse_paths', payload);
+  els.dbBrowsePath.value = data.current_path || '';
+  const parentBtn = data.parent_path
+    ? `<button class="tool-item" data-db-nav="${data.parent_path}">⬆️ ..</button>`
+    : '';
+  const entries = (data.items || []).map(item => `
+    <button class="tool-item" data-db-item="${item.path}" data-db-type="${item.type}">
+      <div class="status-line"><strong>${item.type === 'dir' ? '📁' : '🗄️'} ${item.name}</strong><span class="badge">${item.type}</span></div>
+      <div class="small muted">${item.path}${item.size !== null ? ` · ${item.size} octets` : ''}</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun fichier DB (.db/.sqlite) dans ce dossier.</div>';
+  els.dbBrowseList.innerHTML = parentBtn + entries;
+  [...els.dbBrowseList.querySelectorAll('[data-db-nav]')].forEach(btn => {
+    btn.onclick = () => browseDbPaths(btn.dataset.dbNav);
+  });
+  [...els.dbBrowseList.querySelectorAll('[data-db-item]')].forEach(btn => {
+    btn.onclick = () => {
+      const path = btn.dataset.dbItem;
+      if (btn.dataset.dbType === 'dir') {
+        browseDbPaths(path);
+        return;
+      }
+      els.dbPath.value = path;
+      saveSettings();
+      loadTables().catch(err => logUi('loadTables after browse error', err.message || String(err)));
+    };
+  });
+}
+
+async function exportDb() {
+  const targetPath = els.dbExportPath.value.trim();
+  if (!targetPath) throw new Error('chemin export requis');
+  const data = await api('export_db', { target_path: targetPath });
+  els.dbTransferOutput.textContent = pretty(data);
+}
+
+async function importDb() {
+  const sourcePath = els.dbImportPath.value.trim();
+  if (!sourcePath) throw new Error('chemin import requis');
+  const data = await api('import_db', { source_path: sourcePath });
+  els.dbTransferOutput.textContent = pretty(data);
+  await refreshHealth();
+  await loadTables();
+  await loadNamespace();
+}
+
 async function loadSelectedTable() {
   const table = els.dbTableSelect.value;
   if (!table) return;
@@ -602,6 +660,7 @@ function initTabs() {
 function bindEvents() {
   els.navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
   els.dbPath.addEventListener('change', saveSettings);
+  els.browseDbPath.onclick = () => switchView('db');
   els.flowEndpoint.addEventListener('change', saveSettings);
   els.devBackendUrl.addEventListener('change', saveSettings);
   els.toolSearch.addEventListener('input', renderToolList);
@@ -632,6 +691,15 @@ function bindEvents() {
   els.saveCodeBtn.onclick = () => saveCode();
   els.loadNamespace.onclick = () => loadNamespace();
   els.seedToolFields.onclick = () => seedNamespaceFields();
+  els.dbBrowseRefresh.onclick = () => browseDbPaths(els.dbBrowsePath.value.trim() || null);
+  els.dbImportBtn.onclick = async () => {
+    try { await importDb(); }
+    catch (e) { els.dbTransferOutput.textContent = pretty({ error: e.message || String(e) }); }
+  };
+  els.dbExportBtn.onclick = async () => {
+    try { await exportDb(); }
+    catch (e) { els.dbTransferOutput.textContent = pretty({ error: e.message || String(e) }); }
+  };
   els.loadTableBtn.onclick = () => loadSelectedTable();
   els.refreshRuns.onclick = () => loadRuns();
   els.llmExplain.onclick = explainLastRun;
@@ -645,6 +713,7 @@ async function bootstrap() {
   await settled('refreshHealth', () => refreshHealth());
   await settled('loadInventory', () => loadInventory());
   await settled('loadTables', () => loadTables());
+  await settled('browseDbPaths', () => browseDbPaths());
   await settled('loadNamespace', () => loadNamespace());
   await settled('loadRuns', () => loadRuns());
   renderDashboard();
