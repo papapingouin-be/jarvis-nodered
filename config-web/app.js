@@ -84,24 +84,51 @@ function saveSettings() {
 
 function pretty(v) { return JSON.stringify(v, null, 2); }
 
+function logUi(...args) {
+  const line = `[${new Date().toISOString()}] ` + args.map(v => typeof v === 'string' ? v : pretty(v)).join(' ');
+  console.log('[DevLab]', ...args);
+  if (els.toolDiagnostics) {
+    const current = els.toolDiagnostics.textContent || '';
+    if (current.length < 12000) {
+      els.toolDiagnostics.textContent = (current ? current + "\n\n" : '') + line;
+    }
+  }
+}
+
+async function settled(label, fn) {
+  try {
+    const value = await fn();
+    logUi(`${label}: ok`);
+    return { ok: true, value };
+  } catch (err) {
+    logUi(`${label}: error`, err.message || String(err));
+    return { ok: false, error: err };
+  }
+}
+
 function setBadge(el, text, type = '') {
   el.textContent = text;
   el.className = `badge ${type}`.trim();
 }
 
 async function api(action, payload = {}) {
+  logUi("api request", { action, payload });
   const res = await fetch('api.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, db_path: els.dbPath.value.trim(), ...payload }),
   });
   const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok || data.error) {
+    logUi("api error", { action, status: res.status, data });
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return data;
 }
 
 async function devApi(path, body = null, method = 'POST', query = null) {
   const base = els.devBackendUrl.value.trim();
+  logUi("devApi request", { path, method, query, via: base === 'proxy' || !base ? 'proxy' : base });
   if (base === 'proxy' || !base) {
     const res = await fetch('devproxy.php', {
       method: 'POST',
@@ -109,7 +136,10 @@ async function devApi(path, body = null, method = 'POST', query = null) {
       body: JSON.stringify({ path, body, method, query }),
     });
     const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+    if (!res.ok || data.error) {
+      logUi("devApi proxy error", { path, status: res.status, data });
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
     return data;
   }
   let url = `${base.replace(/\/$/, '')}${path}`;
@@ -120,7 +150,10 @@ async function devApi(path, body = null, method = 'POST', query = null) {
     body: method === 'GET' ? undefined : JSON.stringify(body || {}),
   });
   const data = await res.json();
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok || data.error) {
+    logUi("devApi direct error", { path, status: res.status, data });
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
   return data;
 }
 
@@ -239,44 +272,40 @@ function renderDashboard() {
 }
 
 async function refreshHealth() {
-  try {
-    const tables = await api('list_tables');
-    setBadge(els.healthDb, `DB ${tables.items.length} tables`, 'ok');
-  } catch (e) {
+  const health = await settled('healthcheck', () => api('healthcheck'));
+  if (health.ok) {
+    const data = health.value;
+    setBadge(els.healthDb, data.tools_root_exists ? `DB ${data.tables.length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
+    if (data.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
+    else if (data.runner_error) setBadge(els.healthRunner, 'Runner KO', 'err');
+    else setBadge(els.healthRunner, 'Runner ?', 'warn');
+    logUi('healthcheck payload', data);
+  } else {
     setBadge(els.healthDb, 'DB KO', 'err');
-  }
-  try {
-    const res = await fetch('api.php', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'run_python_tool', db_path: els.dbPath.value.trim(), tool: 'example_echo', input: { message: 'ping' } }),
-    });
-    const data = await res.json();
-    setBadge(els.healthRunner, data?.response?.ok ? 'Runner OK' : 'Runner ?', data?.response?.ok ? 'ok' : 'warn');
-  } catch {
     setBadge(els.healthRunner, 'Runner KO', 'err');
   }
-  try {
+
+  const dev = await settled('dev health', () => devApi('/health', null, 'GET'));
+  if (dev.ok) setBadge(els.healthDev, dev.value.status === 'ok' ? 'Dev OK' : 'Dev ?', dev.value.status === 'ok' ? 'ok' : 'warn');
+  else setBadge(els.healthDev, 'Dev KO', 'err');
+
+  const llm = await settled('llm health', async () => {
     const data = await devApi('/health', null, 'GET');
-    setBadge(els.healthDev, data.status === 'ok' ? 'Dev OK' : 'Dev ?', data.status === 'ok' ? 'ok' : 'warn');
-  } catch {
-    setBadge(els.healthDev, 'Dev KO', 'err');
-  }
-  try {
-    const res = await fetch((location.origin + '/services/llm_adapter/health').replace(/\/config-web$/, ''));
-    setBadge(els.healthLlm, res.ok ? 'LLM ?' : 'LLM ?');
-  } catch {
-    setBadge(els.healthLlm, 'LLM via adapter', 'warn');
-  }
+    return data.llm_adapter_url || null;
+  });
+  setBadge(els.healthLlm, llm.ok ? 'LLM via adapter' : 'LLM ?', llm.ok ? 'ok' : 'warn');
 }
 
 async function loadInventory() {
-  const [toolsData, filesData] = await Promise.all([api('list_python_tools'), api('list_python_files')]);
-  state.tools = toolsData.items || [];
-  state.pyFiles = filesData.items || [];
+  const toolsResult = await settled('list_python_tools', () => api('list_python_tools'));
+  const filesResult = await settled('list_python_files', () => api('list_python_files'));
+  state.tools = toolsResult.ok ? (toolsResult.value.items || []) : [];
+  state.pyFiles = filesResult.ok ? (filesResult.value.items || []) : [];
   renderToolSelect();
   renderToolList();
   if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
   renderCodeFiles();
+  renderDashboard();
 }
 
 function renderCodeFiles() {
@@ -479,14 +508,19 @@ async function bootstrap() {
   bindEvents();
   initTabs();
   els.flowPayload.value = pretty(defaultFlowPayload());
-  await Promise.all([refreshHealth(), loadInventory(), loadTables(), loadNamespace(), loadRuns()]);
+  await settled('refreshHealth', () => refreshHealth());
+  await settled('loadInventory', () => loadInventory());
+  await settled('loadTables', () => loadTables());
+  await settled('loadNamespace', () => loadNamespace());
+  await settled('loadRuns', () => loadRuns());
   renderDashboard();
   const hash = location.hash.replace('#', '');
   if (hash) switchView(hash);
-  if (els.codeFileSelect.value) await loadCode();
+  if (els.codeFileSelect.value) await settled('loadCode', () => loadCode());
 }
 
 bootstrap().catch(err => {
   console.error(err);
+  logUi('bootstrap fatal', err.message || String(err));
   els.toolOutput.textContent = pretty({ error: err.message });
 });

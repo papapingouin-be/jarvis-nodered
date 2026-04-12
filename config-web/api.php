@@ -241,7 +241,7 @@ function find_tool(array $tools, string $name): ?array {
 }
 
 function toolbox_runner_url(?PDO $pdo): string {
-    $defaultUrl = 'http://localhost:8030';
+    $defaultUrl = 'http://toolbox_runner:8030';
     if (!$pdo) {
         return $defaultUrl;
     }
@@ -280,8 +280,43 @@ try {
     }
 
     $pdo = connect_db(isset($payload['db_path']) ? (string)$payload['db_path'] : null);
+    error_log('[config-web/api] action=' . $action . ' db=' . ((string)($payload['db_path'] ?? '')));
 
     switch ($action) {
+        case 'healthcheck':
+            $runnerUrl = toolbox_runner_url($pdo);
+            $runnerHealth = null;
+            $runnerError = null;
+            $ch = curl_init(rtrim($runnerUrl, '/') . '/health');
+            if ($ch !== false) {
+                curl_setopt_array($ch, [
+                    CURLOPT_RETURNTRANSFER => true,
+                    CURLOPT_TIMEOUT => 5,
+                ]);
+                $runnerRaw = curl_exec($ch);
+                $runnerCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $runnerErr = curl_error($ch);
+                curl_close($ch);
+                if ($runnerRaw !== false && $runnerCode > 0) {
+                    $decoded = json_decode($runnerRaw, true);
+                    $runnerHealth = is_array($decoded) ? $decoded : ['raw' => $runnerRaw];
+                } else {
+                    $runnerError = $runnerErr ?: ('HTTP ' . $runnerCode);
+                }
+            }
+            echo json_encode([
+                'ok' => true,
+                'repo_root' => repo_root(),
+                'tools_root' => tools_root(),
+                'tools_root_exists' => is_dir(tools_root()),
+                'tools_count' => count(list_python_tools()),
+                'python_files_count' => count(list_python_files()),
+                'tables' => list_tables($pdo),
+                'runner_url' => $runnerUrl,
+                'runner_health' => $runnerHealth,
+                'runner_error' => $runnerError,
+            ]);
+            break;
         case 'upsert_sensitive':
             $stmt = $pdo->prepare("INSERT INTO sensitive_values(namespace, key, value)
                 VALUES(:namespace, :key, :value)
@@ -440,5 +475,6 @@ try {
 } catch (JsonException $e) {
     fail('JSON invalide: ' . $e->getMessage());
 } catch (Throwable $e) {
+    error_log('[config-web/api] exception ' . $e->getMessage());
     fail($e->getMessage(), 500);
 }

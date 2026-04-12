@@ -19,7 +19,7 @@ from services.common.jsonschema_utils import validate_against_schema
 from services.toolbox_runner.registry import build_registry
 
 ROOT = Path(__file__).resolve().parents[0]
-REPO_ROOT = ROOT
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = Path(os.getenv("JARVIS_INFRA_DB", "/tmp/jarvis_infra.db"))
 DEFAULT_TOOL_TIMEOUT_S = int(os.getenv("DEVLAB_TOOL_TIMEOUT_S", os.getenv("TOOL_TIMEOUT_S", "30")))
 TOOLBOX_RUNNER_URL = os.getenv("TOOLBOX_RUNNER_URL", "http://toolbox_runner:8030")
@@ -298,13 +298,18 @@ def run_direct(manifest: dict[str, Any], payload: ToolRunPayload, trace: dict[st
 def run_via_runner(payload: ToolRunPayload, trace: dict[str, Any]) -> tuple[Any, str]:
     started = time.perf_counter()
     add_span(trace, "execute", "execute_tool_runner", "running", 2, data={"runner_url": TOOLBOX_RUNNER_URL})
-    response = httpx.post(
-        f"{TOOLBOX_RUNNER_URL.rstrip('/')}/v1/run",
-        json={"tool": payload.tool, "input": payload.input},
-        timeout=payload.options.timeout_s,
-    )
-    elapsed = int((time.perf_counter() - started) * 1000)
-    data = response.json()
+    try:
+        response = httpx.post(
+            f"{TOOLBOX_RUNNER_URL.rstrip('/')}/v1/run",
+            json={"tool": payload.tool, "input": payload.input},
+            timeout=payload.options.timeout_s,
+        )
+        elapsed = int((time.perf_counter() - started) * 1000)
+        data = response.json()
+    except Exception as exc:
+        elapsed = int((time.perf_counter() - started) * 1000)
+        finish_span(trace, "execute", "failed", elapsed, error={"type": "RUNNER_CONNECT_ERROR", "message": str(exc)})
+        return {"error": str(exc), "ok": False}, ""
     if response.status_code >= 400 or not data.get("ok", False):
         finish_span(trace, "execute", "failed", elapsed, data={"http_status": response.status_code}, error={"type": data.get("error_code", "RUNNER_ERROR"), "message": data.get("message", "runner failed")})
         return data, ""
@@ -314,11 +319,15 @@ def run_via_runner(payload: ToolRunPayload, trace: dict[str, Any]) -> tuple[Any,
 
 @app.get("/health")
 def health() -> dict[str, Any]:
+    registry = build_registry()
     return {
         "status": "ok",
         "toolbox_runner_url": TOOLBOX_RUNNER_URL,
         "llm_adapter_url": LLM_ADAPTER_URL,
         "default_db": str(DEFAULT_DB),
+        "repo_root": str(REPO_ROOT),
+        "tools_count": len(registry),
+        "tools": sorted(registry.keys()),
     }
 
 
