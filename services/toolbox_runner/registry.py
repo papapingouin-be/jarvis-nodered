@@ -13,7 +13,7 @@ REGISTRY_FILE = ROOT / "jarvis" / "toolbox" / "registry" / "tools.registry.json"
 
 def build_registry() -> dict[str, dict[str, Any]]:
     registry: dict[str, dict[str, Any]] = {}
-    manifest_paths = sorted(TOOLS_DIR.glob("*/manifest.json"))
+    manifest_paths = sorted(TOOLS_DIR.glob("**/manifest.json"))
     for manifest_path in manifest_paths:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         validate_payload("tool_manifest.schema.json", manifest)
