@@ -80,7 +80,7 @@
 <body>
   <header>
     <div>
-      <h1>Jarvis DevLab</h1>
+      <h1>Jarvis DevLab <span class="badge" title="Version interface">v1.2.0</span></h1>
       <div class="sub">atelier de développement pour tools Python, flux Jarvis et connecteurs</div>
     </div>
     <div class="status-line">
@@ -115,9 +115,9 @@
     <main>
       <section id="view-dashboard" class="view active">
         <div class="grid-3">
-          <div class="card"><div class="muted">Tools détectés</div><div id="kpiTools" class="kpi">0</div></div>
-          <div class="card"><div class="muted">Fichiers Python</div><div id="kpiPyFiles" class="kpi">0</div></div>
-          <div class="card"><div class="muted">Runs enregistrés</div><div id="kpiRuns" class="kpi">0</div></div>
+          <div class="card"><div class="muted" title="Nombre d'outils exécutables détectés via manifest.json">Tools détectés</div><div id="kpiTools" class="kpi">0</div></div>
+          <div class="card"><div class="muted" title="Tous les fichiers .py trouvés sous jarvis/toolbox/tools">Fichiers Python</div><div id="kpiPyFiles" class="kpi">0</div></div>
+          <div class="card"><div class="muted" title="Historique stocké par le backend DevLab">Runs enregistrés</div><div id="kpiRuns" class="kpi">0</div></div>
         </div>
         <div class="grid-2">
           <div class="card">

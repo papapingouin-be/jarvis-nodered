@@ -68,6 +68,7 @@ const state = {
   lastRun: null,
   runs: [],
   editorTab: 'json',
+  health: null,
 };
 
 function loadSettings() {
@@ -109,6 +110,27 @@ async function settled(label, fn) {
 function setBadge(el, text, type = '') {
   el.textContent = text;
   el.className = `badge ${type}`.trim();
+}
+
+
+function normalizeRows(items) { return Array.isArray(items) ? items : []; }
+
+function updateKpisFromHealth(data) {
+  if (!data) return;
+  els.kpiTools.textContent = Number(data.tools_count || 0);
+  els.kpiPyFiles.textContent = Number(data.python_files_count || 0);
+}
+
+function renderNamespaces(namespaces, preferred = null) {
+  const rows = normalizeRows(namespaces);
+  const current = preferred || els.cfgNamespace.value;
+  if (rows.length) {
+    els.cfgNamespace.innerHTML = rows.map(item => {
+      const ns = typeof item === 'string' ? item : item.namespace;
+      return `<option value="${ns}">${ns}</option>`;
+    }).join('');
+    if (current && [...els.cfgNamespace.options].some(opt => opt.value === current)) els.cfgNamespace.value = current;
+  }
 }
 
 async function api(action, payload = {}) {
@@ -223,7 +245,7 @@ function renderToolList() {
   const tools = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || (t.description || '').toLowerCase().includes(filter));
   els.toolList.innerHTML = tools.map(tool => `
     <button class="tool-item ${state.currentTool?.name === tool.name ? 'active' : ''}" data-tool-name="${tool.name}">
-      <div><strong>${tool.name}</strong></div>
+      <div class="status-line"><strong>${tool.name}</strong><span class="badge" title="Version du tool selon le manifest ou la date du fichier">v${tool.version || '?'}</span></div>
       <div class="small muted">${tool.description || 'sans description'}</div>
       <div class="small muted">${tool.entrypoint}</div>
     </button>
@@ -232,7 +254,7 @@ function renderToolList() {
 }
 
 function renderToolSelect() {
-  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name}</option>`).join('');
+  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name} · v${tool.version || '?'}</option>`).join('');
   if (state.currentTool) els.toolSelect.value = state.currentTool.name;
 }
 
@@ -260,6 +282,7 @@ function selectTool(toolName) {
       '5. La trace visuelle = étapes exécutées par le backend DevLab.'
     ],
     tool: tool.name,
+    version: tool.version || '?',
     required_fields: tool.required_fields || [],
     conseil: 'Pour forcer un backend via proxy, mets par exemple proxy:http://192.168.11.206:8090 dans URL Dev backend.'
   });
@@ -295,7 +318,10 @@ async function refreshHealth() {
   const health = await settled('healthcheck', () => api('healthcheck'));
   if (health.ok) {
     const data = health.value;
-    setBadge(els.healthDb, data.tools_root_exists ? `DB ${data.tables.length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
+    state.health = data;
+    updateKpisFromHealth(data);
+    renderNamespaces(data.namespaces || [], els.cfgNamespace.value);
+    setBadge(els.healthDb, data.tools_root_exists ? `DB ${normalizeRows(data.tables).length} tables` : 'DB / repo ?', data.tools_root_exists ? 'ok' : 'warn');
     if (data.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
     else if (data.runner_error) setBadge(els.healthRunner, 'Runner KO', 'err');
     else setBadge(els.healthRunner, 'Runner ?', 'warn');
@@ -319,8 +345,19 @@ async function refreshHealth() {
 async function loadInventory() {
   const toolsResult = await settled('list_python_tools', () => api('list_python_tools'));
   const filesResult = await settled('list_python_files', () => api('list_python_files'));
-  state.tools = toolsResult.ok ? (toolsResult.value.items || []) : [];
-  state.pyFiles = filesResult.ok ? (filesResult.value.items || []) : [];
+  state.tools = toolsResult.ok ? normalizeRows(toolsResult.value.items) : [];
+  state.pyFiles = filesResult.ok ? normalizeRows(filesResult.value.items) : [];
+  if ((!state.tools.length || !state.pyFiles.length) && state.health) {
+    logUi('inventory fallback note', {
+      tools_from_healthcheck: state.health.tools_count,
+      py_files_from_healthcheck: state.health.python_files_count,
+      tools_api_count: state.tools.length,
+      files_api_count: state.pyFiles.length,
+      tools_root: state.health.tools_root,
+      repo_root: state.health.repo_root,
+      tools_preview: state.health.tools_preview || []
+    });
+  }
   renderToolSelect();
   renderToolList();
   if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
@@ -410,9 +447,9 @@ async function explainLastRun() {
 async function loadNamespace() {
   const ns = els.cfgNamespace.value;
   const data = await api('list_sensitive', { namespace: ns });
-  const rows = data.items || [];
+  const rows = normalizeRows(data.items);
   if (rows.length === 0) {
-    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucune valeur.</td></tr>';
+    els.sensitiveTable.innerHTML = `<tr><td colspan="3" class="muted">Aucune valeur pour <code>${ns}</code>. Vérifie le chemin DB et le namespace chargé.</td></tr>`;
     return;
   }
   els.sensitiveTable.innerHTML = rows.map(row => `
@@ -431,8 +468,14 @@ async function loadNamespace() {
 }
 
 async function loadTables() {
-  const data = await api('list_tables');
-  els.dbTableSelect.innerHTML = (data.items || []).map(item => `<option value="${item.name}">${item.name}</option>`).join('');
+  const result = await settled('list_tables', () => api('list_tables'));
+  const items = result.ok ? normalizeRows(result.value.items) : normalizeRows(state.health?.tables);
+  els.dbTableSelect.innerHTML = items.map(item => `<option value="${item.name}">${item.name}</option>`).join('');
+  if (!items.length) {
+    els.dbTableWrap.innerHTML = '<div class="muted">Aucune table détectée. Vérifie le chemin DB.</div>';
+    return;
+  }
+  await loadSelectedTable();
 }
 
 async function loadSelectedTable() {
@@ -449,8 +492,9 @@ function escapeHtml(value) {
 }
 
 async function loadRuns() {
-  const data = await devApi('/runs/list', { db_path: els.dbPath.value.trim(), limit: 100, offset: 0 });
-  state.runs = data.items || [];
+  const result = await settled('runs.list', () => devApi('/runs/list', { db_path: els.dbPath.value.trim(), limit: 100, offset: 0 }));
+  const data = result.ok ? result.value : { items: [] };
+  state.runs = normalizeRows(data.items);
   els.runsList.innerHTML = state.runs.map(run => `
     <button class="tool-item" data-run-id="${run.run_id}">
       <div class="status-line"><strong>${run.tool_name}</strong><span class="badge">${run.mode}</span><span class="badge ${run.status === 'ok' ? 'ok' : 'err'}">${run.status}</span></div>

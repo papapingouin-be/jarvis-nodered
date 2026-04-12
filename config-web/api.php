@@ -155,8 +155,10 @@ function list_python_tools(): array {
                 $sampleInput = $sample;
             }
         }
+        $version = (string)($manifest['version'] ?? $manifest['tool_version'] ?? gmdate('Y.m.d.His', filemtime($toolCodePath) ?: time()));
         $tools[] = [
             'name' => $toolName,
+            'version' => $version,
             'description' => (string)($manifest['description'] ?? ''),
             'entrypoint' => $entrypoint,
             'manifest_path' => str_replace(repo_root() . '/', '', $manifestPath),
@@ -252,6 +254,12 @@ function toolbox_runner_url(?PDO $pdo): string {
     return $dbUrl !== '' ? $dbUrl : $defaultUrl;
 }
 
+
+function list_namespaces(PDO $pdo): array {
+    $stmt = $pdo->query('SELECT DISTINCT namespace FROM sensitive_values ORDER BY namespace');
+    return $stmt->fetchAll();
+}
+
 function list_tables(PDO $pdo): array {
     $stmt = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
     return $stmt->fetchAll();
@@ -312,6 +320,8 @@ try {
                 'tools_count' => count(list_python_tools()),
                 'python_files_count' => count(list_python_files()),
                 'tables' => list_tables($pdo),
+                'namespaces' => list_namespaces($pdo),
+                'tools_preview' => array_map(static fn(array $t) => ['name' => $t['name'], 'version' => $t['version'], 'entrypoint' => $t['entrypoint']], array_slice(list_python_tools(), 0, 20)),
                 'runner_url' => $runnerUrl,
                 'runner_health' => $runnerHealth,
                 'runner_error' => $runnerError,
@@ -456,6 +466,10 @@ try {
                 'http_code' => $httpCode,
                 'response' => $json,
             ]);
+            break;
+
+        case 'list_namespaces':
+            echo json_encode(['ok' => true, 'items' => list_namespaces($pdo)]);
             break;
 
         case 'list_tables':
