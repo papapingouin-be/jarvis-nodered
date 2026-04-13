@@ -1,3 +1,5 @@
+const DB_UI_VERSION = 'db-ui-v1.6.0';
+
 const els = {
   dbStatus: document.getElementById('dbStatus'),
   dbDetails: document.getElementById('dbDetails'),
@@ -14,6 +16,8 @@ const els = {
   dbActionOutput: document.getElementById('dbActionOutput'),
   dbActionConfirm: document.getElementById('dbActionConfirm'),
   dbActionCancel: document.getElementById('dbActionCancel'),
+  dbUiVersion: document.getElementById('dbUiVersion'),
+  forceCloseDb: document.getElementById('forceCloseDb'),
 };
 
 const DB_KEY = 'jarvis_active_db_path';
@@ -29,7 +33,14 @@ const state = {
 };
 
 function dblog(step, data = null) {
-  console.log('[DB]', step, data ?? '');
+  console.log(`[DB][${DB_UI_VERSION}]`, step, data ?? '');
+}
+
+function setVersionBadge() {
+  if (els.dbUiVersion) {
+    els.dbUiVersion.textContent = DB_UI_VERSION;
+    els.dbUiVersion.title = `Version interface DB: ${DB_UI_VERSION}`;
+  }
 }
 
 function setActiveDb(path) {
@@ -68,6 +79,7 @@ function renderHealth(data) {
     </div>
   `;
   els.dbDetails.textContent = JSON.stringify({
+    ui_version: DB_UI_VERSION,
     exists: db.exists,
     readable: db.readable,
     writable: db.writable,
@@ -77,6 +89,9 @@ function renderHealth(data) {
     sqlite_open_ok: db.sqlite_open_ok,
     sqlite_error: db.sqlite_error,
     preferred_db_path: data.preferred_db_path,
+    modal_present: !!els.dbModal,
+    cancel_present: !!els.dbActionCancel,
+    confirm_present: !!els.dbActionConfirm,
   }, null, 2);
   dblog('health.render', { db });
 }
@@ -91,6 +106,28 @@ async function refreshHealth() {
     els.dbDetails.textContent = String(err.message || err);
     dblog('health.error', { error: String(err.message || err) });
   }
+}
+
+function modalDebugSnapshot(label) {
+  if (!els.dbModal) {
+    dblog('modal.snapshot', { label, modal: null });
+    return;
+  }
+  const style = window.getComputedStyle(els.dbModal);
+  dblog('modal.snapshot', {
+    label,
+    hiddenAttr: els.dbModal.hidden,
+    ariaHidden: els.dbModal.getAttribute('aria-hidden'),
+    inlineDisplay: els.dbModal.style.display || '',
+    computedDisplay: style.display,
+    computedVisibility: style.visibility,
+    className: els.dbModal.className,
+    activeElement: document.activeElement ? {
+      id: document.activeElement.id || null,
+      tag: document.activeElement.tagName,
+      text: (document.activeElement.textContent || '').trim().slice(0, 40),
+    } : null,
+  });
 }
 
 function openModal(action, trigger = null) {
@@ -127,21 +164,43 @@ function openModal(action, trigger = null) {
   }
 
   els.dbModal.hidden = false;
+  els.dbModal.setAttribute('aria-hidden', 'false');
+  els.dbModal.style.display = 'flex';
+  modalDebugSnapshot('open.before_load');
   dblog('manager.open', { action });
   loadBrowser(state.browserPath).finally(() => {
     const field = document.getElementById('modalNewDbName') || document.getElementById('modalUploadFile') || els.dbActionConfirm;
     if (field) field.focus();
+    modalDebugSnapshot('open.after_focus');
   });
 }
 
 function closeModal(reason = 'manual') {
-  dblog('manager.close', { reason, action: state.modalAction });
+  dblog('manager.close.request', { reason, action: state.modalAction });
+  modalDebugSnapshot('close.before');
   state.modalAction = null;
   state.selectedPath = null;
   els.dbModal.hidden = true;
+  els.dbModal.setAttribute('aria-hidden', 'true');
+  els.dbModal.style.display = 'none';
+  modalDebugSnapshot('close.after_hide');
   if (state.lastFocus && typeof state.lastFocus.focus === 'function') {
-    setTimeout(() => state.lastFocus.focus(), 0);
+    setTimeout(() => {
+      try { state.lastFocus.focus(); } catch (_) {}
+      modalDebugSnapshot('close.after_restore_focus');
+    }, 0);
   }
+}
+
+function hardCloseModal() {
+  if (!els.dbModal) return;
+  dblog('manager.force_close', {});
+  state.modalAction = null;
+  state.selectedPath = null;
+  els.dbModal.hidden = true;
+  els.dbModal.setAttribute('aria-hidden', 'true');
+  els.dbModal.style.display = 'none';
+  modalDebugSnapshot('force_close');
 }
 
 async function loadBrowser(path) {
@@ -250,21 +309,32 @@ async function confirmModalAction() {
 }
 
 window.addEventListener('load', () => {
-  dblog('settings.load', { activeDb: state.activeDb });
+  setVersionBadge();
+  dblog('settings.load', {
+    activeDb: state.activeDb,
+    cancel_present: !!els.dbActionCancel,
+    modal_present: !!els.dbModal,
+    version: DB_UI_VERSION,
+  });
   refreshHealth();
 
-  els.createDb.onclick = (e) => openModal('create', e.currentTarget);
-  els.selectDb.onclick = (e) => openModal('select', e.currentTarget);
-  els.uploadDb.onclick = (e) => openModal('upload', e.currentTarget);
-  els.exportDb.onclick = (e) => openModal('export', e.currentTarget);
-  els.deleteDb.onclick = (e) => openModal('delete', e.currentTarget);
-  els.dbActionConfirm.onclick = confirmModalAction;
-  els.dbActionCancel.onclick = () => closeModal('button_cancel');
-  els.dbModal.addEventListener('click', (e) => {
-    if (e.target === els.dbModal) closeModal('backdrop_click');
-  });
+  if (els.createDb) els.createDb.onclick = (e) => openModal('create', e.currentTarget);
+  if (els.selectDb) els.selectDb.onclick = (e) => openModal('select', e.currentTarget);
+  if (els.uploadDb) els.uploadDb.onclick = (e) => openModal('upload', e.currentTarget);
+  if (els.exportDb) els.exportDb.onclick = (e) => openModal('export', e.currentTarget);
+  if (els.deleteDb) els.deleteDb.onclick = (e) => openModal('delete', e.currentTarget);
+  if (els.dbActionConfirm) els.dbActionConfirm.onclick = confirmModalAction;
+  if (els.dbActionCancel) els.dbActionCancel.onclick = () => closeModal('button_cancel');
+  if (els.forceCloseDb) els.forceCloseDb.onclick = () => hardCloseModal();
+
+  if (els.dbModal) {
+    els.dbModal.addEventListener('click', (e) => {
+      if (e.target === els.dbModal) closeModal('backdrop_click');
+    });
+  }
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && !els.dbModal.hidden) {
+    if (e.key === 'Escape' && els.dbModal && !els.dbModal.hidden) {
       e.preventDefault();
       closeModal('escape');
     }
