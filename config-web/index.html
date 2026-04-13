@@ -16,6 +16,7 @@
   button.danger{background:#b91c1c}
   pre{background:#0b1220;border:1px solid #334155;border-radius:12px;padding:12px;overflow:auto;white-space:pre-wrap}
   a{color:#93c5fd}
+  [hidden]{display:none !important}
   .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;padding:24px}
   .modal{width:min(1100px,96vw);max-height:90vh;overflow:auto;background:#111827;border:1px solid #374151;border-radius:16px;padding:18px}
   .browser-grid{display:grid;grid-template-columns:1.2fr .9fr;gap:16px}
@@ -32,11 +33,11 @@
     <div class="small">Premier lien testé par défaut : <code>/var/www/jarvis/database/jarvis_infra.db</code></div>
     <div id="dbStatus" style="margin-top:12px">Chargement…</div>
     <div class="row" style="margin-top:14px">
-      <button id="selectDb" class="secondary">Sélectionner</button>
-      <button id="createDb">Créer</button>
-      <button id="uploadDb" class="secondary">Uploader</button>
-      <button id="exportDb" class="secondary">Exporter / Télécharger</button>
-      <button id="deleteDb" class="danger">Effacer</button>
+      <button id="selectDb" class="secondary" type="button">Sélectionner</button>
+      <button id="createDb" type="button">Créer</button>
+      <button id="uploadDb" class="secondary" type="button">Uploader</button>
+      <button id="exportDb" class="secondary" type="button">Exporter / Télécharger</button>
+      <button id="deleteDb" class="danger" type="button">Effacer</button>
     </div>
     <div style="margin-top:16px">
       <h3>Détails DB</h3>
@@ -44,11 +45,11 @@
     </div>
   </div>
 
-  <div id="dbModal" class="modal-backdrop" hidden aria-hidden="true">
+  <div id="dbModal" class="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dbModalTitle">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
         <h2 id="dbModalTitle" style="margin:0">Gestion DB</h2>
-        <button id="dbActionCancel" class="secondary">Fermer</button>
+        <button id="dbActionCancel" class="secondary" type="button">Fermer</button>
       </div>
       <div class="browser-grid" style="margin-top:14px">
         <div>
@@ -60,7 +61,7 @@
           <div class="small">Action</div>
           <div id="dbActionBody" class="db-path">Choisis une action.</div>
           <div class="row" style="margin-top:10px">
-            <button id="dbActionConfirm">Confirmer</button>
+            <button id="dbActionConfirm" type="button">Confirmer</button>
           </div>
           <pre id="dbActionOutput" style="margin-top:12px;min-height:140px">Aucune action.</pre>
         </div>

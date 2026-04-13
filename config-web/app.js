@@ -6,7 +6,6 @@ const els = {
   uploadDb: document.getElementById('uploadDb'),
   exportDb: document.getElementById('exportDb'),
   deleteDb: document.getElementById('deleteDb'),
-  dbDownloadLink: document.getElementById('dbDownloadLink'),
   dbModal: document.getElementById('dbModal'),
   dbModalTitle: document.getElementById('dbModalTitle'),
   dbBrowserPath: document.getElementById('dbBrowserPath'),
@@ -25,6 +24,7 @@ const state = {
   modalAction: null,
   selectedPath: null,
   browserPath: '/var/www/jarvis/database',
+  lastFocus: null,
 };
 
 function dblog(step, data = null) {
@@ -50,9 +50,7 @@ async function api(action, payload = {}, expectJson = true) {
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
   dblog('api.response', { action, status: res.status, data });
-  if (!res.ok || data.error) {
-    throw new Error(data.error || `HTTP ${res.status}`);
-  }
+  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
 
@@ -65,7 +63,7 @@ function renderHealth(data) {
   els.dbStatus.innerHTML = `
     <div><strong>DB active :</strong> <span style="color:${color}">${db.path || state.activeDb}</span></div>
     <div style="margin-top:.35rem;">
-      ${exists ? `<a id="dbDownloadLink" href="api.php?action=download_db&db_path=${encodeURIComponent(db.path)}">Télécharger la DB active</a>` : '<span style="color:#94a3b8">Aucune DB active valide.</span>'}
+      ${exists ? `<a href="api.php?action=download_db&db_path=${encodeURIComponent(db.path)}">Télécharger la DB active</a>` : '<span style="color:#94a3b8">Aucune DB active valide.</span>'}
     </div>
   `;
   els.dbDetails.textContent = JSON.stringify({
@@ -79,7 +77,6 @@ function renderHealth(data) {
     sqlite_error: db.sqlite_error,
     preferred_db_path: data.preferred_db_path,
   }, null, 2);
-
   dblog('health.render', { db });
 }
 
@@ -95,13 +92,13 @@ async function refreshHealth() {
   }
 }
 
-function openModal(action) {
+function openModal(action, trigger = null) {
+  state.lastFocus = trigger || document.activeElement;
   state.modalAction = action;
   state.selectedPath = null;
   els.dbActionOutput.textContent = 'Aucune action.';
   els.dbBrowserPath.textContent = state.browserPath;
   els.dbModal.hidden = false;
-  els.dbModal.setAttribute('aria-hidden', 'false');
   const titles = {
     create: 'Créer une nouvelle DB',
     select: 'Sélectionner une DB existante',
@@ -117,12 +114,11 @@ function openModal(action) {
       <input id="modalNewDbName" placeholder="jarvis_infra.db" value="jarvis_infra.db">
       <div class="small">Choisis d'abord un dossier dans l'arborescence, puis confirme.</div>
     `;
-    setTimeout(() => document.getElementById('modalNewDbName')?.focus(), 50);
   } else if (action === 'upload') {
     els.dbActionBody.innerHTML = `
       <label>Fichier DB local</label>
       <input id="modalUploadFile" type="file" accept=".db,.sqlite,.sqlite3">
-      <div class="small">Choisis d'abord un dossier distant. Cette version prépare le flux de choix, mais n'écrase pas encore un fichier serveur.</div>
+      <div class="small">Choisis d'abord un dossier distant. Cette version prépare le flux de choix.</div>
     `;
   } else if (action === 'export') {
     els.dbActionBody.innerHTML = `<div class="small">Le téléchargement utilise directement le lien de la DB active.</div>`;
@@ -132,13 +128,19 @@ function openModal(action) {
 
   loadBrowser(state.browserPath);
   dblog('manager.open', { action });
+  setTimeout(() => {
+    const field = document.getElementById('modalNewDbName') || document.getElementById('modalUploadFile') || els.dbActionConfirm;
+    field?.focus();
+  }, 20);
 }
 
 function closeModal() {
   els.dbModal.hidden = true;
-  els.dbModal.setAttribute('aria-hidden', 'true');
   state.modalAction = null;
   state.selectedPath = null;
+  if (state.lastFocus && typeof state.lastFocus.focus === 'function') {
+    setTimeout(() => state.lastFocus.focus(), 0);
+  }
 }
 
 async function loadBrowser(path) {
@@ -148,7 +150,7 @@ async function loadBrowser(path) {
     state.browserPath = data.current_path;
     els.dbBrowserPath.textContent = data.current_path;
     els.dbBrowserList.innerHTML = (data.items || []).map(item => `
-      <button class="browser-item" data-path="${item.path.replace(/"/g, '&quot;')}" data-type="${item.type}">
+      <button type="button" class="browser-item" data-path="${item.path.replace(/"/g, '&quot;')}" data-type="${item.type}">
         <span>${item.type === 'dir' ? '📁' : '🗄️'} ${item.name}</span>
         <span class="small">${item.type}</span>
       </button>
@@ -203,9 +205,7 @@ async function confirmModalAction() {
       if (!state.selectedPath) throw new Error('Choisis un fichier .db');
       dblog('delete.request', { path: state.selectedPath });
       const data = await api('delete_db', { path: state.selectedPath });
-      if (state.activeDb === state.selectedPath) {
-        setActiveDb(DEFAULT_DB);
-      }
+      if (state.activeDb === state.selectedPath) setActiveDb(DEFAULT_DB);
       els.dbActionOutput.textContent = JSON.stringify(data, null, 2);
       await refreshHealth();
       loadBrowser(state.browserPath);
@@ -236,11 +236,11 @@ window.addEventListener('load', () => {
   dblog('settings.load', { activeDb: state.activeDb });
   refreshHealth();
 
-  els.createDb.onclick = () => openModal('create');
-  els.selectDb.onclick = () => openModal('select');
-  els.uploadDb.onclick = () => openModal('upload');
-  els.exportDb.onclick = () => openModal('export');
-  els.deleteDb.onclick = () => openModal('delete');
+  els.createDb.onclick = (e) => openModal('create', e.currentTarget);
+  els.selectDb.onclick = (e) => openModal('select', e.currentTarget);
+  els.uploadDb.onclick = (e) => openModal('upload', e.currentTarget);
+  els.exportDb.onclick = (e) => openModal('export', e.currentTarget);
+  els.deleteDb.onclick = (e) => openModal('delete', e.currentTarget);
   els.dbActionConfirm.onclick = confirmModalAction;
   els.dbActionCancel.onclick = closeModal;
   els.dbModal.addEventListener('click', (e) => {

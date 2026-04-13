@@ -26,11 +26,7 @@ function preferred_db_path(): string {
 }
 
 function default_db_path(): string {
-    $preferred = preferred_db_path();
-    if (str_starts_with($preferred, '/var/www/')) {
-        return $preferred;
-    }
-    return repo_root() . '/jarvis/database/jarvis_infra.db';
+    return preferred_db_path();
 }
 
 function parse_payload(): array {
@@ -49,13 +45,9 @@ function parse_payload(): array {
 
 function current_db_path(array $payload): string {
     $path = trim((string)($payload['db_path'] ?? ($_GET['db_path'] ?? '')));
-    if ($path !== '') {
-        return $path;
-    }
+    if ($path !== '') return $path;
     $env = trim((string)(getenv('JARVIS_INFRA_DB') ?: ''));
-    if ($env !== '') {
-        return $env;
-    }
+    if ($env !== '') return $env;
     return default_db_path();
 }
 
@@ -154,31 +146,20 @@ function browse_paths(string $path): array {
             continue;
         }
         $real = realpath($full);
-        if ($real === false || !is_allowed_path($real)) {
-            continue;
-        }
+        if ($real === false || !is_allowed_path($real)) continue;
         if (is_dir($real)) {
             $items[] = ['name' => $entry, 'path' => $real, 'type' => 'dir'];
             continue;
         }
         if (preg_match('/\.(db|sqlite|sqlite3)$/i', $entry)) {
-            $items[] = [
-                'name' => $entry,
-                'path' => $real,
-                'type' => 'file',
-                'size' => filesize($real) ?: 0,
-            ];
+            $items[] = ['name' => $entry, 'path' => $real, 'type' => 'file', 'size' => filesize($real) ?: 0];
         }
     }
     usort($items, static function(array $a, array $b): int {
         if ($a['type'] !== $b['type']) return $a['type'] === 'dir' ? -1 : 1;
         return strcmp((string)$a['name'], (string)$b['name']);
     });
-    return [
-        'current_path' => $dir,
-        'items' => $items,
-        'allowed_roots' => allowed_roots(),
-    ];
+    return ['current_path' => $dir, 'items' => $items, 'allowed_roots' => allowed_roots()];
 }
 
 function ensure_schema(PDO $pdo): void {
@@ -193,18 +174,14 @@ function ensure_schema(PDO $pdo): void {
 
 function create_db_at(string $targetPath): array {
     $target = normalize_target_file($targetPath);
-    $healthBefore = db_health($target);
-    logdb('create.request', ['target' => $target, 'health_before' => $healthBefore]);
-
+    logdb('create.request', ['target' => $target]);
     if (is_file($target)) {
         return ['ok' => true, 'path' => $target, 'message' => 'db already exists', 'db' => db_health($target)];
     }
-
     $dir = dirname($target);
     if (!is_dir($dir) || !is_writable($dir)) {
         fail('dossier parent non accessible en écriture', 400, ['dir' => $dir]);
     }
-
     try {
         $pdo = new PDO('sqlite:' . $target);
         ensure_schema($pdo);
@@ -212,7 +189,6 @@ function create_db_at(string $targetPath): array {
     } catch (Throwable $e) {
         fail($e->getMessage(), 500, ['path' => $target]);
     }
-
     $health = db_health($target);
     logdb('create.done', ['target' => $target, 'health' => $health]);
     return ['ok' => true, 'path' => $target, 'db' => $health];
@@ -221,12 +197,8 @@ function create_db_at(string $targetPath): array {
 function delete_db_at(string $targetPath): array {
     $target = normalize_target_file($targetPath);
     logdb('delete.request', ['target' => $target]);
-    if (!is_file($target)) {
-        fail('db introuvable', 404, ['path' => $target]);
-    }
-    if (!unlink($target)) {
-        fail('suppression impossible', 500, ['path' => $target]);
-    }
+    if (!is_file($target)) fail('db introuvable', 404, ['path' => $target]);
+    if (!unlink($target)) fail('suppression impossible', 500, ['path' => $target]);
     logdb('delete.done', ['target' => $target]);
     return ['ok' => true, 'deleted' => $target];
 }
@@ -245,34 +217,23 @@ switch ($action) {
             'default_db_path' => default_db_path(),
             'allowed_roots' => allowed_roots(),
         ]);
-
     case 'browse_paths':
         $path = trim((string)($payload['path'] ?? preferred_db_path()));
-        if ($path === '' || is_file($path)) {
-            $path = dirname($path !== '' ? $path : preferred_db_path());
-        }
+        if ($path === '' || is_file($path)) $path = dirname($path !== '' ? $path : preferred_db_path());
         respond(['ok' => true] + browse_paths($path));
-
     case 'create_db':
-        $target = (string)($payload['path'] ?? '');
-        respond(create_db_at($target));
-
+        respond(create_db_at((string)($payload['path'] ?? '')));
     case 'delete_db':
-        $target = (string)($payload['path'] ?? '');
-        respond(delete_db_at($target));
-
+        respond(delete_db_at((string)($payload['path'] ?? '')));
     case 'download_db':
         $target = normalize_target_file($activePath);
         logdb('download.request', ['target' => $target]);
-        if (!is_file($target)) {
-            fail('db not found', 404, ['path' => $target]);
-        }
+        if (!is_file($target)) fail('db not found', 404, ['path' => $target]);
         header_remove('Content-Type');
         header('Content-Type: application/octet-stream');
         header('Content-Disposition: attachment; filename="' . basename($target) . '"');
         readfile($target);
         exit;
-
     default:
         fail('unknown action', 400, ['action' => $action]);
 }
