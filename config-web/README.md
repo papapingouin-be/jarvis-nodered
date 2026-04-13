@@ -1,50 +1,24 @@
-# config-web corrected zip
+# config-web corrected v4
 
-Contenu:
-- `index.html`
-- `app.js`
-- `api.php`
+Correctif principal :
+- fallback automatique du fichier SQLite vers un emplacement inscriptible
+- priorité : `DEVLAB_DB_PATH`, puis `./devlab.db`, puis `/tmp/jarvis_devlab.db`
 
-## Corrections apportées
+Si ton dossier web n'est pas inscriptible, cette version évite le 500 sur `get_service`.
 
-- `api.php` renvoie toujours du JSON, même en cas d'erreur PHP
-- `app.js` affiche la vraie erreur si la réponse n'est pas du JSON
-- ajout d'un `healthcheck`
-- historique des runs en SQLite locale `devlab.db`
-- UI plus robuste
-- lecture/écriture/validation de fichiers code
-- fallback sur un service de démonstration si aucun manifest n'est détecté
-
-## Déploiement
-
-Copie les fichiers dans ton dossier web `config-web`, en remplaçant les anciens.
-
-## Vérification rapide
-
-Ouvre directement:
-- `https://.../api.php`
-
-Tu dois recevoir un JSON du type:
-- `{"error":"unknown_action","action":""}` ou un autre JSON valide
-
-Puis recharge `index.html`.
+Conseil :
+- remplace les 4 fichiers
+- fais un Ctrl+F5
+- vérifie dans l'UI la ligne `DB ... writable oui/non`
 
 
-## Correctif supplémentaire
-- correction d'une erreur de syntaxe JavaScript dans `app.js` qui empêchait le chargement de `showTest()` et des autres fonctions.
+## V5 debug
 
-- correction définitive de la ligne JS cassée autour du message Monaco.
+Cette version ajoute:
+- `action=ping`
+- `action=healthcheck` sans ouverture forcée de SQLite
+- `action=debug_env`
+- affichage détaillé côté `app.js`: message, fichier, ligne
 
-## Correctif SQLite permissions
-
-Cette version ne tente plus d'écrire aveuglément `devlab.db` dans le dossier web.
-
-Ordre de résolution:
-1. `JARVIS_DEVLAB_DB` si défini
-2. `JARVIS_DEVLAB_DB_DIR` si défini
-3. `config-web/data/devlab.db`
-4. `/tmp/jarvis-devlab/devlab.db`
-
-Le `healthcheck` renvoie maintenant aussi:
-- `db_dir`
-- `db_dir_writable`
+Si ça casse encore, la console du navigateur doit maintenant afficher par exemple:
+`php_error — <message> @ /chemin/api.php:123`
