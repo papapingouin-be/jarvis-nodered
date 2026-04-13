@@ -1,64 +1,616 @@
 <?php
-header('Content-Type: application/json');
+declare(strict_types=1);
 
-$payload=json_decode(file_get_contents("php://input"),true);
-$action=$payload['action']??"";
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+header('Content-Type: application/json; charset=utf-8');
 
-$db=new PDO("sqlite:devlab.db");
-$db->setAttribute(PDO::ATTR_ERRMODE,PDO::ERRMODE_EXCEPTION);
-
-$db->exec("CREATE TABLE IF NOT EXISTS devlab_runs(
-id INTEGER PRIMARY KEY AUTOINCREMENT,
-service TEXT,
-status TEXT,
-started_at TEXT,
-payload TEXT,
-output TEXT
-)");
-
-if($action=="list_services"){
-
+set_error_handler(function (int $severity, string $message, string $file, int $line): never {
+    http_response_code(500);
     echo json_encode([
-        "services"=>[
-            [
-                "name"=>"example_service",
-                "config_requirements"=>[
-                    ["key"=>"API_URL","label"=>"API URL"],
-                    ["key"=>"TOKEN","label"=>"Token"]
-                ]
-            ]
-        ]
-    ]);
+        'error' => 'php_error',
+        'message' => $message,
+        'file' => $file,
+        'line' => $line,
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+
+set_exception_handler(function (Throwable $e): never {
+    http_response_code(500);
+    echo json_encode([
+        'error' => 'php_exception',
+        'message' => $e->getMessage(),
+        'file' => $e->getFile(),
+        'line' => $e->getLine(),
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+});
+
+function json_response(array $data, int $status = 200): never {
+    http_response_code($status);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }
 
-if($action=="save_service_config"){
-
-    echo json_encode(["ok"=>true]);
-    exit;
+function repo_root(): string {
+    return __DIR__;
 }
 
-if($action=="run_service_test"){
+function tools_root(): string {
+    return repo_root() . '/jarvis/toolbox/tools';
+}
 
-    $stmt=$db->prepare("INSERT INTO devlab_runs(service,status,started_at,payload,output)
-    VALUES(:s,'ok',datetime('now'),:p,:o)");
+function db_path(): string {
+    return __DIR__ . '/devlab.db';
+}
 
+function pdo(): PDO {
+    static $pdo = null;
+    if ($pdo instanceof PDO) {
+        return $pdo;
+    }
+
+    $pdo = new PDO('sqlite:' . db_path());
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->exec('PRAGMA foreign_keys = ON');
+    ensure_schema($pdo);
+
+    return $pdo;
+}
+
+function ensure_schema(PDO $pdo): void {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS infra_meta (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS service_config_values (
+        profile TEXT NOT NULL DEFAULT 'default',
+        service_name TEXT NOT NULL,
+        config_key TEXT NOT NULL,
+        config_value TEXT,
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        PRIMARY KEY(profile, service_name, config_key)
+    )");
+
+    $pdo->exec("CREATE TABLE IF NOT EXISTS devlab_runs (
+        run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        service_name TEXT NOT NULL,
+        engine TEXT NOT NULL,
+        profile TEXT NOT NULL DEFAULT 'default',
+        status TEXT NOT NULL,
+        started_at TEXT NOT NULL,
+        ended_at TEXT,
+        duration_ms INTEGER,
+        summary TEXT,
+        payload_json TEXT,
+        output_json TEXT,
+        stdout_text TEXT,
+        stderr_text TEXT
+    )");
+}
+
+function parse_payload(): array {
+    $raw = file_get_contents('php://input') ?: '{}';
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded)) {
+        json_response(['error' => 'invalid_json'], 400);
+    }
+    return $decoded;
+}
+
+function discover_manifest_paths(string $root): array {
+    if (!is_dir($root)) return [];
+    $paths = [];
+    $iter = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iter as $fileInfo) {
+        if ($fileInfo instanceof SplFileInfo && $fileInfo->isFile() && $fileInfo->getFilename() === 'manifest.json') {
+            $paths[] = $fileInfo->getPathname();
+        }
+    }
+    sort($paths);
+    return $paths;
+}
+
+function discover_python_paths(string $root): array {
+    if (!is_dir($root)) return [];
+    $paths = [];
+    $iter = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iter as $fileInfo) {
+        if ($fileInfo instanceof SplFileInfo && $fileInfo->isFile() && strtolower($fileInfo->getExtension()) === 'py') {
+            $paths[] = $fileInfo->getPathname();
+        }
+    }
+    sort($paths);
+    return $paths;
+}
+
+function sample_from_schema(array $schema): mixed {
+    if (array_key_exists('default', $schema)) return $schema['default'];
+    if (isset($schema['enum']) && is_array($schema['enum']) && count($schema['enum']) > 0) return $schema['enum'][0];
+    $type = $schema['type'] ?? null;
+
+    if ($type === 'object') {
+        $out = [];
+        foreach (($schema['properties'] ?? []) as $name => $child) {
+            if (is_string($name) && is_array($child)) {
+                $out[$name] = sample_from_schema($child);
+            }
+        }
+        return $out;
+    }
+
+    if ($type === 'array') return [];
+    if ($type === 'integer' || $type === 'number') return 0;
+    if ($type === 'boolean') return false;
+    if ($type === 'string') return '';
+
+    return null;
+}
+
+function default_demo_service(): array {
+    return [
+        'name' => 'example_service',
+        'description' => 'Service de démonstration pour vérifier que l’API et l’UI répondent correctement.',
+        'engine_default' => 'plan_only',
+        'manifest_path' => null,
+        'tool_dir' => null,
+        'entrypoint' => null,
+        'sample_input' => ['message' => 'hello'],
+        'required_fields' => ['message'],
+        'config_requirements' => [
+            ['namespace' => 'example_service', 'key' => 'API_URL', 'label' => 'API URL', 'required' => true],
+            ['namespace' => 'example_service', 'key' => 'TOKEN', 'label' => 'Token', 'required' => false],
+        ],
+        'code_files' => [],
+    ];
+}
+
+function list_services(): array {
+    $services = [];
+
+    foreach (discover_manifest_paths(tools_root()) as $manifestPath) {
+        $manifestRaw = file_get_contents($manifestPath);
+        $manifest = json_decode($manifestRaw ?: '{}', true);
+        if (!is_array($manifest)) continue;
+
+        $toolDir = dirname($manifestPath);
+        $entrypoint = (string)($manifest['entrypoint'] ?? 'tool.py');
+        $codeFiles = [];
+
+        foreach (discover_python_paths($toolDir) as $py) {
+            $codeFiles[] = ['path' => $py, 'filename' => basename($py)];
+        }
+
+        $sampleInput = [];
+        if (isset($manifest['input_schema']) && is_array($manifest['input_schema'])) {
+            $sample = sample_from_schema($manifest['input_schema']);
+            if (is_array($sample)) $sampleInput = $sample;
+        }
+
+        $configRequirements = [];
+        if (isset($manifest['config_requirements']) && is_array($manifest['config_requirements'])) {
+            foreach ($manifest['config_requirements'] as $row) {
+                if (is_array($row) && isset($row['key'])) {
+                    $configRequirements[] = [
+                        'namespace' => (string)($row['namespace'] ?? ($manifest['name'] ?? basename($toolDir))),
+                        'key' => (string)$row['key'],
+                        'label' => (string)($row['label'] ?? $row['key']),
+                        'required' => (bool)($row['required'] ?? false),
+                    ];
+                }
+            }
+        }
+
+        if ($configRequirements === []) {
+            $nameFallback = (string)($manifest['name'] ?? basename($toolDir));
+            $configRequirements = [
+                ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false],
+            ];
+        }
+
+        $services[] = [
+            'name' => (string)($manifest['name'] ?? basename($toolDir)),
+            'description' => (string)($manifest['description'] ?? ''),
+            'engine_default' => (string)($manifest['runtime']['engine'] ?? 'python_direct'),
+            'manifest_path' => $manifestPath,
+            'tool_dir' => $toolDir,
+            'entrypoint' => $entrypoint,
+            'sample_input' => $sampleInput,
+            'required_fields' => $manifest['input_schema']['required'] ?? [],
+            'config_requirements' => $configRequirements,
+            'code_files' => $codeFiles,
+        ];
+    }
+
+    if ($services === []) {
+        $services[] = default_demo_service();
+    }
+
+    usort($services, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
+    return $services;
+}
+
+function find_service(string $name): ?array {
+    foreach (list_services() as $service) {
+        if (($service['name'] ?? '') === $name) return $service;
+    }
+    return null;
+}
+
+function load_service_config_values(PDO $pdo, string $serviceName, string $profile): array {
+    $stmt = $pdo->prepare('SELECT config_key, config_value FROM service_config_values WHERE service_name = :service_name AND profile = :profile ORDER BY config_key');
     $stmt->execute([
-        ":s"=>$payload['service'],
-        ":p"=>json_encode($payload['payload']),
-        ":o"=>json_encode(["result"=>"demo"])
+        ':service_name' => $serviceName,
+        ':profile' => $profile,
     ]);
 
-    echo json_encode(["result"=>"demo run"]);
-    exit;
+    $out = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $out[(string)$row['config_key']] = $row['config_value'];
+    }
+    return $out;
 }
 
-if($action=="list_runs"){
+function save_service_config_values(PDO $pdo, string $serviceName, string $profile, array $config): void {
+    $stmt = $pdo->prepare("
+        INSERT INTO service_config_values(profile, service_name, config_key, config_value, updated_at)
+        VALUES(:profile, :service_name, :config_key, :config_value, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+        ON CONFLICT(profile, service_name, config_key)
+        DO UPDATE SET config_value = excluded.config_value, updated_at = excluded.updated_at
+    ");
 
-    $stmt=$db->query("SELECT * FROM devlab_runs ORDER BY id DESC LIMIT 20");
-
-    echo json_encode(["runs"=>$stmt->fetchAll(PDO::FETCH_ASSOC)]);
-    exit;
+    foreach ($config as $key => $value) {
+        $stmt->execute([
+            ':profile' => $profile,
+            ':service_name' => $serviceName,
+            ':config_key' => (string)$key,
+            ':config_value' => is_scalar($value) || $value === null ? (string)$value : json_encode($value, JSON_UNESCAPED_UNICODE),
+        ]);
+    }
 }
 
-echo json_encode(["error"=>"unknown action"]);
+function is_allowed_code_path(string $path): bool {
+    $real = realpath($path);
+    if ($real === false || !is_file($real)) return false;
+
+    $toolsRoot = realpath(tools_root());
+    $selfRoot = realpath(__DIR__);
+
+    if ($toolsRoot !== false && str_starts_with($real, $toolsRoot)) return true;
+    if ($selfRoot !== false && str_starts_with($real, $selfRoot)) return true;
+
+    return false;
+}
+
+function run_python_direct(array $service, array $payload, int $timeout): array {
+    $entrypoint = $service['entrypoint'] ?? null;
+    $toolDir = $service['tool_dir'] ?? null;
+
+    if (!$entrypoint || !$toolDir) {
+        return [
+            'status' => 'error',
+            'summary' => 'Entrypoint introuvable.',
+            'stdout' => '',
+            'stderr' => 'Service sans entrypoint Python.',
+            'output' => null,
+        ];
+    }
+
+    $script = $toolDir . DIRECTORY_SEPARATOR . $entrypoint;
+    if (!is_file($script)) {
+        return [
+            'status' => 'error',
+            'summary' => 'Script introuvable.',
+            'stdout' => '',
+            'stderr' => 'Fichier absent: ' . $script,
+            'output' => null,
+        ];
+    }
+
+    $cmd = ['python3', $script];
+    $escaped = implode(' ', array_map('escapeshellarg', $cmd));
+
+    $descriptor = [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ];
+
+    $process = proc_open($escaped, $descriptor, $pipes, $toolDir);
+    if (!is_resource($process)) {
+        return [
+            'status' => 'error',
+            'summary' => 'Impossible de lancer le process.',
+            'stdout' => '',
+            'stderr' => 'proc_open a échoué.',
+            'output' => null,
+        ];
+    }
+
+    fwrite($pipes[0], json_encode($payload, JSON_UNESCAPED_UNICODE));
+    fclose($pipes[0]);
+
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+
+    $stdout = '';
+    $stderr = '';
+    $start = microtime(true);
+    $timedOut = false;
+
+    do {
+        $status = proc_get_status($process);
+        $stdout .= stream_get_contents($pipes[1]);
+        $stderr .= stream_get_contents($pipes[2]);
+
+        if (!$status['running']) break;
+
+        if ((microtime(true) - $start) > $timeout) {
+            proc_terminate($process);
+            $timedOut = true;
+            break;
+        }
+
+        usleep(100000);
+    } while (true);
+
+    $stdout .= stream_get_contents($pipes[1]);
+    $stderr .= stream_get_contents($pipes[2]);
+
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+
+    $exitCode = proc_close($process);
+
+    $decoded = null;
+    $trimmed = trim($stdout);
+    if ($trimmed !== '') {
+        $tmp = json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            $decoded = $tmp;
+        }
+    }
+
+    if ($timedOut) {
+        return [
+            'status' => 'timeout',
+            'summary' => 'Temps limite dépassé.',
+            'stdout' => $stdout,
+            'stderr' => $stderr,
+            'output' => $decoded,
+        ];
+    }
+
+    return [
+        'status' => $exitCode === 0 ? 'ok' : 'error',
+        'summary' => $exitCode === 0 ? 'Exécution terminée.' : 'Le process a renvoyé un code non nul.',
+        'stdout' => $stdout,
+        'stderr' => $stderr,
+        'output' => $decoded,
+    ];
+}
+
+$payload = parse_payload();
+$action = (string)($payload['action'] ?? '');
+
+switch ($action) {
+    case 'healthcheck':
+        json_response([
+            'ok' => true,
+            'php_version' => PHP_VERSION,
+            'db_path' => db_path(),
+            'tools_root' => tools_root(),
+            'tools_root_exists' => is_dir(tools_root()),
+            'service_count' => count(list_services()),
+        ]);
+
+    case 'list_services':
+        $services = array_map(static function (array $service): array {
+            return [
+                'name' => $service['name'],
+                'description' => $service['description'],
+                'engine_default' => $service['engine_default'],
+            ];
+        }, list_services());
+
+        json_response(['ok' => true, 'services' => $services]);
+
+    case 'get_service':
+        $serviceName = (string)($payload['service'] ?? '');
+        $profile = (string)($payload['profile'] ?? 'default');
+        $service = find_service($serviceName);
+
+        if (!$service) {
+            json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
+        }
+
+        $service['profile'] = $profile;
+        $service['config_values'] = load_service_config_values(pdo(), $serviceName, $profile);
+
+        json_response(['ok' => true, 'service' => $service]);
+
+    case 'save_service_config':
+        $serviceName = (string)($payload['service'] ?? '');
+        $profile = (string)($payload['profile'] ?? 'default');
+        $config = $payload['config'] ?? null;
+
+        if (!is_array($config)) {
+            json_response(['error' => 'invalid_config'], 400);
+        }
+
+        $service = find_service($serviceName);
+        if (!$service) {
+            json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
+        }
+
+        save_service_config_values(pdo(), $serviceName, $profile, $config);
+
+        json_response(['ok' => true, 'service' => $serviceName, 'profile' => $profile]);
+
+    case 'run_service_test':
+        $serviceName = (string)($payload['service'] ?? '');
+        $engine = (string)($payload['engine'] ?? 'plan_only');
+        $profile = (string)($payload['profile'] ?? 'default');
+        $timeout = max(1, min(300, (int)($payload['timeout'] ?? 30)));
+        $inputPayload = $payload['payload'] ?? [];
+
+        if (!is_array($inputPayload)) {
+            json_response(['error' => 'payload_must_be_object_or_array'], 400);
+        }
+
+        $service = find_service($serviceName);
+        if (!$service) {
+            json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
+        }
+
+        $startedAt = gmdate('c');
+        $t0 = microtime(true);
+
+        if ($engine === 'python_direct') {
+            $exec = run_python_direct($service, $inputPayload, $timeout);
+        } else {
+            $exec = [
+                'status' => 'ok',
+                'summary' => 'Plan only: aucun moteur réel lancé.',
+                'stdout' => '',
+                'stderr' => '',
+                'output' => [
+                    'note' => 'Mode plan_only',
+                    'service' => $serviceName,
+                    'payload' => $inputPayload,
+                ],
+            ];
+        }
+
+        $durationMs = (int)round((microtime(true) - $t0) * 1000);
+        $endedAt = gmdate('c');
+
+        $stmt = pdo()->prepare("
+            INSERT INTO devlab_runs(service_name, engine, profile, status, started_at, ended_at, duration_ms, summary, payload_json, output_json, stdout_text, stderr_text)
+            VALUES(:service_name, :engine, :profile, :status, :started_at, :ended_at, :duration_ms, :summary, :payload_json, :output_json, :stdout_text, :stderr_text)
+        ");
+
+        $stmt->execute([
+            ':service_name' => $serviceName,
+            ':engine' => $engine,
+            ':profile' => $profile,
+            ':status' => $exec['status'],
+            ':started_at' => $startedAt,
+            ':ended_at' => $endedAt,
+            ':duration_ms' => $durationMs,
+            ':summary' => $exec['summary'],
+            ':payload_json' => json_encode($inputPayload, JSON_UNESCAPED_UNICODE),
+            ':output_json' => json_encode($exec['output'], JSON_UNESCAPED_UNICODE),
+            ':stdout_text' => $exec['stdout'],
+            ':stderr_text' => $exec['stderr'],
+        ]);
+
+        $runId = (int)pdo()->lastInsertId();
+
+        json_response([
+            'ok' => true,
+            'run_id' => $runId,
+            'service' => $serviceName,
+            'engine' => $engine,
+            'profile' => $profile,
+            'status' => $exec['status'],
+            'started_at' => $startedAt,
+            'ended_at' => $endedAt,
+            'duration_ms' => $durationMs,
+            'summary' => $exec['summary'],
+            'stdout' => $exec['stdout'],
+            'stderr' => $exec['stderr'],
+            'output' => $exec['output'],
+        ]);
+
+    case 'list_runs':
+        $serviceName = (string)($payload['service'] ?? '');
+        if ($serviceName !== '') {
+            $stmt = pdo()->prepare('SELECT * FROM devlab_runs WHERE service_name = :service_name ORDER BY run_id DESC LIMIT 50');
+            $stmt->execute([':service_name' => $serviceName]);
+        } else {
+            $stmt = pdo()->query('SELECT * FROM devlab_runs ORDER BY run_id DESC LIMIT 50');
+        }
+        json_response(['ok' => true, 'runs' => $stmt->fetchAll()]);
+
+    case 'list_service_code_files':
+        $serviceName = (string)($payload['service'] ?? '');
+        $service = find_service($serviceName);
+        if (!$service) {
+            json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
+        }
+
+        $files = $service['code_files'] ?? [];
+        if (($service['manifest_path'] ?? null) && is_file($service['manifest_path'])) {
+            $files[] = ['path' => $service['manifest_path'], 'filename' => basename($service['manifest_path'])];
+        }
+
+        json_response(['ok' => true, 'files' => $files]);
+
+    case 'read_code_file':
+        $path = (string)($payload['path'] ?? '');
+        if ($path === '' || !is_allowed_code_path($path)) {
+            json_response(['error' => 'invalid_or_forbidden_path'], 403);
+        }
+        json_response(['ok' => true, 'path' => realpath($path), 'content' => file_get_contents($path)]);
+
+    case 'save_code_file':
+        $path = (string)($payload['path'] ?? '');
+        $content = (string)($payload['content'] ?? '');
+        if ($path === '' || !is_allowed_code_path($path) || !is_writable($path)) {
+            json_response(['error' => 'invalid_or_unwritable_path'], 403);
+        }
+        file_put_contents($path, $content);
+        json_response(['ok' => true, 'path' => realpath($path), 'bytes' => strlen($content)]);
+
+    case 'validate_code_file':
+        $path = (string)($payload['path'] ?? '');
+        $content = (string)($payload['content'] ?? '');
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        if ($ext === 'json') {
+            json_decode($content, true);
+            $valid = json_last_error() === JSON_ERROR_NONE;
+            json_response([
+                'ok' => true,
+                'valid' => $valid,
+                'language' => 'json',
+                'message' => $valid ? 'JSON valide.' : json_last_error_msg(),
+            ]);
+        }
+
+        if ($ext === 'py') {
+            $tmp = tempnam(sys_get_temp_dir(), 'devlab_py_');
+            file_put_contents($tmp, $content);
+
+            $cmd = 'python3 -m py_compile ' . escapeshellarg($tmp) . ' 2>&1';
+            $output = [];
+            $exitCode = 0;
+            exec($cmd, $output, $exitCode);
+            @unlink($tmp);
+
+            json_response([
+                'ok' => true,
+                'valid' => $exitCode === 0,
+                'language' => 'python',
+                'message' => $exitCode === 0 ? 'Python valide.' : implode("\n", $output),
+            ]);
+        }
+
+        json_response([
+            'ok' => true,
+            'valid' => true,
+            'language' => $ext ?: 'text',
+            'message' => 'Validation non spécifique, considérée comme OK.',
+        ]);
+
+    default:
+        json_response(['error' => 'unknown_action', 'action' => $action], 400);
+}
