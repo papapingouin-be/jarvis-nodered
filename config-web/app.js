@@ -1,3 +1,380 @@
-// DB Lab V2 upload-only
-const els={navButtons:[...document.querySelectorAll('.nav-btn')],views:[...document.querySelectorAll('.view')],dbPath:document.getElementById('dbPath'),flowEndpoint:document.getElementById('flowEndpoint'),devBackendUrl:document.getElementById('devBackendUrl'),healthDb:document.getElementById('healthDb'),healthRunner:document.getElementById('healthRunner'),healthDev:document.getElementById('healthDev'),healthLlm:document.getElementById('healthLlm'),kpiTools:document.getElementById('kpiTools'),kpiPyFiles:document.getElementById('kpiPyFiles'),kpiRuns:document.getElementById('kpiRuns'),dashboardRuns:document.getElementById('dashboardRuns'),dbSummary:document.getElementById('dbSummary'),toolList:document.getElementById('toolList'),toolSelect:document.getElementById('toolSelect'),toolSearch:document.getElementById('toolSearch'),runMode:document.getElementById('runMode'),toolInput:document.getElementById('toolInput'),toolOutput:document.getElementById('toolOutput'),toolDiagnostics:document.getElementById('toolDiagnostics'),toolTrace:document.getElementById('toolTrace'),validateInput:document.getElementById('validateInput'),runTool:document.getElementById('runTool'),explainRun:document.getElementById('explainRun'),builderWrap:document.getElementById('builderWrap'),btnLoadSample:document.getElementById('btnLoadSample'),flowPayload:document.getElementById('flowPayload'),flowResponse:document.getElementById('flowResponse'),flowSend:document.getElementById('flowSend'),flowReset:document.getElementById('flowReset'),codeFileList:document.getElementById('codeFileList'),codeFileSelect:document.getElementById('codeFileSelect'),codeLanguage:document.getElementById('codeLanguage'),codeEditor:document.getElementById('codeEditor'),loadCodeBtn:document.getElementById('loadCodeBtn'),lintCodeBtn:document.getElementById('lintCodeBtn'),saveCodeBtn:document.getElementById('saveCodeBtn'),lintResult:document.getElementById('lintResult'),codeMeta:document.getElementById('codeMeta'),dbBrowsePath:document.getElementById('dbBrowsePath'),dbBrowseRefresh:document.getElementById('dbBrowseRefresh'),dbBrowseList:document.getElementById('dbBrowseList'),dbActivePath:document.getElementById('dbActivePath'),dbUsePathBtn:document.getElementById('dbUsePathBtn'),dbCreateBtn:document.getElementById('dbCreateBtn'),dbImportPath:document.getElementById('dbImportPath'),dbImportBtn:document.getElementById('dbImportBtn'),dbExportPath:document.getElementById('dbExportPath'),dbExportBtn:document.getElementById('dbExportBtn'),dbUploadFile:document.getElementById('dbUploadFile'),dbUploadBtn:document.getElementById('dbUploadBtn'),dbDownloadBtn:document.getElementById('dbDownloadBtn'),dbTransferOutput:document.getElementById('dbTransferOutput'),dbContractWrap:document.getElementById('dbContractWrap'),dbSchemaOutput:document.getElementById('dbSchemaOutput'),dbRepairBtn:document.getElementById('dbRepairBtn'),cfgNamespace:document.getElementById('cfgNamespace'),loadNamespace:document.getElementById('loadNamespace'),sensitiveTable:document.getElementById('sensitiveTable'),npmInstanceName:document.getElementById('npmInstanceName'),npmInstanceBaseUrl:document.getElementById('npmInstanceBaseUrl'),npmInstanceLogin:document.getElementById('npmInstanceLogin'),npmInstancePassword:document.getElementById('npmInstancePassword'),npmInstanceSecretKey:document.getElementById('npmInstanceSecretKey'),saveNpmInstance:document.getElementById('saveNpmInstance'),npmInstanceList:document.getElementById('npmInstanceList'),npmServiceDomain:document.getElementById('npmServiceDomain'),npmServiceInstance:document.getElementById('npmServiceInstance'),npmServiceHost:document.getElementById('npmServiceHost'),npmServicePort:document.getElementById('npmServicePort'),npmServiceScheme:document.getElementById('npmServiceScheme'),saveNpmService:document.getElementById('saveNpmService'),npmServiceList:document.getElementById('npmServiceList'),pxName:document.getElementById('pxName'),pxIp:document.getElementById('pxIp'),pxApiPath:document.getElementById('pxApiPath'),pxLogin:document.getElementById('pxLogin'),pxPassword:document.getElementById('pxPassword'),pxSecretKey:document.getElementById('pxSecretKey'),pxNode:document.getElementById('pxNode'),saveProxmoxTarget:document.getElementById('saveProxmoxTarget'),proxmoxTargetList:document.getElementById('proxmoxTargetList'),ctName:document.getElementById('ctName'),ctTarget:document.getElementById('ctTarget'),ctId:document.getElementById('ctId'),ctPath:document.getElementById('ctPath'),saveCtService:document.getElementById('saveCtService'),ctServiceList:document.getElementById('ctServiceList'),dbTableSelect:document.getElementById('dbTableSelect'),loadTableBtn:document.getElementById('loadTableBtn'),dbTableWrap:document.getElementById('dbTableWrap'),refreshRuns:document.getElementById('refreshRuns'),runsList:document.getElementById('runsList'),runDetail:document.getElementById('runDetail'),llmQuestion:document.getElementById('llmQuestion'),llmExplain:document.getElementById('llmExplain'),llmOutput:document.getElementById('llmOutput')};const storage={dbPath:'jarvis_db_path',flowEndpoint:'jarvis_flow_endpoint',devBackendUrl:'jarvis_dev_backend_url'};const state={tools:[],pyFiles:[],currentTool:null,lastRun:null,runs:[],healthcheck:null};const pretty=v=>JSON.stringify(v,null,2);const logUi=(...a)=>console.log('[DevLab]',...a);const parentPath=p=>{if(!p)return'';const n=p.replace(/\/+$/,'');const i=n.lastIndexOf('/');return i<=0?'/':n.slice(0,i)};const fileName=p=>{if(!p)return'';const n=p.replace(/\/+$/,'');const i=n.lastIndexOf('/');return i>=0?n.slice(i+1):n};function saveSettings(){localStorage.setItem(storage.dbPath,els.dbPath.value.trim());localStorage.setItem(storage.flowEndpoint,els.flowEndpoint.value.trim());localStorage.setItem(storage.devBackendUrl,els.devBackendUrl.value.trim())}function loadSettings(){els.dbPath.value=localStorage.getItem(storage.dbPath)||'';els.flowEndpoint.value=localStorage.getItem(storage.flowEndpoint)||'http://localhost:1880/jarvis/inbound';els.devBackendUrl.value=localStorage.getItem(storage.devBackendUrl)||'proxy';els.dbBrowsePath.value=parentPath(els.dbPath.value.trim()||'/var/www/jarvis/database/db.db')}function syncDbContext(){const p=els.dbPath.value.trim();els.dbActivePath.textContent=p||'non sélectionnée';if(p)els.dbExportPath.value=p;saveSettings()}function setBadge(el,text,type=''){el.textContent=text;el.className=`badge ${type}`.trim()}async function api(action,payload={}){const res=await fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,db_path:els.dbPath.value.trim(),...payload})});const text=await res.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}if(!res.ok||data.error)throw new Error(data.error||`HTTP ${res.status}`);return data}async function devApi(path,body=null,method='POST',query=null){const rawBase=els.devBackendUrl.value.trim();const proxyOverride=rawBase.startsWith('proxy:')?rawBase.slice(6).trim():null;const useProxy=rawBase==='proxy'||rawBase===''||rawBase.startsWith('proxy:');if(useProxy){const res=await fetch('devproxy.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,body,method,query,base_url:proxyOverride||undefined})});const text=await res.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}if(!res.ok||data.error)throw new Error(data.error||text||`HTTP ${res.status}`);return data}let url=`${rawBase.replace(/\/$/,'')}${path}`;if(query)url+=`?${new URLSearchParams(query).toString()}`;const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:method==='GET'?undefined:JSON.stringify(body||{})});const text=await res.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}if(!res.ok||data.error)throw new Error(data.error||text||`HTTP ${res.status}`);return data}function switchView(name){els.navButtons.forEach(b=>b.classList.toggle('active',b.dataset.view===name));els.views.forEach(v=>v.classList.toggle('active',v.id===`view-${name}`));window.location.hash=name}function setDbSubview(name){document.querySelectorAll('[data-db-tab]').forEach(b=>b.classList.toggle('active',b.dataset.dbTab===name));document.querySelectorAll('.db-subview').forEach(v=>v.classList.toggle('active',v.id===`db-${name}`))}function normalizeTool(t){return t?{...t,version:t.version||t.tool_version||'v0',description:t.description||'',sample_input:t.sample_input||{},required_fields:t.required_fields||[],input_schema:t.input_schema||{}}:null}function renderDashboard(){els.kpiTools.textContent=state.tools.length||state.healthcheck?.tools_count||0;els.kpiPyFiles.textContent=state.pyFiles.length||state.healthcheck?.python_files_count||0;els.kpiRuns.textContent=state.runs.length;els.dashboardRuns.innerHTML=state.runs.slice(0,6).map(r=>`<div class="trace-step" style="margin-bottom:.5rem;"><div class="status-line"><strong>${r.tool_name}</strong><span class="badge">${r.mode}</span><span class="badge ${r.status==='ok'?'ok':'err'}">${r.status}</span></div><div class="small muted">${r.started_at} · ${r.duration_ms||0} ms</div></div>`).join('')||'<div class="muted">Aucun run enregistré.</div>';const hc=state.healthcheck||{};els.dbSummary.textContent=pretty({db_active:els.dbPath.value.trim(),repo_root:hc.repo_root||null,tables:(hc.tables||[]).map(t=>t.name),namespaces:hc.namespaces||[],tools_count:hc.tools_count||0,python_files_count:hc.python_files_count||0})}function renderToolList(){const f=els.toolSearch.value.trim().toLowerCase();const tools=state.tools.filter(t=>!f||t.name.toLowerCase().includes(f)||t.description.toLowerCase().includes(f));els.toolList.innerHTML=tools.map(t=>`<button class="tool-item ${state.currentTool?.name===t.name?'active':''}" data-tool-name="${t.name}"><div class="status-line"><strong>${t.name}</strong><span class="badge">${t.version}</span></div><div class="small muted">${t.description||'sans description'}</div><div class="small muted">${t.entrypoint||''}</div></button>`).join('')||'<div class="muted">Aucun outil.</div>';[...els.toolList.querySelectorAll('[data-tool-name]')].forEach(btn=>btn.onclick=()=>selectTool(btn.dataset.toolName))}function renderToolSelect(){els.toolSelect.innerHTML=state.tools.map(t=>`<option value="${t.name}">${t.name} · ${t.version}</option>`).join('');if(state.currentTool)els.toolSelect.value=state.currentTool.name}function renderBuilder(tool){const schema=tool?.input_schema;if(!schema||!schema.properties){els.builderWrap.innerHTML='<div class="muted">Aucun builder disponible.</div>';return}const html=Object.entries(schema.properties).map(([k,m])=>{const type=m?.type==='integer'?'number':'text';const label=`${k}${(tool.required_fields||[]).includes(k)?' *':''}`;return `<div style="margin-bottom:.65rem;"><label>${label}</label><input data-builder-key="${k}" data-builder-type="${m?.type||'string'}" value="${(m?.enum?.[0]??m?.default??'')}" type="${type}"/></div>`}).join('');els.builderWrap.innerHTML=`<div class="small muted" style="margin-bottom:.6rem;">Builder rapide basé sur le manifest.</div>${html}`;[...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(i=>i.addEventListener('input',builderToJson))}function builderToJson(){const out={};[...els.builderWrap.querySelectorAll('[data-builder-key]')].forEach(i=>{const k=i.dataset.builderKey;const t=i.dataset.builderType;if(i.value==='')return;if(t==='integer'||t==='number')out[k]=Number(i.value);else if(t==='boolean')out[k]=i.value==='true';else out[k]=i.value});els.toolInput.value=pretty(out)}function loadToolSample(tool){els.toolInput.value=pretty(tool?.sample_input&&Object.keys(tool.sample_input).length?tool.sample_input:{})}function selectTool(name){const tool=state.tools.find(t=>t.name===name);if(!tool)return;state.currentTool=tool;renderToolList();renderToolSelect();renderBuilder(tool);loadToolSample(tool);els.toolOutput.textContent=pretty({info:'Tool sélectionné',tool:tool.name,version:tool.version,db_active:els.dbPath.value.trim()});els.toolDiagnostics.textContent=pretty({sequence:['JSON manuel','DB active','tool exécute','trace/diagnostic'],rule:'Les secrets restent dans la DB active, ils ne sont pas injectés dans le JSON.',tool:tool.name,version:tool.version,required_fields:tool.required_fields||[]});els.toolTrace.innerHTML=''}function renderTrace(trace){if(!trace?.spans?.length){els.toolTrace.innerHTML='<div class="muted">Pas de trace disponible.</div>';return}els.toolTrace.innerHTML=trace.spans.map(s=>`<div class="trace-step"><div class="status-line"><strong>${s.name}</strong><span class="badge ${s.status==='ok'?'ok':s.status==='failed'?'err':'warn'}">${s.status}</span></div><pre>${pretty(s.data||s.error||{})}</pre></div>`).join('')}function renderCodeFiles(){els.codeFileSelect.innerHTML=state.pyFiles.map(f=>`<option value="${f.path}">${f.path}</option>`).join('');els.codeFileList.innerHTML=state.pyFiles.map(f=>`<button class="tool-item" data-file-path="${f.path}"><div><strong>${f.filename}</strong></div><div class="small muted">${f.path}</div><div class="small muted">${f.manifest_exists?'manifest OK':'sans manifest'} · ${f.size} octets</div></button>`).join('')||'<div class="muted">Aucun fichier Python.</div>';[...els.codeFileList.querySelectorAll('[data-file-path]')].forEach(btn=>btn.onclick=()=>{els.codeFileSelect.value=btn.dataset.filePath;loadCode()})}async function refreshHealth(){try{const d=await api('healthcheck');state.healthcheck=d;if(d.tools_preview?.length)state.tools=d.tools_preview.map(normalizeTool);if(d.python_files_preview?.length)state.pyFiles=d.python_files_preview;setBadge(els.healthDb,`DB ${d.tables.length} tables`,'ok');setBadge(els.healthRunner,'Runner via DB','ok')}catch(e){setBadge(els.healthDb,'DB KO','err');setBadge(els.healthRunner,'Runner ?','warn')}try{const d=await devApi('/health',null,'GET');setBadge(els.healthDev,d.status==='ok'?'Dev OK':'Dev ?',d.status==='ok'?'ok':'warn');setBadge(els.healthLlm,d.llm_adapter_url?'LLM via adapter':'LLM ?',d.llm_adapter_url?'ok':'warn')}catch(e){setBadge(els.healthDev,'Dev KO','err');setBadge(els.healthLlm,'LLM ?','warn')}renderDashboard();renderToolSelect();renderToolList();renderCodeFiles();if(!state.currentTool&&state.tools.length)selectTool(state.tools[0].name)}async function loadInventory(){try{const t=await api('list_python_tools');state.tools=(t.items||[]).map(normalizeTool)}catch{}try{const f=await api('list_python_files');state.pyFiles=f.items||[]}catch{}renderToolSelect();renderToolList();renderCodeFiles();renderDashboard();if(!state.currentTool&&state.tools.length)selectTool(state.tools[0].name)}async function loadCode(){const p=els.codeFileSelect.value;if(!p)return;const d=await api('get_python_file',{path:p});els.codeEditor.value=d.code||'';els.codeMeta.textContent=pretty({path:d.path,length:(d.code||'').length,db_active:els.dbPath.value.trim()})}async function saveCode(){const p=els.codeFileSelect.value;if(!p)return;const d=await api('save_python_file',{path:p,code:els.codeEditor.value});els.codeMeta.textContent=pretty({saved:true,path:d.path,length:els.codeEditor.value.length})}async function lintCode(){try{const lang=els.codeLanguage.value;const fn=els.codeFileSelect.value?els.codeFileSelect.value.split('/').pop():`snippet.${lang==='python'?'py':lang==='json'?'json':'js'}`;const d=await devApi('/lint',{code:els.codeEditor.value,language:lang,filename:fn});els.lintResult.textContent=pretty(d)}catch(e){els.lintResult.textContent=pretty({error:e.message||String(e)})}}async function validateToolInput(){if(!state.currentTool)return;try{const input=JSON.parse(els.toolInput.value||'{}');const d=await devApi('/validate',{schema:state.currentTool.input_schema||{},payload:input});els.toolDiagnostics.textContent=pretty(d)}catch(e){els.toolDiagnostics.textContent=pretty({valid:false,error:e.message||String(e)})}}async function executeTool(mode=null){if(!state.currentTool)return;try{const input=JSON.parse(els.toolInput.value||'{}');const d=await devApi('/run',{tool:state.currentTool.name,mode:mode||els.runMode.value,db_path:els.dbPath.value.trim(),input,options:{timeout_s:30,store_run:true,redaction:true}});state.lastRun=d;els.toolOutput.textContent=pretty(d.output);els.toolDiagnostics.textContent=pretty(d.diagnostics);renderTrace(d.trace);await loadRuns();renderDashboard()}catch(e){els.toolDiagnostics.textContent=pretty({error:e.message||String(e),db_active:els.dbPath.value.trim()})}}async function explainLastRun(){if(!state.lastRun){els.llmOutput.textContent='Aucun run disponible.';return}try{const d=await devApi('/llm/explain',{run:state.lastRun,trace:state.lastRun.trace,question:els.llmQuestion.value.trim()||undefined});els.llmOutput.textContent=pretty(d)}catch(e){els.llmOutput.textContent=pretty({error:e.message||String(e)})}}function defaultFlowPayload(){return{channel:'openwebui',user_id:'demo-user',conversation_id:`conv-${Date.now()}`,message_id:`msg-${Date.now()}`,text:'liste les services npm',attachments:[],timestamp:new Date().toISOString(),reply_policy:'same_channel',meta:{source:'devlab-flow-test',toolbox_runner_url:'http://localhost:8030'}}}async function sendFlow(){try{const payload=JSON.parse(els.flowPayload.value||'{}');const res=await fetch(els.flowEndpoint.value.trim(),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});const ct=res.headers.get('content-type')||'';const body=ct.includes('application/json')?await res.json():await res.text();els.flowResponse.textContent=typeof body==='string'?body:pretty(body)}catch(e){els.flowResponse.textContent=pretty({error:e.message||String(e)})}}async function loadDbContract(){try{const d=await api('db_contract');els.dbContractWrap.innerHTML=(d.contract?.tables||[]).map(i=>`<div class="contract-item"><div class="status-line"><strong>${i.name}</strong><span class="badge">${(i.used_by||[]).join(', ')||'n/a'}</span></div><div class="small muted">${(i.columns||[]).join(', ')}</div>${i.note?`<div class="small muted" style="margin-top:.35rem;">${i.note}</div>`:''}</div>`).join('')||'<div class="muted">Aucun contrat.</div>'}catch(e){els.dbContractWrap.innerHTML=`<pre>${pretty({error:e.message||String(e)})}</pre>`}}async function loadSchemaStatus(){try{const d=await api('db_schema_status');els.dbSchemaOutput.textContent=pretty(d.items||[])}catch(e){els.dbSchemaOutput.textContent=pretty({error:e.message||String(e)})}}async function browseDbPaths(){try{const d=await api('browse_db_paths',{path:els.dbBrowsePath.value.trim()});els.dbBrowseList.innerHTML=(d.items||[]).map(i=>`<button class="tool-item" data-db-path="${i.path}" data-db-type="${i.type}"><div class="status-line"><strong>${i.name}</strong><span class="badge">${i.type}</span></div><div class="small muted">${i.path}</div></button>`).join('')||'<div class="muted">Aucun élément.</div>';[...els.dbBrowseList.querySelectorAll('[data-db-path]')].forEach(btn=>btn.onclick=()=>{const p=btn.dataset.dbPath,t=btn.dataset.dbType;if(t==='dir'){els.dbBrowsePath.value=p;browseDbPaths();return}els.dbPath.value=p;syncDbContext();els.dbTransferOutput.textContent=pretty({message:'DB active mise à jour',db_path:p});bootstrapLocalOnly()})}catch(e){els.dbBrowseList.innerHTML=`<pre>${pretty({error:e.message||String(e)})}</pre>`}}async function createDb(){const target=els.dbPath.value.trim();if(!target)throw new Error('chemin DB requis');const data=await api('create_db',{target_path:target});els.dbPath.value=data.target_path||target;syncDbContext();els.dbTransferOutput.textContent=pretty(data);await bootstrapLocalOnly()}async function exportDb(){const target=els.dbExportPath.value.trim();if(!target)throw new Error('chemin export requis');const data=await api('export_db',{target_path:target});els.dbTransferOutput.textContent=pretty(data)}async function importDb(){const source=els.dbImportPath.value.trim();if(!source)throw new Error('chemin import requis');const data=await api('import_db',{source_path:source});if(data.target_path)els.dbPath.value=data.target_path;syncDbContext();els.dbTransferOutput.textContent=pretty(data);await bootstrapLocalOnly()}async function uploadDbFromBrowser(){const file=els.dbUploadFile&&els.dbUploadFile.files?els.dbUploadFile.files[0]:null;if(!file)throw new Error('sélectionne un fichier DB');const form=new FormData();form.append('action','upload_db');form.append('db_path',els.dbPath.value.trim());form.append('file',file,file.name);const res=await fetch('api.php',{method:'POST',body:form});const text=await res.text();let data={};try{data=text?JSON.parse(text):{}}catch{data={raw:text}}if(!res.ok||data.error)throw new Error(data.error||`HTTP ${res.status}`);if(data.target_path)els.dbPath.value=data.target_path;syncDbContext();els.dbTransferOutput.textContent=pretty(data);await bootstrapLocalOnly()}
-async function loadNamespace(){try{const ns=els.cfgNamespace.value;const d=await api('list_sensitive',{namespace:ns});const rows=d.items||[];if(!rows.length){els.sensitiveTable.innerHTML='<tr><td colspan="3" class="muted">Aucune valeur. Ajoute-les au besoin.</td></tr>';return}els.sensitiveTable.innerHTML=rows.map(r=>`<tr><td><code>${r.key}</code></td><td><input data-sensitive-key="${r.key}" value="${String(r.value).replace(/"/g,'&quot;')}"/></td><td><button class="secondary" data-save-sensitive="${r.key}">Save</button></td></tr>`).join('');[...els.sensitiveTable.querySelectorAll('[data-save-sensitive]')].forEach(btn=>btn.onclick=async()=>{const k=btn.dataset.saveSensitive;const i=els.sensitiveTable.querySelector(`[data-sensitive-key="${k}"]`);await api('upsert_sensitive',{namespace:ns,key:k,value:i.value});loadNamespace()})}catch(e){els.sensitiveTable.innerHTML=`<tr><td colspan="3"><pre>${pretty({error:e.message||String(e)})}</pre></td></tr>`}}async function loadTables(){try{const d=await api('list_tables');els.dbTableSelect.innerHTML=(d.items||[]).map(i=>`<option value="${i.name}">${i.name}</option>`).join('');if(els.dbTableSelect.value)loadSelectedTable()}catch(e){els.dbTableWrap.textContent=pretty({error:e.message||String(e)})}}async function loadSelectedTable(){try{const table=els.dbTableSelect.value;if(!table)return;const d=await api('get_table_rows',{table,limit:100,offset:0});els.dbTableWrap.textContent=pretty(d)}catch(e){els.dbTableWrap.textContent=pretty({error:e.message||String(e)})}}async function loadNpmInstances(){try{const d=await api('list_npm_instances');els.npmInstanceList.textContent=pretty(d.items||[])}catch(e){els.npmInstanceList.textContent=pretty({error:e.message||String(e)})}}async function saveNpmInstance(){try{await api('save_npm_instance',{name:els.npmInstanceName.value.trim(),base_url:els.npmInstanceBaseUrl.value.trim(),login:els.npmInstanceLogin.value.trim(),password:els.npmInstancePassword.value.trim()||null,password_secret_key:els.npmInstanceSecretKey.value.trim()||null});loadNpmInstances()}catch(e){els.npmInstanceList.textContent=pretty({error:e.message||String(e)})}}async function loadNpmServices(){try{const d=await api('list_npm_services');els.npmServiceList.textContent=pretty(d.items||[])}catch(e){els.npmServiceList.textContent=pretty({error:e.message||String(e)})}}async function saveNpmService(){try{await api('save_npm_service',{domain:els.npmServiceDomain.value.trim(),instance_name:els.npmServiceInstance.value.trim(),forward_host:els.npmServiceHost.value.trim(),forward_port:Number(els.npmServicePort.value||80),scheme:els.npmServiceScheme.value.trim()||'http'});loadNpmServices()}catch(e){els.npmServiceList.textContent=pretty({error:e.message||String(e)})}}async function loadProxmoxTargets(){try{const d=await api('list_proxmox_targets');els.proxmoxTargetList.textContent=pretty(d.items||[])}catch(e){els.proxmoxTargetList.textContent=pretty({error:e.message||String(e)})}}async function saveProxmoxTarget(){try{await api('save_proxmox_target',{name:els.pxName.value.trim(),ip:els.pxIp.value.trim(),api_path:els.pxApiPath.value.trim()||'/api2/json',login:els.pxLogin.value.trim(),password:els.pxPassword.value.trim()||null,password_secret_key:els.pxSecretKey.value.trim()||null,node:els.pxNode.value.trim()});loadProxmoxTargets()}catch(e){els.proxmoxTargetList.textContent=pretty({error:e.message||String(e)})}}async function loadCtServices(){try{const d=await api('list_ct_services');els.ctServiceList.textContent=pretty(d.items||[])}catch(e){els.ctServiceList.textContent=pretty({error:e.message||String(e)})}}async function saveCtService(){try{await api('save_ct_service',{name:els.ctName.value.trim(),target_name:els.ctTarget.value.trim(),ctid:Number(els.ctId.value||0),path:els.ctPath.value.trim()});loadCtServices()}catch(e){els.ctServiceList.textContent=pretty({error:e.message||String(e)})}}async function loadRuns(){try{const d=await devApi('/runs/list',{db_path:els.dbPath.value.trim(),limit:100,offset:0});state.runs=d.items||[];els.runsList.innerHTML=state.runs.map(r=>`<button class="tool-item" data-run-id="${r.run_id}"><div class="status-line"><strong>${r.tool_name}</strong><span class="badge">${r.mode}</span><span class="badge ${r.status==='ok'?'ok':'err'}">${r.status}</span></div><div class="small muted">${r.started_at} · ${r.duration_ms||0} ms</div></button>`).join('')||'<div class="muted">Aucun run.</div>';[...els.runsList.querySelectorAll('[data-run-id]')].forEach(btn=>btn.onclick=async()=>{try{const d=await devApi(`/runs/${btn.dataset.runId}`,null,'GET',{db_path:els.dbPath.value.trim()});els.runDetail.textContent=pretty(d.item)}catch(e){els.runDetail.textContent=pretty({error:e.message||String(e)})}})}catch(e){state.runs=[];els.runsList.innerHTML='<div class="muted">Historique indisponible.</div>'}}async function repairDb(){try{const d=await api('db_init_schema');els.dbSchemaOutput.textContent=pretty(d);await refreshHealth();await loadSchemaStatus();await loadTables()}catch(e){els.dbSchemaOutput.textContent=pretty({error:e.message||String(e)})}}async function bootstrapLocalOnly(){syncDbContext();await refreshHealth();await loadInventory();await loadDbContract();await loadSchemaStatus();await loadNamespace();await loadTables();await browseDbPaths();await loadNpmInstances();await loadNpmServices();await loadProxmoxTargets();await loadCtServices();await loadRuns();renderDashboard()}function bindEvents(){els.navButtons.forEach(btn=>btn.onclick=()=>switchView(btn.dataset.view));[...document.querySelectorAll('[data-db-tab]')].forEach(btn=>btn.onclick=()=>setDbSubview(btn.dataset.dbTab));[...document.querySelectorAll('[data-editor-tab]')].forEach(btn=>btn.onclick=()=>{document.querySelectorAll('[data-editor-tab]').forEach(b=>b.classList.toggle('active',b===btn));const tab=btn.dataset.editorTab;els.builderWrap.style.display=tab==='builder'?'block':'none';els.toolInput.style.display=tab==='json'?'block':'none'});els.dbPath.addEventListener('change',syncDbContext);els.dbUsePathBtn&& (els.dbUsePathBtn.onclick=bootstrapLocalOnly);els.dbCreateBtn&& (els.dbCreateBtn.onclick=createDb);els.flowEndpoint.addEventListener('change',saveSettings);els.devBackendUrl.addEventListener('change',saveSettings);els.toolSearch.addEventListener('input',renderToolList);els.toolSelect.addEventListener('change',()=>selectTool(els.toolSelect.value));els.btnLoadSample.onclick=()=>{if(state.currentTool)loadToolSample(state.currentTool)};els.validateInput.onclick=validateToolInput;els.runTool.onclick=()=>executeTool();els.explainRun.onclick=explainLastRun;els.flowSend.onclick=sendFlow;els.flowReset.onclick=()=>{els.flowPayload.value=pretty(defaultFlowPayload());els.flowResponse.textContent='Aucune requête envoyée.'};els.loadCodeBtn.onclick=loadCode;els.lintCodeBtn.onclick=lintCode;els.saveCodeBtn.onclick=saveCode;els.dbBrowseRefresh.onclick=browseDbPaths;els.dbImportBtn.onclick=importDb;els.dbExportBtn.onclick=exportDb;els.dbUploadBtn&&(els.dbUploadBtn.onclick=uploadDbFromBrowser);els.dbDownloadBtn.onclick=()=>{window.location.href=`api.php?action=download_db&db_path=${encodeURIComponent(els.dbPath.value.trim())}`};els.dbRepairBtn.onclick=repairDb;els.loadNamespace.onclick=loadNamespace;els.loadTableBtn.onclick=loadSelectedTable;els.saveNpmInstance.onclick=saveNpmInstance;els.saveNpmService.onclick=saveNpmService;els.saveProxmoxTarget.onclick=saveProxmoxTarget;els.saveCtService.onclick=saveCtService;els.refreshRuns.onclick=loadRuns;els.llmExplain.onclick=explainLastRun}async function bootstrap(){loadSettings();syncDbContext();els.flowPayload.value=pretty(defaultFlowPayload());bindEvents();await bootstrapLocalOnly();const hash=(window.location.hash||'#dashboard').replace('#','');switchView(hash||'dashboard')}bootstrap().catch(err=>{console.error('[DevLab] bootstrap error',err);if(els.toolDiagnostics)els.toolDiagnostics.textContent=pretty({error:err.message||String(err)})});
+const els = {
+  navButtons:[...document.querySelectorAll('.nav-btn')],
+  views:[...document.querySelectorAll('.view')],
+  healthDb:document.getElementById('healthDb'),
+  healthRunner:document.getElementById('healthRunner'),
+  kpiTools:document.getElementById('kpiTools'),
+  kpiPyFiles:document.getElementById('kpiPyFiles'),
+  kpiTables:document.getElementById('kpiTables'),
+  dbPathLabel:document.getElementById('dbPathLabel'),
+  dbDownloadLink:document.getElementById('dbDownloadLink'),
+  dbActivePath:document.getElementById('dbActivePath'),
+  toolSearch:document.getElementById('toolSearch'),
+  toolList:document.getElementById('toolList'),
+  toolSelect:document.getElementById('toolSelect'),
+  runMode:document.getElementById('runMode'),
+  toolInput:document.getElementById('toolInput'),
+  toolOutput:document.getElementById('toolOutput'),
+  toolDiagnostics:document.getElementById('toolDiagnostics'),
+  btnLoadSample:document.getElementById('btnLoadSample'),
+  validateInput:document.getElementById('validateInput'),
+  runTool:document.getElementById('runTool'),
+  dbContractWrap:document.getElementById('dbContractWrap'),
+  dbTableSelect:document.getElementById('dbTableSelect'),
+  loadTableBtn:document.getElementById('loadTableBtn'),
+  dbTableWrap:document.getElementById('dbTableWrap'),
+  cfgNamespace:document.getElementById('cfgNamespace'),
+  loadNamespace:document.getElementById('loadNamespace'),
+  sensitiveTable:document.getElementById('sensitiveTable'),
+  dbBrowseList:document.getElementById('dbBrowseList'),
+  openSelectDb:document.getElementById('openSelectDb'),
+  openCreateDb:document.getElementById('openCreateDb'),
+  openUploadDb:document.getElementById('openUploadDb'),
+  openExportDb:document.getElementById('openExportDb'),
+  deleteActiveDb:document.getElementById('deleteActiveDb'),
+  dbModal:document.getElementById('dbModal'),
+  dbModalTitle:document.getElementById('dbModalTitle'),
+  closeDbModal:document.getElementById('closeDbModal'),
+  dbBrowserCurrent:document.getElementById('dbBrowserCurrent'),
+  dbBrowserUp:document.getElementById('dbBrowserUp'),
+  dbBrowserRefresh:document.getElementById('dbBrowserRefresh'),
+  dbBrowserItems:document.getElementById('dbBrowserItems'),
+  dbSelectedPath:document.getElementById('dbSelectedPath'),
+  dbActionTitle:document.getElementById('dbActionTitle'),
+  dbActionBody:document.getElementById('dbActionBody'),
+  dbActionConfirm:document.getElementById('dbActionConfirm'),
+  dbActionCancel:document.getElementById('dbActionCancel'),
+  dbActionOutput:document.getElementById('dbActionOutput'),
+};
+
+const state = {
+  activeDbPath: localStorage.getItem('jarvis_active_db_path') || '',
+  tools: [],
+  pyFiles: [],
+  currentTool: null,
+  browserCurrent: '',
+  browserSelected: '',
+  modalMode: null,
+};
+
+function pretty(v){ return JSON.stringify(v, null, 2); }
+function escapeHtml(v){ return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function saveDbPath(path){ state.activeDbPath = path || ''; localStorage.setItem('jarvis_active_db_path', state.activeDbPath); renderActiveDb(); }
+function log(...args){ console.log('[DevLab]', ...args); }
+
+async function api(action, payload = {}, raw = false){
+  let opts;
+  if (raw === 'formdata') {
+    payload.append('action', action);
+    opts = { method: 'POST', body: payload };
+  } else {
+    opts = {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ action, db_path: state.activeDbPath, ...payload })
+    };
+  }
+  const res = await fetch('api.php', opts);
+  if (raw === 'download') return res;
+  const text = await res.text();
+  let data={}; try{ data=text?JSON.parse(text):{} }catch{ data={raw:text} }
+  if(!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function switchView(name){
+  els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view===name));
+  els.views.forEach(v => v.classList.toggle('active', v.id===`view-${name}`));
+  window.location.hash = name;
+}
+
+function renderActiveDb(){
+  const path = state.activeDbPath || 'Aucune DB active.';
+  els.dbPathLabel.textContent = path;
+  els.dbActivePath.textContent = path;
+  if (state.activeDbPath){
+    els.dbDownloadLink.href = `api.php?action=download_db&db_path=${encodeURIComponent(state.activeDbPath)}`;
+  } else {
+    els.dbDownloadLink.href = '#';
+  }
+}
+
+function renderTools(){
+  const filter = (els.toolSearch.value || '').trim().toLowerCase();
+  const items = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || (t.description||'').toLowerCase().includes(filter));
+  els.toolList.innerHTML = items.map(tool => `
+    <button class="tool-item ${state.currentTool?.name===tool.name?'active':''}" data-tool="${tool.name}">
+      <div class="status-line"><strong>${escapeHtml(tool.name)}</strong><span class="badge">${escapeHtml(tool.version || 'v0')}</span></div>
+      <div class="small muted">${escapeHtml(tool.description || 'sans description')}</div>
+      <div class="small muted">${escapeHtml(tool.entrypoint || '')}</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun outil.</div>';
+  [...els.toolList.querySelectorAll('[data-tool]')].forEach(btn => btn.onclick = () => selectTool(btn.dataset.tool));
+  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name} · ${tool.version || 'v0'}</option>`).join('');
+  if (state.currentTool) els.toolSelect.value = state.currentTool.name;
+}
+
+function selectTool(name){
+  const tool = state.tools.find(t => t.name === name);
+  if (!tool) return;
+  state.currentTool = tool;
+  renderTools();
+  els.toolInput.value = pretty(tool.sample_input && Object.keys(tool.sample_input).length ? tool.sample_input : {});
+  els.toolDiagnostics.textContent = pretty({
+    tool: tool.name,
+    version: tool.version || 'v0',
+    db_active: state.activeDbPath || null,
+    sequence: [
+      '1. Tu fournis seulement le JSON métier.',
+      '2. Le tool utilise la DB active ci-dessus comme contexte.',
+      '3. Les secrets ne sont pas injectés dans le JSON.',
+    ]
+  });
+}
+
+async function refreshHealth(){
+  const data = await api('healthcheck');
+  els.kpiTools.textContent = data.tools_count || 0;
+  els.kpiPyFiles.textContent = data.python_files_count || 0;
+  els.kpiTables.textContent = (data.tables || []).length;
+  els.healthDb.textContent = data.active_db_path ? 'DB active' : 'DB ?';
+  els.healthDb.className = `badge ${data.active_db_path ? 'ok' : 'warn'}`;
+  els.healthRunner.textContent = 'Local API OK';
+  els.healthRunner.className = 'badge ok';
+  if (!state.activeDbPath) saveDbPath(data.active_db_path || data.default_db_path || '');
+  state.tools = data.tools_preview || [];
+  renderTools();
+  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
+}
+
+async function loadContract(){
+  const data = await api('db_contract');
+  const tables = data.contract?.tables || [];
+  els.dbContractWrap.innerHTML = tables.map(t => `
+    <div style="border:1px solid #2a3b62;border-radius:12px;padding:.65rem .7rem;background:#0b1324;margin-bottom:.55rem">
+      <div class="status-line"><strong>${escapeHtml(t.name)}</strong><span class="chip">${escapeHtml((t.used_by||[]).join(', '))}</span></div>
+      <div class="small muted"><code>${escapeHtml((t.columns||[]).join(', '))}</code></div>
+    </div>
+  `).join('');
+}
+
+async function loadTables(){
+  const data = await api('list_tables');
+  const items = data.items || [];
+  els.dbTableSelect.innerHTML = items.map(i => `<option value="${i.name}">${i.name}</option>`).join('');
+  if (items.length) await loadSelectedTable();
+}
+
+async function loadSelectedTable(){
+  const table = els.dbTableSelect.value;
+  if (!table) { els.dbTableWrap.innerHTML = '<div class="muted">Aucune table.</div>'; return; }
+  const data = await api('get_table_rows', { table, limit: 100, offset: 0 });
+  const head = `<tr>${(data.columns||[]).map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr>`;
+  const body = (data.rows||[]).map(row => `<tr>${(data.columns||[]).map(col=>`<td>${escapeHtml(row[col] ?? '')}</td>`).join('')}</tr>`).join('');
+  els.dbTableWrap.innerHTML = `<table><thead>${head}</thead><tbody>${body || `<tr><td colspan="${(data.columns||[]).length || 1}">Aucune ligne.</td></tr>`}</tbody></table>`;
+}
+
+async function loadNamespaces(){
+  const data = await api('list_namespaces');
+  const items = data.items || [];
+  els.cfgNamespace.innerHTML = items.map(ns => `<option value="${ns}">${ns}</option>`).join('') || '<option value="">(aucun namespace)</option>';
+  if (items.length) await loadNamespace();
+  else els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucun namespace dans la DB active.</td></tr>';
+}
+
+async function loadNamespace(){
+  const ns = els.cfgNamespace.value;
+  if (!ns) return;
+  const data = await api('list_sensitive', { namespace: ns });
+  const rows = data.items || [];
+  els.sensitiveTable.innerHTML = rows.map(row => `
+    <tr>
+      <td><code>${escapeHtml(row.key)}</code></td>
+      <td><input data-k="${escapeHtml(row.key)}" value="${escapeHtml(row.value)}"></td>
+      <td><button class="secondary" data-save="${escapeHtml(row.key)}">Save</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" class="muted">Namespace vide.</td></tr>';
+  [...els.sensitiveTable.querySelectorAll('[data-save]')].forEach(btn => btn.onclick = async () => {
+    const key = btn.dataset.save;
+    const input = els.sensitiveTable.querySelector(`[data-k="${CSS.escape(key)}"]`);
+    await api('upsert_sensitive', { namespace: ns, key, value: input.value });
+    await loadNamespace();
+  });
+}
+
+async function loadBrowseList(path = null){
+  const data = await api('browse_db_paths', path ? { path } : {});
+  state.browserCurrent = data.current_path;
+  els.dbBrowseList.innerHTML = (data.items || []).map(item => `
+    <div class="tool-item" data-db-file="${escapeHtml(item.path)}">
+      <div class="status-line"><strong>${escapeHtml(item.name)}</strong><span class="badge">${item.type}</span></div>
+      <div class="small muted">${escapeHtml(item.path)}</div>
+    </div>
+  `).join('') || '<div class="muted">Aucun fichier DB.</div>';
+  [...els.dbBrowseList.querySelectorAll('[data-db-file]')].forEach(btn => btn.onclick = () => {
+    const p = btn.dataset.dbFile;
+    saveDbPath(p);
+    refreshDbArea();
+  });
+}
+
+function openModal(mode){
+  state.modalMode = mode;
+  state.browserSelected = '';
+  els.dbActionOutput.textContent = 'Aucune action.';
+  els.dbModal.classList.add('open');
+  els.dbModalTitle.textContent = 'Gestion DB';
+  const currentDir = state.activeDbPath ? state.activeDbPath.replace(/\/[^/]+$/, '') : '';
+  browseModal(currentDir);
+  renderModalBody();
+}
+
+async function browseModal(path = null){
+  const data = await api('browse_db_paths', path ? { path } : {});
+  state.browserCurrent = data.current_path;
+  els.dbBrowserCurrent.textContent = data.current_path;
+  els.dbBrowserUp.disabled = !data.parent_path;
+  els.dbBrowserUp.onclick = () => data.parent_path && browseModal(data.parent_path);
+  els.dbBrowserRefresh.onclick = () => browseModal(state.browserCurrent);
+  els.dbBrowserItems.innerHTML = (data.items || []).map(item => `
+    <div class="browser-item ${state.browserSelected===item.path?'active':''}" data-path="${escapeHtml(item.path)}" data-type="${item.type}">
+      <div>
+        <div><strong>${escapeHtml(item.name)}</strong></div>
+        <div class="small muted">${escapeHtml(item.path)}</div>
+      </div>
+      <span class="chip">${item.type}</span>
+    </div>
+  `).join('') || '<div class="muted">Dossier vide.</div>';
+  [...els.dbBrowserItems.querySelectorAll('[data-path]')].forEach(el => el.onclick = () => {
+    const path = el.dataset.path, type = el.dataset.type;
+    if (type === 'dir') browseModal(path);
+    else {
+      state.browserSelected = path;
+      els.dbSelectedPath.textContent = path;
+      [...els.dbBrowserItems.querySelectorAll('.browser-item')].forEach(n => n.classList.toggle('active', n===el));
+    }
+  });
+}
+
+function renderModalBody(){
+  const mode = state.modalMode;
+  const currentDir = state.browserCurrent || '';
+  els.dbSelectedPath.textContent = state.browserSelected || 'Aucun chemin sélectionné.';
+  if (mode === 'select') {
+    els.dbActionTitle.textContent = 'Sélectionner la DB active';
+    els.dbActionBody.innerHTML = '<div class="small muted">Choisis un fichier .db dans l’arborescence puis valide.</div>';
+    els.dbActionConfirm.onclick = async () => {
+      if (!state.browserSelected) return;
+      saveDbPath(state.browserSelected);
+      els.dbActionOutput.textContent = pretty({ ok:true, active_db_path: state.activeDbPath });
+      await refreshDbArea();
+      closeModal();
+    };
+  } else if (mode === 'create') {
+    els.dbActionTitle.textContent = 'Créer une nouvelle DB';
+    els.dbActionBody.innerHTML = `
+      <label>Nom du nouveau fichier DB</label>
+      <input id="modalNewDbName" placeholder="nouvelle.db" />
+      <div class="small muted" style="margin-top:.5rem">Le fichier sera créé dans : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      const name = document.getElementById('modalNewDbName').value.trim();
+      if (!name) return;
+      const target = `${state.browserCurrent.replace(/\/+$/,'')}/${name}`;
+      const data = await api('create_db', { path: target });
+      saveDbPath(data.path);
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
+  } else if (mode === 'upload') {
+    els.dbActionTitle.textContent = 'Uploader une DB locale';
+    els.dbActionBody.innerHTML = `
+      <label>Choisir un fichier local</label>
+      <input id="modalUploadFile" type="file" accept=".db,.sqlite,.sqlite3" />
+      <label style="margin-top:.7rem">Nom cible</label>
+      <input id="modalUploadName" placeholder="import.db" />
+      <div class="small muted" style="margin-top:.5rem">Le fichier sera envoyé dans : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      const f = document.getElementById('modalUploadFile').files[0];
+      const name = document.getElementById('modalUploadName').value.trim() || (f ? f.name : '');
+      if (!f || !name) return;
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('target_path', `${state.browserCurrent.replace(/\/+$/,'')}/${name}`);
+      const data = await api('upload_db', fd, 'formdata');
+      saveDbPath(data.target_path);
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
+  } else if (mode === 'export') {
+    els.dbActionTitle.textContent = 'Exporter la DB active';
+    els.dbActionBody.innerHTML = `
+      <label>Nom cible</label>
+      <input id="modalExportName" placeholder="${state.activeDbPath ? state.activeDbPath.split('/').pop() : 'export.db'}" />
+      <div class="small muted" style="margin-top:.5rem">La DB active sera copiée vers : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      if (!state.activeDbPath) return;
+      const name = document.getElementById('modalExportName').value.trim() || 'export.db';
+      const data = await api('export_db', { source_path: state.activeDbPath, target_path: `${state.browserCurrent.replace(/\/+$/,'')}/${name}` });
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
+  }
+}
+
+function closeModal(){ els.dbModal.classList.remove('open'); }
+
+async function deleteActiveDb(){
+  if (!state.activeDbPath) return;
+  if (!confirm(`Effacer cette DB ?\n${state.activeDbPath}`)) return;
+  const data = await api('delete_db', { path: state.activeDbPath });
+  log('delete', data);
+  saveDbPath('');
+  await refreshDbArea();
+}
+
+async function refreshDbArea(){
+  renderActiveDb();
+  try {
+    await refreshHealth();
+    await loadContract();
+    await loadTables();
+    await loadNamespaces();
+    await loadBrowseList(state.activeDbPath ? state.activeDbPath.replace(/\/[^/]+$/, '') : null);
+  } catch (e) {
+    els.dbTableWrap.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+    els.sensitiveTable.innerHTML = `<tr><td colspan="3" class="muted">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function bindEvents(){
+  els.navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
+  els.toolSearch.oninput = renderTools;
+  els.toolSelect.onchange = () => selectTool(els.toolSelect.value);
+  els.btnLoadSample.onclick = () => state.currentTool && (els.toolInput.value = pretty(state.currentTool.sample_input || {}));
+  els.validateInput.onclick = () => { els.toolDiagnostics.textContent = pretty({ valid:true, note:'Validation locale minimale. Le backend complet peut faire une validation plus riche.' }); };
+  els.runTool.onclick = () => { els.toolDiagnostics.textContent = pretty({ note:'Le flux DB est corrigé dans cette version. Le run backend complet reste branché sur ton backend DevLab.' }); };
+  els.openSelectDb.onclick = () => openModal('select');
+  els.openCreateDb.onclick = () => openModal('create');
+  els.openUploadDb.onclick = () => openModal('upload');
+  els.openExportDb.onclick = () => openModal('export');
+  els.deleteActiveDb.onclick = deleteActiveDb;
+  els.closeDbModal.onclick = closeModal;
+  els.dbActionCancel.onclick = closeModal;
+  els.loadTableBtn.onclick = loadSelectedTable;
+  els.loadNamespace.onclick = loadNamespace;
+}
+
+async function bootstrap(){
+  bindEvents();
+  renderActiveDb();
+  await refreshDbArea();
+  const hash = location.hash.replace('#','');
+  if (hash) switchView(hash);
+}
+bootstrap().catch(err => {
+  console.error(err);
+  els.dbTableWrap.innerHTML = `<div class="muted">${escapeHtml(err.message || String(err))}</div>`;
+});
