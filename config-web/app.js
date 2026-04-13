@@ -25,6 +25,7 @@ const state = {
   selectedPath: null,
   browserPath: '/var/www/jarvis/database',
   lastFocus: null,
+  browserLoading: false,
 };
 
 function dblog(step, data = null) {
@@ -98,7 +99,6 @@ function openModal(action, trigger = null) {
   state.selectedPath = null;
   els.dbActionOutput.textContent = 'Aucune action.';
   els.dbBrowserPath.textContent = state.browserPath;
-  els.dbModal.hidden = false;
   const titles = {
     create: 'Créer une nouvelle DB',
     select: 'Sélectionner une DB existante',
@@ -126,27 +126,34 @@ function openModal(action, trigger = null) {
     els.dbActionBody.innerHTML = `<div class="small">Choisis un fichier .db dans l'arborescence distante, puis confirme.</div>`;
   }
 
-  loadBrowser(state.browserPath);
+  els.dbModal.hidden = false;
   dblog('manager.open', { action });
-  setTimeout(() => {
+  loadBrowser(state.browserPath).finally(() => {
     const field = document.getElementById('modalNewDbName') || document.getElementById('modalUploadFile') || els.dbActionConfirm;
-    field?.focus();
-  }, 20);
+    if (field) field.focus();
+  });
 }
 
-function closeModal() {
-  els.dbModal.hidden = true;
+function closeModal(reason = 'manual') {
+  dblog('manager.close', { reason, action: state.modalAction });
   state.modalAction = null;
   state.selectedPath = null;
+  els.dbModal.hidden = true;
   if (state.lastFocus && typeof state.lastFocus.focus === 'function') {
     setTimeout(() => state.lastFocus.focus(), 0);
   }
 }
 
 async function loadBrowser(path) {
+  if (state.browserLoading) return;
+  state.browserLoading = true;
   try {
     dblog('browse.start', { path });
     const data = await api('browse_paths', { path });
+    if (els.dbModal.hidden) {
+      dblog('browse.ignored.modal_closed', { path });
+      return;
+    }
     state.browserPath = data.current_path;
     els.dbBrowserPath.textContent = data.current_path;
     els.dbBrowserList.innerHTML = (data.items || []).map(item => `
@@ -157,7 +164,9 @@ async function loadBrowser(path) {
     `).join('') || '<div class="small">Dossier vide.</div>';
 
     [...els.dbBrowserList.querySelectorAll('[data-path]')].forEach(btn => {
-      btn.onclick = () => {
+      btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
         const p = btn.dataset.path;
         const type = btn.dataset.type;
         if (type === 'dir') {
@@ -174,8 +183,12 @@ async function loadBrowser(path) {
 
     dblog('browse.result', { current_path: data.current_path, count: (data.items || []).length });
   } catch (err) {
-    els.dbBrowserList.innerHTML = `<div class="small">Erreur : ${String(err.message || err)}</div>`;
+    if (!els.dbModal.hidden) {
+      els.dbBrowserList.innerHTML = `<div class="small">Erreur : ${String(err.message || err)}</div>`;
+    }
     dblog('browse.error', { error: String(err.message || err) });
+  } finally {
+    state.browserLoading = false;
   }
 }
 
@@ -191,6 +204,7 @@ async function confirmModalAction() {
       setActiveDb(data.path);
       els.dbActionOutput.textContent = JSON.stringify(data, null, 2);
       await refreshHealth();
+      closeModal('create_success');
       return;
     }
     if (state.modalAction === 'select') {
@@ -199,6 +213,7 @@ async function confirmModalAction() {
       els.dbActionOutput.textContent = JSON.stringify({ ok: true, selected: state.selectedPath }, null, 2);
       dblog('select.active.saved', { path: state.selectedPath });
       await refreshHealth();
+      closeModal('select_success');
       return;
     }
     if (state.modalAction === 'delete') {
@@ -208,11 +223,12 @@ async function confirmModalAction() {
       if (state.activeDb === state.selectedPath) setActiveDb(DEFAULT_DB);
       els.dbActionOutput.textContent = JSON.stringify(data, null, 2);
       await refreshHealth();
-      loadBrowser(state.browserPath);
+      closeModal('delete_success');
       return;
     }
     if (state.modalAction === 'export') {
       window.location = `api.php?action=download_db&db_path=${encodeURIComponent(state.activeDb)}`;
+      closeModal('export_start');
       return;
     }
     if (state.modalAction === 'upload') {
@@ -224,6 +240,7 @@ async function confirmModalAction() {
         local_file: file.name,
       }, null, 2);
       dblog('upload.request.prepared', { remote_dir: state.browserPath, local_file: file.name });
+      closeModal('upload_prepared');
       return;
     }
   } catch (err) {
@@ -242,8 +259,14 @@ window.addEventListener('load', () => {
   els.exportDb.onclick = (e) => openModal('export', e.currentTarget);
   els.deleteDb.onclick = (e) => openModal('delete', e.currentTarget);
   els.dbActionConfirm.onclick = confirmModalAction;
-  els.dbActionCancel.onclick = closeModal;
+  els.dbActionCancel.onclick = () => closeModal('button_cancel');
   els.dbModal.addEventListener('click', (e) => {
-    if (e.target === els.dbModal) closeModal();
+    if (e.target === els.dbModal) closeModal('backdrop_click');
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !els.dbModal.hidden) {
+      e.preventDefault();
+      closeModal('escape');
+    }
   });
 });
