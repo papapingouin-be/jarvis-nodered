@@ -1,158 +1,223 @@
+
 <!doctype html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Jarvis MCP - Config outils</title>
+  <title>Jarvis DevLab</title>
   <style>
-    :root { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color-scheme: light; }
-    body { margin: 0; background: #f3f4f6; color: #111827; }
-    header { background: #ffffff; border-bottom: 1px solid #e5e7eb; padding: 1rem 1.25rem; }
-    main { max-width: 1040px; margin: 1rem auto 2rem; padding: 0 1rem; }
-    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: .9rem; }
-    h1 { margin: 0; font-size: 1.1rem; }
-    h2 { margin: 0 0 .75rem; font-size: 1rem; }
-    .subtle { color: #6b7280; font-size: .9rem; }
-    label { display: flex; flex-direction: column; gap: .3rem; font-size: .9rem; }
-    input, select, textarea { border: 1px solid #d1d5db; border-radius: 8px; padding: .5rem .6rem; background: #fff; font-family: inherit; }
-    textarea { min-height: 130px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-    button { border: none; border-radius: 8px; padding: .5rem .8rem; cursor: pointer; background: #1f2937; color: #fff; }
-    button.danger { background: #b91c1c; } button.secondary{background:#64748b}
-    .row { display: flex; gap: .45rem; flex-wrap: wrap; align-items: end; }
-    .status { margin-top: .5rem; font-size: .9rem; } .ok { color: #047857; } .err { color: #b91c1c; }
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: .45rem; vertical-align: middle; }
-    th { font-weight: 600; }
-    .tabs { display: flex; gap: .4rem; margin: 1rem 0 .8rem; }
-    .tab-btn { background: #e5e7eb; color: #1f2937; } .tab-btn.active { background: #1f2937; color: #fff; }
-    .tab-panel { display: none; } .tab-panel.active { display: block; }
-    .grid { display: grid; grid-template-columns: 320px 1fr; gap: .9rem; }
-    pre { background: #0b1020; color: #e5e7eb; border-radius: 8px; padding: .8rem; overflow: auto; min-height: 180px; }
-    ul.tool-list { padding-left: 1.1rem; margin: .3rem 0 0; }
-    .flow-steps { display: grid; grid-template-columns: repeat(4, minmax(170px, 1fr)); gap: .7rem; margin: .8rem 0; align-items: stretch; }
-    .flow-step { border: 1px solid #d1d5db; border-radius: 10px; padding: .7rem; background: #f9fafb; position: relative; }
-    .flow-step .num { display: inline-flex; width: 1.4rem; height: 1.4rem; align-items: center; justify-content: center; background:#1f2937; color:#fff; border-radius: 999px; font-size: .78rem; margin-right: .35rem; }
-    .flow-step h4 { margin: 0 0 .45rem; font-size: .9rem; } .flow-step p { margin: 0; font-size: .83rem; color:#4b5563; }
-    .flow-arrow { display:flex; align-items:center; justify-content:center; color:#6b7280; font-size: 1.1rem; font-weight: 700; }
-    details.inline-editor { margin-top: .65rem; border: 1px solid #d1d5db; border-radius: 8px; padding: .4rem .55rem; background:#fff; }
-    details.inline-editor summary { cursor: pointer; font-size: .88rem; color:#111827; font-weight: 600; }
-    .step-meta { margin-top: .35rem; font-size: .8rem; color:#374151; } .step-meta code { font-size: .78rem; }
-    @media (max-width: 960px) { .flow-steps { grid-template-columns: 1fr; } .flow-arrow { transform: rotate(90deg); } }
-    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
-    .pill{display:inline-block;padding:.2rem .5rem;border-radius:999px;border:1px solid #cbd5e1;font-size:.8rem;color:#334155;background:#fff}
-    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px}
-    [hidden]{display:none!important}
-    .modal{background:#fff;border-radius:12px;border:1px solid #d1d5db;padding:1rem;max-width:1100px;width:95vw;max-height:90vh;overflow:auto}
-    .browser-grid{display:grid;grid-template-columns:1.2fr .9fr;gap:12px}
-    .browser-list{max-height:55vh;overflow:auto;border:1px solid #d1d5db;border-radius:8px;padding:8px;background:#f9fafb}
-    .browser-item{display:flex;justify-content:space-between;align-items:center;width:100%;margin-bottom:6px;background:#fff;border:1px solid #d1d5db}
-    .browser-item.selected{outline:2px solid #2563eb}
-    .db-path{padding:8px 10px;background:#fff;border:1px solid #d1d5db;border-radius:8px;margin:8px 0}
+    :root{
+      --bg:#0b1020;--panel:#121a2b;--panel2:#0f172a;--line:#23324f;--text:#edf3ff;--muted:#9bb0d7;
+      --ok:#10b981;--warn:#f59e0b;--err:#ef4444;--accent:#60a5fa;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color-scheme:dark;
+    }
+    *{box-sizing:border-box} body{margin:0;background:linear-gradient(180deg,#0b1020,#0e1527);color:var(--text)}
+    header{display:flex;justify-content:space-between;align-items:center;padding:1rem 1.2rem;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,16,32,.95);z-index:10}
+    h1,h2,h3{margin:.1rem 0 .8rem} .sub{color:var(--muted);font-size:.92rem}
+    .shell{display:grid;grid-template-columns:260px 1fr;min-height:calc(100vh - 70px)}
+    aside{padding:1rem;border-right:1px solid var(--line);background:rgba(9,14,26,.7)}
+    .nav-title{color:var(--muted);font-size:.78rem;text-transform:uppercase;letter-spacing:.08em;margin:.8rem 0 .5rem}
+    .nav-btn,.tool-item{width:100%;text-align:left;border:1px solid transparent;background:transparent;color:var(--text);border-radius:12px;padding:.72rem .8rem;cursor:pointer;display:block;margin-bottom:.35rem}
+    .nav-btn.active,.tool-item.active{background:#17233d;border-color:#27406f}.nav-btn:hover,.tool-item:hover{background:#152138}
+    main{padding:1rem;display:grid;gap:1rem}.view{display:none;gap:1rem}.view.active{display:grid}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+    .card{border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,26,43,.98),rgba(12,19,34,.98));border-radius:18px;padding:1rem;box-shadow:0 8px 30px rgba(0,0,0,.18)}
+    .muted{color:var(--muted)} .small{font-size:.85rem}
+    .badge{border-radius:999px;padding:.22rem .6rem;font-size:.78rem;border:1px solid var(--line);background:#12203a}
+    .badge.ok{color:#b7f7d2;border-color:#0d6c53;background:#0e2a26}.badge.warn{color:#fde68a;border-color:#8b5f00;background:#2d2207}.badge.err{color:#fecaca;border-color:#7f1d1d;background:#301113}
+    .status-line{display:flex;gap:.6rem;flex-wrap:wrap;align-items:center}.kpi{font-size:1.7rem;font-weight:700;margin-top:.3rem}
+    label{display:block;font-size:.92rem;margin-bottom:.25rem} input,select,textarea{width:100%;border-radius:12px;border:1px solid #2a3b62;padding:.68rem .8rem;background:#0b1324;color:var(--text)}
+    textarea{min-height:180px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    button{border:none;border-radius:12px;padding:.72rem .92rem;cursor:pointer;background:#2563eb;color:white;font-weight:600}
+    button.secondary{background:#334155} button.success{background:#0f9c67} button.warn{background:#b45309} button.ghost{background:#17233d}
+    pre{margin:0;white-space:pre-wrap;word-break:break-word;background:#0a1120;border:1px solid #1b2942;border-radius:14px;padding:.9rem;overflow:auto;min-height:120px}
+    table{width:100%;border-collapse:collapse;font-size:.92rem} th,td{border-bottom:1px solid #20304c;padding:.55rem;text-align:left;vertical-align:top}
+    tr:hover td{background:rgba(35,54,88,.22)}
+    .tool-item .status-line{justify-content:space-between}
+    .list-box{max-height:60vh;overflow:auto}
+    .hint{border-left:3px solid var(--accent);padding-left:.8rem;color:#d8e5ff}
+    .row{display:flex;gap:.7rem;flex-wrap:wrap;align-items:end}.row > *{flex:1;min-width:180px}
+    .db-path{font-size:.9rem;color:#b9d3ff;word-break:break-all}
+    .db-zone{display:grid;gap:1rem}
+    .browser-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:1rem}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(2,6,23,.75);display:none;align-items:center;justify-content:center;padding:1rem;z-index:50}
+    .modal-backdrop.open{display:flex}
+    .modal{width:min(1100px,96vw);max-height:90vh;overflow:auto;border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,26,43,.98),rgba(12,19,34,.98));border-radius:18px;padding:1rem}
+    .hidden{display:none!important}
+    @media (max-width:1100px){.shell,.grid-2,.grid-3,.browser-grid{grid-template-columns:1fr}aside{border-right:none;border-bottom:1px solid var(--line)}}
   </style>
 </head>
 <body>
-  <header><h1>Jarvis MCP - Configuration des outils <span class="pill">db-fix-v1</span></h1></header>
-  <main>
-    <section class="card">
-      <h2>Base SQLite</h2>
-      <input id="dbPath" type="hidden" />
-      <div class="row">
-        <div style="min-width:360px; flex:1">
-          <div class="subtle">DB active</div>
-          <div id="dbActiveDisplay" style="font-family:ui-monospace,monospace;word-break:break-all;"></div>
-        </div>
-        <button id="openDbManager" class="secondary">Gérer la DB</button>
-        <button id="downloadDbBtn" class="secondary">Télécharger</button>
-        <button id="reloadAll">Recharger</button>
-      </div>
-      <div class="subtle">Par défaut: <code>/var/www/jarvis/database/jarvis_infra.db</code></div>
-      <div id="globalStatus" class="status"></div>
-    </section>
-
-    <div class="tabs">
-      <button class="tab-btn active" data-tab="configTab">Config Web</button>
-      <button class="tab-btn" data-tab="labTab">Laboratoire outils .py</button>
+  <header>
+    <div>
+      <h1>Jarvis DevLab <span class="badge">v1.5.0</span></h1>
+      <div class="sub">DB unifiée, tools, code et flux</div>
     </div>
+    <div class="status-line">
+      <span id="healthDb" class="badge">DB ?</span>
+      <span id="healthRunner" class="badge">Runner ?</span>
+      <span id="healthDev" class="badge">Dev ?</span>
+    </div>
+  </header>
 
-    <section class="tab-panel active" id="configTab">
-      <section class="card">
-        <h2>Configuration simple</h2>
-        <div class="subtle">Choisissez un outil, visualisez les valeurs actuelles, modifiez et sauvegardez au même endroit.</div>
-        <div class="row" style="margin-top:.7rem;">
-          <label style="min-width:280px; flex:1">Outil
-            <select id="cfgTool"></select>
-          </label>
-        </div>
-        <table id="configEditor" style="margin-top:.7rem;"></table>
-      </section>
-    </section>
+  <div class="shell">
+    <aside>
+      <div class="nav-title">Navigation</div>
+      <button class="nav-btn active" data-view="dashboard">Dashboard</button>
+      <button class="nav-btn" data-view="db">Gestion DB</button>
+      <button class="nav-btn" data-view="tools">Tools Lab</button>
+      <button class="nav-btn" data-view="code">Code Lab</button>
 
-    <section class="tab-panel" id="labTab">
-      <section class="card">
-        <h2>Laboratoire de test des outils Python</h2>
-        <div class="subtle">Interface didactique du flux réel : entrée utilisateur → récupération DB → moteur d'exécution → retour d'information.</div>
-        <div class="flow-steps" aria-label="Séquence réelle du flux laboratoire">
-          <div class="flow-step"><h4><span class="num">1</span>Entrée</h4><p>Choisir l'outil et préparer le JSON d'input réel.</p><div class="step-meta">Outil sélectionné : <code id="flowSelectedTool">-</code></div></div>
-          <div class="flow-arrow">➜</div>
-          <div class="flow-step"><h4><span class="num">2</span>Données DB</h4><p>Lire les paramètres sensibles stockés en SQLite.</p><div class="step-meta">DB : <code id="flowDbPath">non défini</code></div></div>
-          <div class="flow-arrow">➜</div>
-          <div class="flow-step"><h4><span class="num">3</span>Moteur</h4><p>Exécution via <code>toolbox_runner</code> (<code>/v1/run</code>).</p><div class="step-meta">Payload : <code>{ tool, input }</code></div></div>
-          <div class="flow-arrow">➜</div>
-          <div class="flow-step"><h4><span class="num">4</span>Retour</h4><p>Afficher la réponse brute et le diagnostic pour comprendre le résultat.</p><div class="step-meta">Statut : <code id="flowRunStatus">idle</code></div></div>
+      <div class="nav-title">Contexte</div>
+      <label>Endpoint Node-RED</label>
+      <input id="flowEndpoint" placeholder="http://localhost:1880/jarvis/inbound" />
+      <label style="margin-top:.8rem;">URL Dev backend</label>
+      <input id="devBackendUrl" value="proxy" title="proxy | proxy:http://IP:8090 | http://IP:8090" />
+      <div class="small muted" style="margin-top:.6rem;">La DB active se gère uniquement dans l’onglet <strong>Gestion DB</strong>.</div>
+    </aside>
+
+    <main>
+      <section id="view-dashboard" class="view active">
+        <div class="grid-3">
+          <div class="card"><div class="muted">Tools détectés</div><div id="kpiTools" class="kpi">0</div></div>
+          <div class="card"><div class="muted">Fichiers Python</div><div id="kpiPyFiles" class="kpi">0</div></div>
+          <div class="card"><div class="muted">Tables DB</div><div id="kpiTables" class="kpi">0</div></div>
         </div>
-        <div class="grid" style="margin-top:.8rem;">
-          <div><h3 style="margin:.1rem 0 .5rem;">Fichiers Python détectés</h3><ul id="pythonToolList" class="tool-list"></ul></div>
-          <div>
-            <div class="row">
-              <label style="min-width:230px; flex:1">Outil exécutable (manifest)<select id="labTool"></select></label>
-              <button id="runLab">Exécuter</button><button id="runAllLab">Tester tous les outils</button><button id="runNpmQuick">Test rapide npm_service</button><button id="refreshLab">Rafraîchir la liste</button>
+        <div class="grid-2">
+          <div class="card">
+            <h2>DB active</h2>
+            <div id="dbActivePath" class="db-path">non sélectionnée</div>
+            <div class="row" style="margin-top:.8rem">
+              <button id="goDb" class="secondary">Ouvrir Gestion DB</button>
+              <a id="dbDownloadLink" class="tool-item" href="#" target="_blank" rel="noopener">Télécharger la DB active</a>
             </div>
-            <details class="inline-editor" open>
-              <summary>Étape 1 — Entrée JSON (input réel)</summary>
-              <label style="margin-top:.5rem;">Entrée JSON (input réel)<textarea id="labInput" spellcheck="false"></textarea></label>
-              <div class="subtle">Prérempli automatiquement à partir du <code>sample_input</code> du manifest de l'outil.</div>
-            </details>
-            <div class="subtle" style="margin-top:.6rem;">Payload réellement envoyé : <code>{ "tool": "...", "input": {...} }</code> sur <code>/v1/run</code>.</div>
-            <h3 style="margin:.9rem 0 .4rem;">Retour de l'outil</h3><pre id="labResult">Aucune exécution</pre>
-            <h3 style="margin:.9rem 0 .4rem;">Diagnostic scan + tests</h3><pre id="labDiagnostics">Aucun diagnostic</pre>
+            <p class="hint" style="margin-top:.9rem;">Un seul endroit pour la DB : choisir, créer, uploader, exporter, effacer.</p>
+          </div>
+          <div class="card">
+            <h2>Résumé</h2>
+            <pre id="dashboardSummary">Chargement…</pre>
           </div>
         </div>
       </section>
 
-      <section class="card">
-        <h2>Éditeur code outil .py</h2>
-        <div class="row">
-          <label style="min-width:280px; flex:1">Fichier .py<select id="codeEditorTool"></select></label>
-          <button id="loadCode">Charger</button><button id="saveCode">Sauvegarder le code</button><button id="openNpmCode">Ouvrir npm_service/tool.py</button>
+      <section id="view-db" class="view">
+        <div class="card">
+          <h2>Gestion DB</h2>
+          <div class="small muted">Plus aucun champ de chemin DB à saisir. La DB active se choisit ici, depuis l’arborescence distante ou via upload local.</div>
+          <div class="status-line" style="margin-top:.7rem">
+            <span class="badge">DB active</span>
+            <span id="dbActiveName" class="db-path">non sélectionnée</span>
+          </div>
+          <div class="row" style="margin-top:.8rem">
+            <button id="dbSelectOpen">Sélectionner</button>
+            <button id="dbCreateOpen" class="secondary">Créer</button>
+            <button id="dbUploadOpen" class="secondary">Uploader</button>
+            <button id="dbExportOpen" class="secondary">Exporter</button>
+            <button id="dbDeleteBtn" class="warn">Effacer</button>
+            <a id="dbDownloadBtn" class="tool-item" href="#" target="_blank" rel="noopener">Télécharger</a>
+          </div>
         </div>
-        <div class="subtle" id="codeEditorPath" style="margin:.4rem 0;">Aucun fichier chargé</div>
-        <textarea id="codeEditor" style="min-height:320px;" spellcheck="false" placeholder="# Code Python de l'outil"></textarea>
-      </section>
-    </section>
-  </main>
 
-  <div id="dbModal" class="modal-backdrop" hidden>
-    <div class="modal">
-      <div class="row" style="justify-content:space-between;align-items:center">
-        <h2 style="margin:0">Gestion DB</h2>
-        <button id="closeDbManager" class="secondary" type="button">Fermer</button>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Contrat DB</h3>
+            <pre id="dbContractWrap">Chargement…</pre>
+          </div>
+          <div class="card">
+            <h3>Tables</h3>
+            <div class="row">
+              <select id="dbTableSelect"></select>
+              <button id="loadTableBtn" class="secondary">Charger</button>
+            </div>
+            <div id="dbTableWrap" style="margin-top:.8rem"></div>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>Namespaces</h3>
+            <div class="row">
+              <select id="cfgNamespace"></select>
+              <button id="loadNamespace" class="secondary">Charger</button>
+            </div>
+            <table style="margin-top:.8rem"><thead><tr><th>Clé</th><th>Valeur</th><th></th></tr></thead><tbody id="sensitiveTable"></tbody></table>
+          </div>
+          <div class="card">
+            <h3>Logs DB</h3>
+            <pre id="dbTransferOutput">Aucune action.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-tools" class="view">
+        <div class="grid-2">
+          <div class="card list-box">
+            <h2>Outils</h2>
+            <input id="toolSearch" placeholder="Rechercher un tool" />
+            <div id="toolList" style="margin-top:.8rem;"></div>
+          </div>
+          <div class="card">
+            <h2>Tool Lab</h2>
+            <div class="row">
+              <select id="toolSelect"></select>
+              <select id="runMode"><option value="runner">Runner</option></select>
+            </div>
+            <textarea id="toolInput" spellcheck="false" style="margin-top:.8rem"></textarea>
+            <div class="row" style="margin-top:.8rem">
+              <button id="btnLoadSample" class="secondary">Charger exemple</button>
+              <button id="validateInput" class="secondary">Valider</button>
+              <button id="runTool">Exécuter</button>
+            </div>
+            <h3 style="margin-top:1rem">Sortie</h3>
+            <pre id="toolOutput">Aucune exécution.</pre>
+            <h3 style="margin-top:1rem">Diagnostics</h3>
+            <pre id="toolDiagnostics">Aucun diagnostic.</pre>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-code" class="view">
+        <div class="grid-2">
+          <div class="card list-box">
+            <h2>Fichiers Python</h2>
+            <div id="codeFileList"></div>
+          </div>
+          <div class="card">
+            <div class="row">
+              <select id="codeFileSelect"></select>
+              <button id="loadCodeBtn" class="secondary">Charger</button>
+              <button id="saveCodeBtn">Sauvegarder</button>
+            </div>
+            <textarea id="codeEditor" style="min-height:420px;margin-top:.8rem" spellcheck="false"></textarea>
+            <h3 style="margin-top:1rem">Infos fichier</h3>
+            <pre id="codeMeta">Aucun fichier chargé.</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="dbModal" class="modal-backdrop hidden">
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="dbActionTitle">
+      <div class="status-line" style="justify-content:space-between">
+        <h2 id="dbActionTitle">Action DB</h2>
+        <button id="dbModalClose" class="ghost">Fermer</button>
       </div>
-      <div class="browser-grid" style="margin-top:12px">
-        <div>
-          <div class="subtle">Arborescence distante</div>
-          <div id="dbBrowserPathLabel" class="db-path">/var/www/jarvis/database</div>
-          <div id="dbBrowserList" class="browser-list">Chargement…</div>
-        </div>
-        <div>
-          <label>Nom du nouveau fichier DB
-            <input id="newDbName" value="jarvis_infra.db" />
-          </label>
-          <div class="row" style="margin-top:12px">
-            <button id="selectDbConfirm" type="button">Sélectionner</button>
-            <button id="createDbConfirm" type="button">Créer ici</button>
-            <button id="deleteDbConfirm" class="danger" type="button">Effacer</button>
+      <div id="dbSelectedPath" class="db-path">Aucun chemin sélectionné.</div>
+      <div class="browser-grid" style="margin-top:.8rem">
+        <div class="card" style="padding:.8rem">
+          <div class="row">
+            <button id="dbBrowseRefresh" class="secondary">Rafraîchir</button>
           </div>
-          <pre id="dbManagerOutput" style="margin-top:12px">Aucune action.</pre>
+          <div id="dbBrowseList" class="list-box" style="margin-top:.8rem"></div>
+        </div>
+        <div class="card" style="padding:.8rem">
+          <div id="dbActionBody"></div>
+          <div class="row" style="margin-top:.8rem">
+            <button id="dbModalConfirm">Confirmer</button>
+            <button id="dbModalCancel" class="secondary">Annuler</button>
+          </div>
+          <pre id="dbActionOutput" style="margin-top:.8rem;min-height:120px">Aucune action.</pre>
         </div>
       </div>
     </div>
