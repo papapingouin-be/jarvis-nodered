@@ -1,342 +1,102 @@
-const DB_UI_VERSION = 'db-ui-v1.6.0';
-
-const els = {
-  dbStatus: document.getElementById('dbStatus'),
-  dbDetails: document.getElementById('dbDetails'),
-  createDb: document.getElementById('createDb'),
-  selectDb: document.getElementById('selectDb'),
-  uploadDb: document.getElementById('uploadDb'),
-  exportDb: document.getElementById('exportDb'),
-  deleteDb: document.getElementById('deleteDb'),
-  dbModal: document.getElementById('dbModal'),
-  dbModalTitle: document.getElementById('dbModalTitle'),
-  dbBrowserPath: document.getElementById('dbBrowserPath'),
-  dbBrowserList: document.getElementById('dbBrowserList'),
-  dbActionBody: document.getElementById('dbActionBody'),
-  dbActionOutput: document.getElementById('dbActionOutput'),
-  dbActionConfirm: document.getElementById('dbActionConfirm'),
-  dbActionCancel: document.getElementById('dbActionCancel'),
-  dbUiVersion: document.getElementById('dbUiVersion'),
-  forceCloseDb: document.getElementById('forceCloseDb'),
+const DB_UI_VERSION='db-panel-v1';
+const DB_KEY='jarvis_active_db_path';
+const DEFAULT_DB='/var/www/jarvis/database/jarvis_infra.db';
+const els={
+ logBox:document.getElementById('logBox'),
+ dbStatus:document.getElementById('dbStatus'),
+ dbDetails:document.getElementById('dbDetails'),
+ selectDb:document.getElementById('selectDb'),
+ createDb:document.getElementById('createDb'),
+ uploadDb:document.getElementById('uploadDb'),
+ exportDb:document.getElementById('exportDb'),
+ deleteDb:document.getElementById('deleteDb'),
+ closeDbPanel:document.getElementById('closeDbPanel'),
+ dbModal:document.getElementById('dbModal'),
+ dbModalTitle:document.getElementById('dbModalTitle'),
+ dbBrowserPath:document.getElementById('dbBrowserPath'),
+ dbBrowserList:document.getElementById('dbBrowserList'),
+ dbActionBody:document.getElementById('dbActionBody'),
+ dbActionOutput:document.getElementById('dbActionOutput'),
+ dbActionConfirm:document.getElementById('dbActionConfirm'),
+ dbActionCancel:document.getElementById('dbActionCancel'),
 };
+const state={activeDb:localStorage.getItem(DB_KEY)||DEFAULT_DB, modalAction:null, selectedPath:null, browserPath:'/var/www/jarvis/database'};
 
-const DB_KEY = 'jarvis_active_db_path';
-const DEFAULT_DB = '/var/www/jarvis/database/jarvis_infra.db';
-
-const state = {
-  activeDb: localStorage.getItem(DB_KEY) || DEFAULT_DB,
-  modalAction: null,
-  selectedPath: null,
-  browserPath: '/var/www/jarvis/database',
-  lastFocus: null,
-  browserLoading: false,
-};
-
-function dblog(step, data = null) {
-  console.log(`[DB][${DB_UI_VERSION}]`, step, data ?? '');
+function log(msg,data=null){
+ const line=`[DB][${DB_UI_VERSION}] ${msg} ${data?JSON.stringify(data):''}`;
+ console.log(line);
+ if(els.logBox){els.logBox.textContent=(els.logBox.textContent+'\n'+line).slice(-12000);}
 }
-
-function setVersionBadge() {
-  if (els.dbUiVersion) {
-    els.dbUiVersion.textContent = DB_UI_VERSION;
-    els.dbUiVersion.title = `Version interface DB: ${DB_UI_VERSION}`;
+function openPanel(name){
+ document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+ const panel=document.getElementById('panel-'+name);
+ if(panel) panel.classList.add('active');
+}
+async function api(action,payload={}){
+ const res=await fetch('api.php',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,db_path:state.activeDb,...payload})});
+ const text=await res.text(); let data={}; try{data=text?JSON.parse(text):{}}catch{data={raw:text}}
+ if(!res.ok||data.error) throw new Error(data.error||`HTTP ${res.status}`);
+ return data;
+}
+function renderHealth(data){
+ const db=data.db||{};
+ const exists=!!db.exists, openOk=!!db.sqlite_open_ok, ok=exists&&openOk;
+ const color=ok?'#10b981':exists?'#f59e0b':'#ef4444';
+ els.dbStatus.innerHTML=`<div><strong>DB active :</strong> <span style="color:${color}">${db.path||state.activeDb}</span></div>
+ <div style="margin-top:.35rem;">${exists?`<a href="api.php?action=download_db&db_path=${encodeURIComponent(db.path)}">Télécharger la DB active</a>`:'<span>Aucune DB active valide.</span>'}</div>`;
+ els.dbDetails.textContent=JSON.stringify(data,null,2);
+}
+async function refreshHealth(){ try{log('health.request',{activeDb:state.activeDb}); const data=await api('healthcheck'); renderHealth(data); log('health.render',data.db||{});}catch(e){els.dbDetails.textContent=String(e.message||e); log('health.error',{error:String(e.message||e)})}}
+function openModal(action){
+ state.modalAction=action; state.selectedPath=null;
+ els.dbModal.hidden=false; els.dbModal.setAttribute('aria-hidden','false'); els.dbModal.style.display='flex';
+ els.dbModalTitle.textContent=action==='create'?'Créer une DB':action==='select'?'Sélectionner une DB':action==='delete'?'Effacer une DB':action==='upload'?'Uploader une DB':'Exporter';
+ if(action==='create'){els.dbActionBody.innerHTML='<label>Nom du fichier DB</label><input id="modalNewDbName" value="jarvis_infra.db">';}
+ else{els.dbActionBody.textContent='Choisis un fichier .db dans l\'arborescence distante puis confirme.';}
+ loadBrowser(state.browserPath); log('modal.open',{action});
+}
+function closeModal(){ els.dbModal.hidden=true; els.dbModal.setAttribute('aria-hidden','true'); els.dbModal.style.display='none'; state.modalAction=null; state.selectedPath=null; log('modal.close',{});}
+async function loadBrowser(path){
+ try{
+  const data=await api('browse_paths',{path});
+  state.browserPath=data.current_path;
+  els.dbBrowserPath.textContent=data.current_path;
+  els.dbBrowserList.innerHTML=(data.items||[]).map(item=>`<button type="button" class="browser-item" data-path="${item.path.replace(/"/g,'&quot;')}" data-type="${item.type}"><span>${item.type==='dir'?'📁':'🗄️'} ${item.name}</span><span>${item.type}</span></button>`).join('')||'Dossier vide.';
+  [...els.dbBrowserList.querySelectorAll('[data-path]')].forEach(btn=>btn.onclick=(e)=>{e.preventDefault();const p=btn.dataset.path,t=btn.dataset.type;if(t==='dir'){loadBrowser(p);return;}state.selectedPath=p; [...els.dbBrowserList.querySelectorAll('.browser-item')].forEach(x=>x.classList.remove('selected')); btn.classList.add('selected'); log('browse.select.file',{path:p});});
+ }catch(e){els.dbBrowserList.textContent=String(e.message||e); log('browse.error',{error:String(e.message||e)})}
+}
+async function confirmModalAction(){
+ try{
+  if(state.modalAction==='create'){
+   const name=document.getElementById('modalNewDbName').value.trim(); if(!name) throw new Error('Nom requis');
+   const path=`${state.browserPath.replace(/\/+$/,'')}/${name}`;
+   const data=await api('create_db',{path});
+   state.activeDb=data.path; localStorage.setItem(DB_KEY,state.activeDb); await refreshHealth(); closeModal(); openPanel('dashboard'); return;
   }
-}
-
-function setActiveDb(path) {
-  state.activeDb = path;
-  localStorage.setItem(DB_KEY, path);
-  dblog('active.path.saved', { path });
-}
-
-async function api(action, payload = {}, expectJson = true) {
-  const body = { action, db_path: state.activeDb, ...payload };
-  dblog('api.request', body);
-  const res = await fetch('api.php', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!expectJson) return res;
-  const text = await res.text();
-  let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  dblog('api.response', { action, status: res.status, data });
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
-  return data;
-}
-
-function renderHealth(data) {
-  const db = data.db || {};
-  const exists = !!db.exists;
-  const openOk = !!db.sqlite_open_ok;
-  const ok = exists && openOk;
-  const color = ok ? '#10b981' : exists ? '#f59e0b' : '#ef4444';
-  els.dbStatus.innerHTML = `
-    <div><strong>DB active :</strong> <span style="color:${color}">${db.path || state.activeDb}</span></div>
-    <div style="margin-top:.35rem;">
-      ${exists ? `<a href="api.php?action=download_db&db_path=${encodeURIComponent(db.path)}">Télécharger la DB active</a>` : '<span style="color:#94a3b8">Aucune DB active valide.</span>'}
-    </div>
-  `;
-  els.dbDetails.textContent = JSON.stringify({
-    ui_version: DB_UI_VERSION,
-    exists: db.exists,
-    readable: db.readable,
-    writable: db.writable,
-    dir: db.dir,
-    dir_exists: db.dir_exists,
-    dir_writable: db.dir_writable,
-    sqlite_open_ok: db.sqlite_open_ok,
-    sqlite_error: db.sqlite_error,
-    preferred_db_path: data.preferred_db_path,
-    modal_present: !!els.dbModal,
-    cancel_present: !!els.dbActionCancel,
-    confirm_present: !!els.dbActionConfirm,
-  }, null, 2);
-  dblog('health.render', { db });
-}
-
-async function refreshHealth() {
-  dblog('health.request', { activeDb: state.activeDb });
-  try {
-    const data = await api('healthcheck');
-    renderHealth(data);
-  } catch (err) {
-    els.dbStatus.textContent = 'Erreur healthcheck DB';
-    els.dbDetails.textContent = String(err.message || err);
-    dblog('health.error', { error: String(err.message || err) });
+  if(state.modalAction==='select'){
+   if(!state.selectedPath) throw new Error('Choisis un fichier .db');
+   state.activeDb=state.selectedPath; localStorage.setItem(DB_KEY,state.activeDb); await refreshHealth(); closeModal(); openPanel('dashboard'); return;
   }
-}
-
-function modalDebugSnapshot(label) {
-  if (!els.dbModal) {
-    dblog('modal.snapshot', { label, modal: null });
-    return;
+  if(state.modalAction==='delete'){
+   if(!state.selectedPath) throw new Error('Choisis un fichier .db');
+   await api('delete_db',{path:state.selectedPath}); if(state.activeDb===state.selectedPath){state.activeDb=DEFAULT_DB; localStorage.setItem(DB_KEY,state.activeDb)} await refreshHealth(); closeModal(); openPanel('dashboard'); return;
   }
-  const style = window.getComputedStyle(els.dbModal);
-  dblog('modal.snapshot', {
-    label,
-    hiddenAttr: els.dbModal.hidden,
-    ariaHidden: els.dbModal.getAttribute('aria-hidden'),
-    inlineDisplay: els.dbModal.style.display || '',
-    computedDisplay: style.display,
-    computedVisibility: style.visibility,
-    className: els.dbModal.className,
-    activeElement: document.activeElement ? {
-      id: document.activeElement.id || null,
-      tag: document.activeElement.tagName,
-      text: (document.activeElement.textContent || '').trim().slice(0, 40),
-    } : null,
-  });
+  if(state.modalAction==='export'){ window.location=`api.php?action=download_db&db_path=${encodeURIComponent(state.activeDb)}`; closeModal(); return; }
+  if(state.modalAction==='upload'){ els.dbActionOutput.textContent='Upload non câblé dans cette version.'; return; }
+ }catch(e){els.dbActionOutput.textContent=String(e.message||e); log('action.error',{action:state.modalAction,error:String(e.message||e)})}
 }
-
-function openModal(action, trigger = null) {
-  state.lastFocus = trigger || document.activeElement;
-  state.modalAction = action;
-  state.selectedPath = null;
-  els.dbActionOutput.textContent = 'Aucune action.';
-  els.dbBrowserPath.textContent = state.browserPath;
-  const titles = {
-    create: 'Créer une nouvelle DB',
-    select: 'Sélectionner une DB existante',
-    delete: 'Effacer une DB',
-    upload: 'Uploader une DB locale',
-    export: 'Exporter / télécharger la DB active',
-  };
-  els.dbModalTitle.textContent = titles[action] || 'Gestion DB';
-
-  if (action === 'create') {
-    els.dbActionBody.innerHTML = `
-      <label>Nom du nouveau fichier DB</label>
-      <input id="modalNewDbName" placeholder="jarvis_infra.db" value="jarvis_infra.db">
-      <div class="small">Choisis d'abord un dossier dans l'arborescence, puis confirme.</div>
-    `;
-  } else if (action === 'upload') {
-    els.dbActionBody.innerHTML = `
-      <label>Fichier DB local</label>
-      <input id="modalUploadFile" type="file" accept=".db,.sqlite,.sqlite3">
-      <div class="small">Choisis d'abord un dossier distant. Cette version prépare le flux de choix.</div>
-    `;
-  } else if (action === 'export') {
-    els.dbActionBody.innerHTML = `<div class="small">Le téléchargement utilise directement le lien de la DB active.</div>`;
-  } else {
-    els.dbActionBody.innerHTML = `<div class="small">Choisis un fichier .db dans l'arborescence distante, puis confirme.</div>`;
-  }
-
-  els.dbModal.hidden = false;
-  els.dbModal.setAttribute('aria-hidden', 'false');
-  els.dbModal.style.display = 'flex';
-  modalDebugSnapshot('open.before_load');
-  dblog('manager.open', { action });
-  loadBrowser(state.browserPath).finally(() => {
-    const field = document.getElementById('modalNewDbName') || document.getElementById('modalUploadFile') || els.dbActionConfirm;
-    if (field) field.focus();
-    modalDebugSnapshot('open.after_focus');
-  });
-}
-
-function closeModal(reason = 'manual') {
-  dblog('manager.close.request', { reason, action: state.modalAction });
-  modalDebugSnapshot('close.before');
-  state.modalAction = null;
-  state.selectedPath = null;
-  els.dbModal.hidden = true;
-  els.dbModal.setAttribute('aria-hidden', 'true');
-  els.dbModal.style.display = 'none';
-  modalDebugSnapshot('close.after_hide');
-  if (state.lastFocus && typeof state.lastFocus.focus === 'function') {
-    setTimeout(() => {
-      try { state.lastFocus.focus(); } catch (_) {}
-      modalDebugSnapshot('close.after_restore_focus');
-    }, 0);
-  }
-}
-
-function hardCloseModal() {
-  if (!els.dbModal) return;
-  dblog('manager.force_close', {});
-  state.modalAction = null;
-  state.selectedPath = null;
-  els.dbModal.hidden = true;
-  els.dbModal.setAttribute('aria-hidden', 'true');
-  els.dbModal.style.display = 'none';
-  modalDebugSnapshot('force_close');
-}
-
-async function loadBrowser(path) {
-  if (state.browserLoading) return;
-  state.browserLoading = true;
-  try {
-    dblog('browse.start', { path });
-    const data = await api('browse_paths', { path });
-    if (els.dbModal.hidden) {
-      dblog('browse.ignored.modal_closed', { path });
-      return;
-    }
-    state.browserPath = data.current_path;
-    els.dbBrowserPath.textContent = data.current_path;
-    els.dbBrowserList.innerHTML = (data.items || []).map(item => `
-      <button type="button" class="browser-item" data-path="${item.path.replace(/"/g, '&quot;')}" data-type="${item.type}">
-        <span>${item.type === 'dir' ? '📁' : '🗄️'} ${item.name}</span>
-        <span class="small">${item.type}</span>
-      </button>
-    `).join('') || '<div class="small">Dossier vide.</div>';
-
-    [...els.dbBrowserList.querySelectorAll('[data-path]')].forEach(btn => {
-      btn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const p = btn.dataset.path;
-        const type = btn.dataset.type;
-        if (type === 'dir') {
-          state.selectedPath = p;
-          loadBrowser(p);
-          return;
-        }
-        state.selectedPath = p;
-        [...els.dbBrowserList.querySelectorAll('.browser-item')].forEach(x => x.classList.remove('selected'));
-        btn.classList.add('selected');
-        dblog('browse.select.file', { path: p });
-      };
-    });
-
-    dblog('browse.result', { current_path: data.current_path, count: (data.items || []).length });
-  } catch (err) {
-    if (!els.dbModal.hidden) {
-      els.dbBrowserList.innerHTML = `<div class="small">Erreur : ${String(err.message || err)}</div>`;
-    }
-    dblog('browse.error', { error: String(err.message || err) });
-  } finally {
-    state.browserLoading = false;
-  }
-}
-
-async function confirmModalAction() {
-  try {
-    if (state.modalAction === 'create') {
-      const name = document.getElementById('modalNewDbName')?.value?.trim();
-      if (!name) throw new Error('Nom de fichier requis');
-      const dir = state.browserPath || '/var/www/jarvis/database';
-      const path = `${dir.replace(/\/+$/, '')}/${name}`;
-      dblog('create.request', { path });
-      const data = await api('create_db', { path });
-      setActiveDb(data.path);
-      els.dbActionOutput.textContent = JSON.stringify(data, null, 2);
-      await refreshHealth();
-      closeModal('create_success');
-      return;
-    }
-    if (state.modalAction === 'select') {
-      if (!state.selectedPath) throw new Error('Choisis un fichier .db');
-      setActiveDb(state.selectedPath);
-      els.dbActionOutput.textContent = JSON.stringify({ ok: true, selected: state.selectedPath }, null, 2);
-      dblog('select.active.saved', { path: state.selectedPath });
-      await refreshHealth();
-      closeModal('select_success');
-      return;
-    }
-    if (state.modalAction === 'delete') {
-      if (!state.selectedPath) throw new Error('Choisis un fichier .db');
-      dblog('delete.request', { path: state.selectedPath });
-      const data = await api('delete_db', { path: state.selectedPath });
-      if (state.activeDb === state.selectedPath) setActiveDb(DEFAULT_DB);
-      els.dbActionOutput.textContent = JSON.stringify(data, null, 2);
-      await refreshHealth();
-      closeModal('delete_success');
-      return;
-    }
-    if (state.modalAction === 'export') {
-      window.location = `api.php?action=download_db&db_path=${encodeURIComponent(state.activeDb)}`;
-      closeModal('export_start');
-      return;
-    }
-    if (state.modalAction === 'upload') {
-      const file = document.getElementById('modalUploadFile')?.files?.[0];
-      if (!file) throw new Error('Choisis un fichier local');
-      els.dbActionOutput.textContent = JSON.stringify({
-        info: 'Flux upload préparé',
-        selected_remote_dir: state.browserPath,
-        local_file: file.name,
-      }, null, 2);
-      dblog('upload.request.prepared', { remote_dir: state.browserPath, local_file: file.name });
-      closeModal('upload_prepared');
-      return;
-    }
-  } catch (err) {
-    els.dbActionOutput.textContent = JSON.stringify({ error: String(err.message || err) }, null, 2);
-    dblog('action.error', { action: state.modalAction, error: String(err.message || err) });
-  }
-}
-
-window.addEventListener('load', () => {
-  setVersionBadge();
-  dblog('settings.load', {
-    activeDb: state.activeDb,
-    cancel_present: !!els.dbActionCancel,
-    modal_present: !!els.dbModal,
-    version: DB_UI_VERSION,
-  });
-  refreshHealth();
-
-  if (els.createDb) els.createDb.onclick = (e) => openModal('create', e.currentTarget);
-  if (els.selectDb) els.selectDb.onclick = (e) => openModal('select', e.currentTarget);
-  if (els.uploadDb) els.uploadDb.onclick = (e) => openModal('upload', e.currentTarget);
-  if (els.exportDb) els.exportDb.onclick = (e) => openModal('export', e.currentTarget);
-  if (els.deleteDb) els.deleteDb.onclick = (e) => openModal('delete', e.currentTarget);
-  if (els.dbActionConfirm) els.dbActionConfirm.onclick = confirmModalAction;
-  if (els.dbActionCancel) els.dbActionCancel.onclick = () => closeModal('button_cancel');
-  if (els.forceCloseDb) els.forceCloseDb.onclick = () => hardCloseModal();
-
-  if (els.dbModal) {
-    els.dbModal.addEventListener('click', (e) => {
-      if (e.target === els.dbModal) closeModal('backdrop_click');
-    });
-  }
-
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && els.dbModal && !els.dbModal.hidden) {
-      e.preventDefault();
-      closeModal('escape');
-    }
-  });
+window.addEventListener('load',()=>{
+ document.querySelectorAll('[data-panel]').forEach(btn=>btn.onclick=()=>openPanel(btn.dataset.panel));
+ els.closeDbPanel.onclick=()=>openPanel('dashboard');
+ els.selectDb.onclick=()=>openModal('select');
+ els.createDb.onclick=()=>openModal('create');
+ els.uploadDb.onclick=()=>openModal('upload');
+ els.exportDb.onclick=()=>openModal('export');
+ els.deleteDb.onclick=()=>openModal('delete');
+ els.dbActionCancel.onclick=()=>closeModal();
+ els.dbActionConfirm.onclick=()=>confirmModalAction();
+ els.dbModal.addEventListener('click',e=>{if(e.target===els.dbModal) closeModal();});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!els.dbModal.hidden) closeModal();});
+ log('settings.load',{activeDb:state.activeDb});
+ refreshHealth();
 });
