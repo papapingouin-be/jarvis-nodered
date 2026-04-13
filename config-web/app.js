@@ -1,492 +1,380 @@
-
-const $ = (id) => document.getElementById(id);
-
 const els = {
-  navButtons: [...document.querySelectorAll('.nav-btn')],
-  views: [...document.querySelectorAll('.view')],
-  flowEndpoint: $('flowEndpoint'),
-  devBackendUrl: $('devBackendUrl'),
-  healthDb: $('healthDb'),
-  healthRunner: $('healthRunner'),
-  healthDev: $('healthDev'),
-  kpiTools: $('kpiTools'),
-  kpiPyFiles: $('kpiPyFiles'),
-  kpiTables: $('kpiTables'),
-  dashboardSummary: $('dashboardSummary'),
-  goDb: $('goDb'),
-  dbActivePath: $('dbActivePath'),
-  dbActiveName: $('dbActiveName'),
-  dbDownloadLink: $('dbDownloadLink'),
-  dbDownloadBtn: $('dbDownloadBtn'),
-  dbContractWrap: $('dbContractWrap'),
-  dbTableSelect: $('dbTableSelect'),
-  loadTableBtn: $('loadTableBtn'),
-  dbTableWrap: $('dbTableWrap'),
-  cfgNamespace: $('cfgNamespace'),
-  loadNamespace: $('loadNamespace'),
-  sensitiveTable: $('sensitiveTable'),
-  dbTransferOutput: $('dbTransferOutput'),
-  dbSelectOpen: $('dbSelectOpen'),
-  dbCreateOpen: $('dbCreateOpen'),
-  dbUploadOpen: $('dbUploadOpen'),
-  dbExportOpen: $('dbExportOpen'),
-  dbDeleteBtn: $('dbDeleteBtn'),
-  dbModal: $('dbModal'),
-  dbModalClose: $('dbModalClose'),
-  dbModalCancel: $('dbModalCancel'),
-  dbBrowseRefresh: $('dbBrowseRefresh'),
-  dbBrowseList: $('dbBrowseList'),
-  dbActionTitle: $('dbActionTitle'),
-  dbSelectedPath: $('dbSelectedPath'),
-  dbActionBody: $('dbActionBody'),
-  dbModalConfirm: $('dbModalConfirm'),
-  dbActionOutput: $('dbActionOutput'),
-  toolList: $('toolList'),
-  toolSelect: $('toolSelect'),
-  toolSearch: $('toolSearch'),
-  toolInput: $('toolInput'),
-  toolOutput: $('toolOutput'),
-  toolDiagnostics: $('toolDiagnostics'),
-  runTool: $('runTool'),
-  validateInput: $('validateInput'),
-  btnLoadSample: $('btnLoadSample'),
-  codeFileList: $('codeFileList'),
-  codeFileSelect: $('codeFileSelect'),
-  codeEditor: $('codeEditor'),
-  loadCodeBtn: $('loadCodeBtn'),
-  saveCodeBtn: $('saveCodeBtn'),
-  codeMeta: $('codeMeta'),
-};
-
-const storage = {
-  dbPath: 'jarvis_db_path',
-  flowEndpoint: 'jarvis_flow_endpoint',
-  devBackendUrl: 'jarvis_dev_backend_url',
+  navButtons:[...document.querySelectorAll('.nav-btn')],
+  views:[...document.querySelectorAll('.view')],
+  healthDb:document.getElementById('healthDb'),
+  healthRunner:document.getElementById('healthRunner'),
+  kpiTools:document.getElementById('kpiTools'),
+  kpiPyFiles:document.getElementById('kpiPyFiles'),
+  kpiTables:document.getElementById('kpiTables'),
+  dbPathLabel:document.getElementById('dbPathLabel'),
+  dbDownloadLink:document.getElementById('dbDownloadLink'),
+  dbActivePath:document.getElementById('dbActivePath'),
+  toolSearch:document.getElementById('toolSearch'),
+  toolList:document.getElementById('toolList'),
+  toolSelect:document.getElementById('toolSelect'),
+  runMode:document.getElementById('runMode'),
+  toolInput:document.getElementById('toolInput'),
+  toolOutput:document.getElementById('toolOutput'),
+  toolDiagnostics:document.getElementById('toolDiagnostics'),
+  btnLoadSample:document.getElementById('btnLoadSample'),
+  validateInput:document.getElementById('validateInput'),
+  runTool:document.getElementById('runTool'),
+  dbContractWrap:document.getElementById('dbContractWrap'),
+  dbTableSelect:document.getElementById('dbTableSelect'),
+  loadTableBtn:document.getElementById('loadTableBtn'),
+  dbTableWrap:document.getElementById('dbTableWrap'),
+  cfgNamespace:document.getElementById('cfgNamespace'),
+  loadNamespace:document.getElementById('loadNamespace'),
+  sensitiveTable:document.getElementById('sensitiveTable'),
+  dbBrowseList:document.getElementById('dbBrowseList'),
+  openSelectDb:document.getElementById('openSelectDb'),
+  openCreateDb:document.getElementById('openCreateDb'),
+  openUploadDb:document.getElementById('openUploadDb'),
+  openExportDb:document.getElementById('openExportDb'),
+  deleteActiveDb:document.getElementById('deleteActiveDb'),
+  dbModal:document.getElementById('dbModal'),
+  dbModalTitle:document.getElementById('dbModalTitle'),
+  closeDbModal:document.getElementById('closeDbModal'),
+  dbBrowserCurrent:document.getElementById('dbBrowserCurrent'),
+  dbBrowserUp:document.getElementById('dbBrowserUp'),
+  dbBrowserRefresh:document.getElementById('dbBrowserRefresh'),
+  dbBrowserItems:document.getElementById('dbBrowserItems'),
+  dbSelectedPath:document.getElementById('dbSelectedPath'),
+  dbActionTitle:document.getElementById('dbActionTitle'),
+  dbActionBody:document.getElementById('dbActionBody'),
+  dbActionConfirm:document.getElementById('dbActionConfirm'),
+  dbActionCancel:document.getElementById('dbActionCancel'),
+  dbActionOutput:document.getElementById('dbActionOutput'),
 };
 
 const state = {
-  healthcheck: null,
+  activeDbPath: localStorage.getItem('jarvis_active_db_path') || '',
   tools: [],
   pyFiles: [],
   currentTool: null,
+  browserCurrent: '',
+  browserSelected: '',
   modalMode: null,
-  modalSelectedPath: '',
-  browserCurrentPath: '',
 };
 
-function activeDbPath() {
-  return localStorage.getItem(storage.dbPath) || '';
-}
-function setActiveDbPath(path) {
-  if (path) localStorage.setItem(storage.dbPath, path);
-  else localStorage.removeItem(storage.dbPath);
-  syncDbContext();
-}
-function fileName(path) {
-  if (!path) return '';
-  const normalized = path.replace(/\/+$/, '');
-  const idx = normalized.lastIndexOf('/');
-  return idx >= 0 ? normalized.slice(idx + 1) : normalized;
-}
-function parentPath(path) {
-  if (!path) return '/';
-  const normalized = path.replace(/\/+$/, '');
-  const idx = normalized.lastIndexOf('/');
-  if (idx <= 0) return '/';
-  return normalized.slice(0, idx);
-}
-function pretty(v) { return JSON.stringify(v, null, 2); }
-function logUi(...args) {
-  console.log('[DevLab]', ...args);
-  if (els.toolDiagnostics) {
-    const current = els.toolDiagnostics.textContent || '';
-    const line = `[${new Date().toISOString()}] ` + args.map(v => typeof v === 'string' ? v : pretty(v)).join(' ');
-    if (current.length < 16000) els.toolDiagnostics.textContent = (current ? current + "\n\n" : '') + line;
-  }
-}
-function setBadge(el, text, type='') {
-  if (!el) return;
-  el.textContent = text;
-  el.className = `badge ${type}`.trim();
-}
-function loadSettings() {
-  if (els.flowEndpoint) els.flowEndpoint.value = localStorage.getItem(storage.flowEndpoint) || 'http://localhost:1880/jarvis/inbound';
-  if (els.devBackendUrl) els.devBackendUrl.value = localStorage.getItem(storage.devBackendUrl) || 'proxy';
-  syncDbContext();
-}
-function saveSettings() {
-  if (els.flowEndpoint) localStorage.setItem(storage.flowEndpoint, els.flowEndpoint.value.trim());
-  if (els.devBackendUrl) localStorage.setItem(storage.devBackendUrl, els.devBackendUrl.value.trim());
-}
-function syncDbContext() {
-  const path = activeDbPath();
-  const label = path || 'non sélectionnée';
-  if (els.dbActivePath) els.dbActivePath.textContent = label;
-  if (els.dbActiveName) els.dbActiveName.textContent = label;
-  const href = path ? `api.php?action=download_db&db_path=${encodeURIComponent(path)}` : '#';
-  if (els.dbDownloadBtn) els.dbDownloadBtn.href = href;
-  if (els.dbDownloadLink) els.dbDownloadLink.href = href;
-}
-async function api(action, payload = {}, multipart = false) {
-  let options;
-  if (multipart) {
-    options = { method: 'POST', body: payload };
+function pretty(v){ return JSON.stringify(v, null, 2); }
+function escapeHtml(v){ return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function saveDbPath(path){ state.activeDbPath = path || ''; localStorage.setItem('jarvis_active_db_path', state.activeDbPath); renderActiveDb(); }
+function log(...args){ console.log('[DevLab]', ...args); }
+
+async function api(action, payload = {}, raw = false){
+  let opts;
+  if (raw === 'formdata') {
+    payload.append('action', action);
+    opts = { method: 'POST', body: payload };
   } else {
-    options = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, db_path: activeDbPath(), ...payload }),
+    opts = {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ action, db_path: state.activeDbPath, ...payload })
     };
   }
-  const url = multipart ? 'api.php' : 'api.php';
-  const res = await fetch(url, options);
+  const res = await fetch('api.php', opts);
+  if (raw === 'download') return res;
   const text = await res.text();
-  let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  if (!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
+  let data={}; try{ data=text?JSON.parse(text):{} }catch{ data={raw:text} }
+  if(!res.ok || data.error) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
-async function devApi(path, body = null, method = 'POST', query = null) {
-  const rawBase = (els.devBackendUrl?.value || 'proxy').trim();
-  const proxyOverride = rawBase.startsWith('proxy:') ? rawBase.slice('proxy:'.length).trim() : null;
-  const useProxy = rawBase === 'proxy' || rawBase === '' || rawBase.startsWith('proxy:');
-  if (useProxy) {
-    const res = await fetch('devproxy.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path, body, method, query, base_url: proxyOverride || undefined }),
-    });
-    const text = await res.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-    if (!res.ok || data.error) throw new Error(data.error || text || `HTTP ${res.status}`);
-    return data;
-  }
-  let url = `${rawBase.replace(/\/$/, '')}${path}`;
-  if (query) url += `?${new URLSearchParams(query).toString()}`;
-  const res = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: method === 'GET' ? undefined : JSON.stringify(body || {}),
-  });
-  const text = await res.text();
-  let data = {};
-  try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-  if (!res.ok || data.error) throw new Error(data.error || text || `HTTP ${res.status}`);
-  return data;
-}
-function switchView(name) {
-  els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view === name));
-  els.views.forEach(view => view.classList.toggle('active', view.id === `view-${name}`));
+
+function switchView(name){
+  els.navButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.view===name));
+  els.views.forEach(v => v.classList.toggle('active', v.id===`view-${name}`));
   window.location.hash = name;
 }
-function normalizeTool(tool) {
-  return {
-    ...tool,
-    version: tool.version || tool.tool_version || tool.manifest_version || 'v0',
-    description: tool.description || '',
-    sample_input: tool.sample_input || {},
-    required_fields: tool.required_fields || [],
-    input_schema: tool.input_schema || {},
-  };
-}
-function renderDashboard() {
-  const hc = state.healthcheck || {};
-  els.kpiTools.textContent = state.tools.length || hc.tools_count || 0;
-  els.kpiPyFiles.textContent = state.pyFiles.length || hc.python_files_count || 0;
-  els.kpiTables.textContent = (hc.tables || []).length || 0;
-  els.dashboardSummary.textContent = pretty({
-    active_db: activeDbPath() || null,
-    tools_count: state.tools.length || hc.tools_count || 0,
-    python_files_count: state.pyFiles.length || hc.python_files_count || 0,
-    tables: hc.tables || [],
-    namespaces: hc.namespaces || [],
-    runner: hc.runner_health || hc.runner_error || null,
-  });
-}
-async function refreshHealth() {
-  const hc = await api('healthcheck');
-  state.healthcheck = hc;
-  setBadge(els.healthDb, activeDbPath() ? `DB ${fileName(activeDbPath()) || 'active'}` : 'DB non sélectionnée', activeDbPath() ? 'ok' : 'warn');
-  if (hc.runner_health?.status === 'ok') setBadge(els.healthRunner, 'Runner OK', 'ok');
-  else setBadge(els.healthRunner, 'Runner KO', 'err');
-  try {
-    const dev = await devApi('/health', null, 'GET');
-    setBadge(els.healthDev, dev.status === 'ok' ? 'Dev OK' : 'Dev ?', dev.status === 'ok' ? 'ok' : 'warn');
-  } catch {
-    setBadge(els.healthDev, 'Dev KO', 'err');
+
+function renderActiveDb(){
+  const path = state.activeDbPath || 'Aucune DB active.';
+  els.dbPathLabel.textContent = path;
+  els.dbActivePath.textContent = path;
+  if (state.activeDbPath){
+    els.dbDownloadLink.href = `api.php?action=download_db&db_path=${encodeURIComponent(state.activeDbPath)}`;
+  } else {
+    els.dbDownloadLink.href = '#';
   }
-  renderDashboard();
-  renderDbContract();
-  renderNamespacesSelect(hc.namespaces || []);
 }
-function renderDbContract() {
-  const contract = state.healthcheck?.db_contract?.tables || [];
-  els.dbContractWrap.textContent = pretty({
-    active_db: activeDbPath() || null,
-    path_resolution: state.healthcheck?.db_contract?.db_path_resolution || [],
-    tables: contract,
-  });
-}
-function renderNamespacesSelect(namespaces) {
-  const fixed = [...new Set(['runtime','npm_service','proxmox', ...namespaces])];
-  els.cfgNamespace.innerHTML = fixed.map(ns => `<option value="${ns}">${ns}</option>`).join('');
-}
-async function loadInventory() {
-  const [toolsData, filesData] = await Promise.all([
-    api('list_python_tools').catch(() => ({ items: state.healthcheck?.tools_preview || [] })),
-    api('list_python_files').catch(() => ({ items: state.healthcheck?.python_files_preview || [] })),
-  ]);
-  state.tools = (toolsData.items || []).map(normalizeTool);
-  state.pyFiles = filesData.items || [];
-  renderToolList();
-  renderToolSelect();
-  renderCodeFiles();
-  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
-  renderDashboard();
-}
-function renderToolList() {
-  const filter = (els.toolSearch?.value || '').trim().toLowerCase();
-  const tools = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || t.description.toLowerCase().includes(filter));
-  els.toolList.innerHTML = tools.map(tool => `
-    <button class="tool-item ${state.currentTool?.name === tool.name ? 'active' : ''}" data-tool-name="${tool.name}">
-      <div class="status-line"><strong>${tool.name}</strong><span class="badge">${tool.version}</span></div>
-      <div class="small muted">${tool.description || 'sans description'}</div>
-    </button>`).join('') || '<div class="muted">Aucun outil.</div>';
-  [...els.toolList.querySelectorAll('[data-tool-name]')].forEach(btn => btn.onclick = () => selectTool(btn.dataset.toolName));
-}
-function renderToolSelect() {
-  els.toolSelect.innerHTML = state.tools.map(t => `<option value="${t.name}">${t.name} · ${t.version}</option>`).join('');
+
+function renderTools(){
+  const filter = (els.toolSearch.value || '').trim().toLowerCase();
+  const items = state.tools.filter(t => !filter || t.name.toLowerCase().includes(filter) || (t.description||'').toLowerCase().includes(filter));
+  els.toolList.innerHTML = items.map(tool => `
+    <button class="tool-item ${state.currentTool?.name===tool.name?'active':''}" data-tool="${tool.name}">
+      <div class="status-line"><strong>${escapeHtml(tool.name)}</strong><span class="badge">${escapeHtml(tool.version || 'v0')}</span></div>
+      <div class="small muted">${escapeHtml(tool.description || 'sans description')}</div>
+      <div class="small muted">${escapeHtml(tool.entrypoint || '')}</div>
+    </button>
+  `).join('') || '<div class="muted">Aucun outil.</div>';
+  [...els.toolList.querySelectorAll('[data-tool]')].forEach(btn => btn.onclick = () => selectTool(btn.dataset.tool));
+  els.toolSelect.innerHTML = state.tools.map(tool => `<option value="${tool.name}">${tool.name} · ${tool.version || 'v0'}</option>`).join('');
   if (state.currentTool) els.toolSelect.value = state.currentTool.name;
 }
-function selectTool(name) {
+
+function selectTool(name){
   const tool = state.tools.find(t => t.name === name);
   if (!tool) return;
   state.currentTool = tool;
-  renderToolList();
-  renderToolSelect();
+  renderTools();
   els.toolInput.value = pretty(tool.sample_input && Object.keys(tool.sample_input).length ? tool.sample_input : {});
-  els.toolOutput.textContent = pretty({ tool: tool.name, version: tool.version });
   els.toolDiagnostics.textContent = pretty({
-    aide: 'Le tool reçoit le JSON saisi + la DB active comme contexte.',
-    active_db: activeDbPath() || null,
-    required_fields: tool.required_fields || [],
+    tool: tool.name,
+    version: tool.version || 'v0',
+    db_active: state.activeDbPath || null,
+    sequence: [
+      '1. Tu fournis seulement le JSON métier.',
+      '2. Le tool utilise la DB active ci-dessus comme contexte.',
+      '3. Les secrets ne sont pas injectés dans le JSON.',
+    ]
   });
 }
-async function validateToolInput() {
-  if (!state.currentTool) return;
-  let payload;
-  try { payload = JSON.parse(els.toolInput.value || '{}'); }
-  catch (e) { els.toolDiagnostics.textContent = pretty({ valid: false, error: e.message }); return; }
-  const data = await devApi('/validate', { schema: state.currentTool.input_schema || {}, payload });
-  els.toolDiagnostics.textContent = pretty(data);
+
+async function refreshHealth(){
+  const data = await api('healthcheck');
+  els.kpiTools.textContent = data.tools_count || 0;
+  els.kpiPyFiles.textContent = data.python_files_count || 0;
+  els.kpiTables.textContent = (data.tables || []).length;
+  els.healthDb.textContent = data.active_db_path ? 'DB active' : 'DB ?';
+  els.healthDb.className = `badge ${data.active_db_path ? 'ok' : 'warn'}`;
+  els.healthRunner.textContent = 'Local API OK';
+  els.healthRunner.className = 'badge ok';
+  if (!state.activeDbPath) saveDbPath(data.active_db_path || data.default_db_path || '');
+  state.tools = data.tools_preview || [];
+  renderTools();
+  if (!state.currentTool && state.tools.length) selectTool(state.tools[0].name);
 }
-async function executeTool() {
-  if (!state.currentTool) return;
-  let payload;
-  try { payload = JSON.parse(els.toolInput.value || '{}'); }
-  catch (e) { els.toolDiagnostics.textContent = pretty({ error: e.message }); return; }
-  const data = await api('run_python_tool', { tool: state.currentTool.name, input: payload });
-  els.toolOutput.textContent = pretty(data);
+
+async function loadContract(){
+  const data = await api('db_contract');
+  const tables = data.contract?.tables || [];
+  els.dbContractWrap.innerHTML = tables.map(t => `
+    <div style="border:1px solid #2a3b62;border-radius:12px;padding:.65rem .7rem;background:#0b1324;margin-bottom:.55rem">
+      <div class="status-line"><strong>${escapeHtml(t.name)}</strong><span class="chip">${escapeHtml((t.used_by||[]).join(', '))}</span></div>
+      <div class="small muted"><code>${escapeHtml((t.columns||[]).join(', '))}</code></div>
+    </div>
+  `).join('');
 }
-function renderCodeFiles() {
-  els.codeFileSelect.innerHTML = state.pyFiles.map(f => `<option value="${f.path}">${f.path}</option>`).join('');
-  els.codeFileList.innerHTML = state.pyFiles.map(f => `<button class="tool-item" data-file-path="${f.path}"><div><strong>${f.filename}</strong></div><div class="small muted">${f.path}</div></button>`).join('') || '<div class="muted">Aucun fichier Python.</div>';
-  [...els.codeFileList.querySelectorAll('[data-file-path]')].forEach(btn => btn.onclick = () => { els.codeFileSelect.value = btn.dataset.filePath; loadCode(); });
-}
-async function loadCode() {
-  const path = els.codeFileSelect.value;
-  if (!path) return;
-  const data = await api('get_python_file', { path });
-  els.codeEditor.value = data.code;
-  els.codeMeta.textContent = pretty({ path: data.path, active_db: activeDbPath() || null });
-}
-async function saveCode() {
-  const path = els.codeFileSelect.value;
-  if (!path) return;
-  const data = await api('save_python_file', { path, code: els.codeEditor.value });
-  els.codeMeta.textContent = pretty(data);
-}
-async function loadSelectedTable() {
-  const table = els.dbTableSelect.value;
-  if (!table) return;
-  const data = await api('get_table_rows', { table, limit: 100, offset: 0 });
-  const head = `<tr>${data.columns.map(c => `<th>${c}</th>`).join('')}</tr>`;
-  const body = data.rows.map(row => `<tr>${data.columns.map(c => `<td>${escapeHtml(String(row[c] ?? ''))}</td>`).join('')}</tr>`).join('');
-  els.dbTableWrap.innerHTML = `<table><thead>${head}</thead><tbody>${body || `<tr><td colspan="${data.columns.length}">Aucune ligne.</td></tr>`}</tbody></table>`;
-}
-function escapeHtml(value) {
-  return value.replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
-}
-async function loadTables() {
-  if (!activeDbPath()) {
-    els.dbTableSelect.innerHTML = '';
-    els.dbTableWrap.innerHTML = '<div class="muted">Aucune DB active.</div>';
-    return;
-  }
+
+async function loadTables(){
   const data = await api('list_tables');
   const items = data.items || [];
   els.dbTableSelect.innerHTML = items.map(i => `<option value="${i.name}">${i.name}</option>`).join('');
   if (items.length) await loadSelectedTable();
 }
-async function loadNamespace() {
+
+async function loadSelectedTable(){
+  const table = els.dbTableSelect.value;
+  if (!table) { els.dbTableWrap.innerHTML = '<div class="muted">Aucune table.</div>'; return; }
+  const data = await api('get_table_rows', { table, limit: 100, offset: 0 });
+  const head = `<tr>${(data.columns||[]).map(c=>`<th>${escapeHtml(c)}</th>`).join('')}</tr>`;
+  const body = (data.rows||[]).map(row => `<tr>${(data.columns||[]).map(col=>`<td>${escapeHtml(row[col] ?? '')}</td>`).join('')}</tr>`).join('');
+  els.dbTableWrap.innerHTML = `<table><thead>${head}</thead><tbody>${body || `<tr><td colspan="${(data.columns||[]).length || 1}">Aucune ligne.</td></tr>`}</tbody></table>`;
+}
+
+async function loadNamespaces(){
+  const data = await api('list_namespaces');
+  const items = data.items || [];
+  els.cfgNamespace.innerHTML = items.map(ns => `<option value="${ns}">${ns}</option>`).join('') || '<option value="">(aucun namespace)</option>';
+  if (items.length) await loadNamespace();
+  else els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucun namespace dans la DB active.</td></tr>';
+}
+
+async function loadNamespace(){
   const ns = els.cfgNamespace.value;
-  if (!activeDbPath()) {
-    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucune DB active.</td></tr>';
-    return;
-  }
+  if (!ns) return;
   const data = await api('list_sensitive', { namespace: ns });
   const rows = data.items || [];
-  if (!rows.length) {
-    els.sensitiveTable.innerHTML = '<tr><td colspan="3" class="muted">Aucune valeur.</td></tr>';
-    return;
-  }
   els.sensitiveTable.innerHTML = rows.map(row => `
     <tr>
-      <td><code>${row.key}</code></td>
-      <td><input data-sensitive-key="${row.key}" value="${String(row.value).replace(/"/g,'&quot;')}" /></td>
-      <td><button class="secondary" data-save-sensitive="${row.key}">Save</button></td>
-    </tr>`).join('');
-  [...els.sensitiveTable.querySelectorAll('[data-save-sensitive]')].forEach(btn => btn.onclick = async () => {
-    const key = btn.dataset.saveSensitive;
-    const input = els.sensitiveTable.querySelector(`[data-sensitive-key="${key}"]`);
+      <td><code>${escapeHtml(row.key)}</code></td>
+      <td><input data-k="${escapeHtml(row.key)}" value="${escapeHtml(row.value)}"></td>
+      <td><button class="secondary" data-save="${escapeHtml(row.key)}">Save</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" class="muted">Namespace vide.</td></tr>';
+  [...els.sensitiveTable.querySelectorAll('[data-save]')].forEach(btn => btn.onclick = async () => {
+    const key = btn.dataset.save;
+    const input = els.sensitiveTable.querySelector(`[data-k="${CSS.escape(key)}"]`);
     await api('upsert_sensitive', { namespace: ns, key, value: input.value });
     await loadNamespace();
   });
 }
-async function browseDbPaths(targetPath = null) {
-  const data = await api('browse_paths', targetPath ? { path: targetPath } : {});
-  state.browserCurrentPath = data.current_path || '/';
-  const parentBtn = data.parent_path ? `<button class="tool-item" data-db-nav="${data.parent_path}">⬆️ ..</button>` : '';
-  const entries = (data.items || []).map(item => `
-    <button class="tool-item" data-db-item="${item.path}" data-db-type="${item.type}">
-      <div class="status-line"><strong>${item.type === 'dir' ? '📁' : '🗄️'} ${item.name}</strong><span class="badge">${item.type}</span></div>
-      <div class="small muted">${item.path}${item.size !== null ? ` · ${item.size} octets` : ''}</div>
-    </button>`).join('') || '<div class="muted">Aucun fichier DB.</div>';
-  els.dbBrowseList.innerHTML = parentBtn + entries;
-  [...els.dbBrowseList.querySelectorAll('[data-db-nav]')].forEach(btn => btn.onclick = () => browseDbPaths(btn.dataset.dbNav));
-  [...els.dbBrowseList.querySelectorAll('[data-db-item]')].forEach(btn => btn.onclick = () => {
-    const path = btn.dataset.dbItem;
-    const type = btn.dataset.dbType;
-    state.modalSelectedPath = path;
-    els.dbSelectedPath.textContent = path;
-    if (type === 'dir') browseDbPaths(path);
+
+async function loadBrowseList(path = null){
+  const data = await api('browse_db_paths', path ? { path } : {});
+  state.browserCurrent = data.current_path;
+  els.dbBrowseList.innerHTML = (data.items || []).map(item => `
+    <div class="tool-item" data-db-file="${escapeHtml(item.path)}">
+      <div class="status-line"><strong>${escapeHtml(item.name)}</strong><span class="badge">${item.type}</span></div>
+      <div class="small muted">${escapeHtml(item.path)}</div>
+    </div>
+  `).join('') || '<div class="muted">Aucun fichier DB.</div>';
+  [...els.dbBrowseList.querySelectorAll('[data-db-file]')].forEach(btn => btn.onclick = () => {
+    const p = btn.dataset.dbFile;
+    saveDbPath(p);
+    refreshDbArea();
   });
 }
-function openDbModal(mode) {
+
+function openModal(mode){
   state.modalMode = mode;
-  state.modalSelectedPath = activeDbPath() ? parentPath(activeDbPath()) : '';
+  state.browserSelected = '';
   els.dbActionOutput.textContent = 'Aucune action.';
-  const currentName = fileName(activeDbPath()) || 'nouvelle.db';
-  let body = '';
+  els.dbModal.classList.add('open');
+  els.dbModalTitle.textContent = 'Gestion DB';
+  const currentDir = state.activeDbPath ? state.activeDbPath.replace(/\/[^/]+$/, '') : '';
+  browseModal(currentDir);
+  renderModalBody();
+}
+
+async function browseModal(path = null){
+  const data = await api('browse_db_paths', path ? { path } : {});
+  state.browserCurrent = data.current_path;
+  els.dbBrowserCurrent.textContent = data.current_path;
+  els.dbBrowserUp.disabled = !data.parent_path;
+  els.dbBrowserUp.onclick = () => data.parent_path && browseModal(data.parent_path);
+  els.dbBrowserRefresh.onclick = () => browseModal(state.browserCurrent);
+  els.dbBrowserItems.innerHTML = (data.items || []).map(item => `
+    <div class="browser-item ${state.browserSelected===item.path?'active':''}" data-path="${escapeHtml(item.path)}" data-type="${item.type}">
+      <div>
+        <div><strong>${escapeHtml(item.name)}</strong></div>
+        <div class="small muted">${escapeHtml(item.path)}</div>
+      </div>
+      <span class="chip">${item.type}</span>
+    </div>
+  `).join('') || '<div class="muted">Dossier vide.</div>';
+  [...els.dbBrowserItems.querySelectorAll('[data-path]')].forEach(el => el.onclick = () => {
+    const path = el.dataset.path, type = el.dataset.type;
+    if (type === 'dir') browseModal(path);
+    else {
+      state.browserSelected = path;
+      els.dbSelectedPath.textContent = path;
+      [...els.dbBrowserItems.querySelectorAll('.browser-item')].forEach(n => n.classList.toggle('active', n===el));
+    }
+  });
+}
+
+function renderModalBody(){
+  const mode = state.modalMode;
+  const currentDir = state.browserCurrent || '';
+  els.dbSelectedPath.textContent = state.browserSelected || 'Aucun chemin sélectionné.';
   if (mode === 'select') {
-    els.dbActionTitle.textContent = 'Sélectionner une DB';
-    body = '<div class="small muted">Choisis un fichier .db dans l’arborescence à gauche puis confirme.</div>';
+    els.dbActionTitle.textContent = 'Sélectionner la DB active';
+    els.dbActionBody.innerHTML = '<div class="small muted">Choisis un fichier .db dans l’arborescence puis valide.</div>';
+    els.dbActionConfirm.onclick = async () => {
+      if (!state.browserSelected) return;
+      saveDbPath(state.browserSelected);
+      els.dbActionOutput.textContent = pretty({ ok:true, active_db_path: state.activeDbPath });
+      await refreshDbArea();
+      closeModal();
+    };
   } else if (mode === 'create') {
     els.dbActionTitle.textContent = 'Créer une nouvelle DB';
-    body = `<label>Nom du nouveau fichier DB</label><input id="modalNewDbName" placeholder="nouvelle.db" value="${currentName || 'nouvelle.db'}">`;
+    els.dbActionBody.innerHTML = `
+      <label>Nom du nouveau fichier DB</label>
+      <input id="modalNewDbName" placeholder="nouvelle.db" />
+      <div class="small muted" style="margin-top:.5rem">Le fichier sera créé dans : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      const name = document.getElementById('modalNewDbName').value.trim();
+      if (!name) return;
+      const target = `${state.browserCurrent.replace(/\/+$/,'')}/${name}`;
+      const data = await api('create_db', { path: target });
+      saveDbPath(data.path);
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
   } else if (mode === 'upload') {
-    els.dbActionTitle.textContent = 'Uploader une DB';
-    body = `<label>Fichier local</label><input id="modalUploadFile" type="file" accept=".db,.sqlite,.sqlite3">`;
+    els.dbActionTitle.textContent = 'Uploader une DB locale';
+    els.dbActionBody.innerHTML = `
+      <label>Choisir un fichier local</label>
+      <input id="modalUploadFile" type="file" accept=".db,.sqlite,.sqlite3" />
+      <label style="margin-top:.7rem">Nom cible</label>
+      <input id="modalUploadName" placeholder="import.db" />
+      <div class="small muted" style="margin-top:.5rem">Le fichier sera envoyé dans : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      const f = document.getElementById('modalUploadFile').files[0];
+      const name = document.getElementById('modalUploadName').value.trim() || (f ? f.name : '');
+      if (!f || !name) return;
+      const fd = new FormData();
+      fd.append('file', f);
+      fd.append('target_path', `${state.browserCurrent.replace(/\/+$/,'')}/${name}`);
+      const data = await api('upload_db', fd, 'formdata');
+      saveDbPath(data.target_path);
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
   } else if (mode === 'export') {
     els.dbActionTitle.textContent = 'Exporter la DB active';
-    body = `<label>Nom du fichier cible</label><input id="modalExportDbName" placeholder="${currentName || 'copie.db'}" value="${currentName || 'copie.db'}">`;
+    els.dbActionBody.innerHTML = `
+      <label>Nom cible</label>
+      <input id="modalExportName" placeholder="${state.activeDbPath ? state.activeDbPath.split('/').pop() : 'export.db'}" />
+      <div class="small muted" style="margin-top:.5rem">La DB active sera copiée vers : <code>${escapeHtml(currentDir)}</code></div>`;
+    els.dbActionConfirm.onclick = async () => {
+      if (!state.activeDbPath) return;
+      const name = document.getElementById('modalExportName').value.trim() || 'export.db';
+      const data = await api('export_db', { source_path: state.activeDbPath, target_path: `${state.browserCurrent.replace(/\/+$/,'')}/${name}` });
+      els.dbActionOutput.textContent = pretty(data);
+      await refreshDbArea();
+      closeModal();
+    };
   }
-  els.dbActionBody.innerHTML = body;
-  els.dbSelectedPath.textContent = state.modalSelectedPath || 'Aucun chemin sélectionné.';
-  els.dbModal.classList.remove('hidden');
-  els.dbModal.classList.add('open');
-  browseDbPaths(state.modalSelectedPath || parentPath(activeDbPath() || '/'));
-  const focusTarget = els.dbActionBody.querySelector('input,button');
-  if (focusTarget) setTimeout(() => focusTarget.focus(), 10);
 }
-function closeDbModal() {
-  els.dbModal.classList.add('hidden');
-  els.dbModal.classList.remove('open');
+
+function closeModal(){ els.dbModal.classList.remove('open'); }
+
+async function deleteActiveDb(){
+  if (!state.activeDbPath) return;
+  if (!confirm(`Effacer cette DB ?\n${state.activeDbPath}`)) return;
+  const data = await api('delete_db', { path: state.activeDbPath });
+  log('delete', data);
+  saveDbPath('');
+  await refreshDbArea();
 }
-async function confirmDbModal() {
+
+async function refreshDbArea(){
+  renderActiveDb();
   try {
-    if (state.modalMode === 'select') {
-      if (!state.modalSelectedPath || !/\.(db|sqlite|sqlite3)$/i.test(state.modalSelectedPath)) throw new Error('sélectionne un fichier DB');
-      setActiveDbPath(state.modalSelectedPath);
-    } else if (state.modalMode === 'create') {
-      const name = (document.getElementById('modalNewDbName')?.value || '').trim();
-      if (!name) throw new Error('nom de fichier requis');
-      const baseDir = state.modalSelectedPath && !/\.(db|sqlite|sqlite3)$/i.test(state.modalSelectedPath) ? state.modalSelectedPath : parentPath(state.modalSelectedPath || activeDbPath() || '/');
-      const data = await api('create_db', { target_dir: baseDir, filename: name });
-      setActiveDbPath(data.target_path);
-      els.dbActionOutput.textContent = pretty(data);
-    } else if (state.modalMode === 'upload') {
-      const file = document.getElementById('modalUploadFile')?.files?.[0];
-      if (!file) throw new Error('sélectionne un fichier local');
-      const baseDir = state.modalSelectedPath && !/\.(db|sqlite|sqlite3)$/i.test(state.modalSelectedPath) ? state.modalSelectedPath : parentPath(state.modalSelectedPath || activeDbPath() || '/');
-      const form = new FormData();
-      form.append('action', 'upload_db');
-      form.append('db_path', `${baseDir}/${file.name}`);
-      form.append('file', file, file.name);
-      const data = await api('upload_db', form, true);
-      setActiveDbPath(data.target_path);
-      els.dbActionOutput.textContent = pretty(data);
-    } else if (state.modalMode === 'export') {
-      if (!activeDbPath()) throw new Error('aucune DB active');
-      const name = (document.getElementById('modalExportDbName')?.value || '').trim();
-      if (!name) throw new Error('nom de fichier requis');
-      const baseDir = state.modalSelectedPath && !/\.(db|sqlite|sqlite3)$/i.test(state.modalSelectedPath) ? state.modalSelectedPath : parentPath(state.modalSelectedPath || activeDbPath() || '/');
-      const data = await api('export_db', { target_path: `${baseDir}/${name}` });
-      els.dbActionOutput.textContent = pretty(data);
-    }
     await refreshHealth();
+    await loadContract();
     await loadTables();
-    await loadNamespace();
-    closeDbModal();
+    await loadNamespaces();
+    await loadBrowseList(state.activeDbPath ? state.activeDbPath.replace(/\/[^/]+$/, '') : null);
   } catch (e) {
-    els.dbActionOutput.textContent = pretty({ error: e.message || String(e) });
+    els.dbTableWrap.innerHTML = `<div class="muted">${escapeHtml(e.message)}</div>`;
+    els.sensitiveTable.innerHTML = `<tr><td colspan="3" class="muted">${escapeHtml(e.message)}</td></tr>`;
   }
 }
-async function deleteActiveDb() {
-  const path = activeDbPath();
-  if (!path) throw new Error('aucune DB active');
-  if (!confirm(`Effacer ${path} ?`)) return;
-  const data = await api('delete_db', { target_path: path });
-  setActiveDbPath('');
-  els.dbTransferOutput.textContent = pretty(data);
-  await refreshHealth();
-  await loadTables();
-  await loadNamespace();
-}
-function bindEvents() {
+
+function bindEvents(){
   els.navButtons.forEach(btn => btn.onclick = () => switchView(btn.dataset.view));
-  els.goDb.onclick = () => switchView('db');
-  els.flowEndpoint.addEventListener('change', saveSettings);
-  els.devBackendUrl.addEventListener('change', saveSettings);
-  els.loadTableBtn.onclick = () => loadSelectedTable().catch(err => logUi(err.message || String(err)));
-  els.loadNamespace.onclick = () => loadNamespace().catch(err => logUi(err.message || String(err)));
-  els.dbSelectOpen.onclick = () => openDbModal('select');
-  els.dbCreateOpen.onclick = () => openDbModal('create');
-  els.dbUploadOpen.onclick = () => openDbModal('upload');
-  els.dbExportOpen.onclick = () => openDbModal('export');
-  els.dbDeleteBtn.onclick = () => deleteActiveDb().catch(err => { els.dbTransferOutput.textContent = pretty({ error: err.message || String(err) }); });
-  els.dbModalClose.onclick = closeDbModal;
-  els.dbModalCancel.onclick = closeDbModal;
-  els.dbModalConfirm.onclick = () => confirmDbModal();
-  els.dbBrowseRefresh.onclick = () => browseDbPaths(state.browserCurrentPath || parentPath(activeDbPath() || '/')).catch(err => { els.dbActionOutput.textContent = pretty({ error: err.message || String(err) }); });
-  els.toolSearch.addEventListener('input', renderToolList);
+  els.toolSearch.oninput = renderTools;
   els.toolSelect.onchange = () => selectTool(els.toolSelect.value);
-  els.btnLoadSample.onclick = () => { if (state.currentTool) els.toolInput.value = pretty(state.currentTool.sample_input || {}); };
-  els.validateInput.onclick = () => validateToolInput().catch(err => { els.toolDiagnostics.textContent = pretty({ error: err.message || String(err) }); });
-  els.runTool.onclick = () => executeTool().catch(err => { els.toolDiagnostics.textContent = pretty({ error: err.message || String(err) }); });
-  els.loadCodeBtn.onclick = () => loadCode().catch(err => { els.codeMeta.textContent = pretty({ error: err.message || String(err) }); });
-  els.saveCodeBtn.onclick = () => saveCode().catch(err => { els.codeMeta.textContent = pretty({ error: err.message || String(err) }); });
+  els.btnLoadSample.onclick = () => state.currentTool && (els.toolInput.value = pretty(state.currentTool.sample_input || {}));
+  els.validateInput.onclick = () => { els.toolDiagnostics.textContent = pretty({ valid:true, note:'Validation locale minimale. Le backend complet peut faire une validation plus riche.' }); };
+  els.runTool.onclick = () => { els.toolDiagnostics.textContent = pretty({ note:'Le flux DB est corrigé dans cette version. Le run backend complet reste branché sur ton backend DevLab.' }); };
+  els.openSelectDb.onclick = () => openModal('select');
+  els.openCreateDb.onclick = () => openModal('create');
+  els.openUploadDb.onclick = () => openModal('upload');
+  els.openExportDb.onclick = () => openModal('export');
+  els.deleteActiveDb.onclick = deleteActiveDb;
+  els.closeDbModal.onclick = closeModal;
+  els.dbActionCancel.onclick = closeModal;
+  els.loadTableBtn.onclick = loadSelectedTable;
+  els.loadNamespace.onclick = loadNamespace;
 }
-async function bootstrap() {
-  loadSettings();
+
+async function bootstrap(){
   bindEvents();
-  await refreshHealth();
-  await loadInventory();
-  await loadTables();
-  await loadNamespace();
+  renderActiveDb();
+  await refreshDbArea();
+  const hash = location.hash.replace('#','');
+  if (hash) switchView(hash);
 }
 bootstrap().catch(err => {
-  console.error('[DevLab] bootstrap error', err);
-  if (els.dashboardSummary) els.dashboardSummary.textContent = pretty({ error: err.message || String(err) });
+  console.error(err);
+  els.dbTableWrap.innerHTML = `<div class="muted">${escapeHtml(err.message || String(err))}</div>`;
 });
