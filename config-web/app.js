@@ -315,7 +315,7 @@ async function showCode(){
     `;
 
     if (!window.require) {
-      document.getElementById('codeDiag').textContent = 'Monaco n'a pas pu être chargé.';
+      document.getElementById("codeDiag").textContent = "Monaco n\'a pas pu être chargé.";
       return;
     }
 

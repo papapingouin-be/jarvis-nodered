@@ -32,3 +32,5 @@ Puis recharge `index.html`.
 
 ## Correctif supplémentaire
 - correction d'une erreur de syntaxe JavaScript dans `app.js` qui empêchait le chargement de `showTest()` et des autres fonctions.
+
+- correction définitive de la ligne JS cassée autour du message Monaco.
