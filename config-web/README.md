@@ -28,3 +28,7 @@ Tu dois recevoir un JSON du type:
 - `{"error":"unknown_action","action":""}` ou un autre JSON valide
 
 Puis recharge `index.html`.
+
+
+## Correctif supplémentaire
+- correction d'une erreur de syntaxe JavaScript dans `app.js` qui empêchait le chargement de `showTest()` et des autres fonctions.
