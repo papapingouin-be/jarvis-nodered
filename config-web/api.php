@@ -41,8 +41,39 @@ function tools_root(): string {
     return repo_root() . '/jarvis/toolbox/tools';
 }
 
+function candidate_db_dirs(): array {
+    $dirs = [];
+
+    $env = getenv('JARVIS_DEVLAB_DB_DIR');
+    if (is_string($env) && trim($env) !== '') {
+        $dirs[] = rtrim($env, '/');
+    }
+
+    $dirs[] = __DIR__ . '/data';
+    $dirs[] = sys_get_temp_dir() . '/jarvis-devlab';
+
+    return array_values(array_unique($dirs));
+}
+
+function ensure_dir(string $dir): bool {
+    if (is_dir($dir)) return is_writable($dir);
+    return @mkdir($dir, 0775, true) && is_writable($dir);
+}
+
 function db_path(): string {
-    return __DIR__ . '/devlab.db';
+    $envFile = getenv('JARVIS_DEVLAB_DB');
+    if (is_string($envFile) && trim($envFile) !== '') {
+        $parent = dirname($envFile);
+        if (ensure_dir($parent)) return $envFile;
+    }
+
+    foreach (candidate_db_dirs() as $dir) {
+        if (ensure_dir($dir)) {
+            return rtrim($dir, '/') . '/devlab.db';
+        }
+    }
+
+    throw new RuntimeException('Aucun dossier inscriptible pour la DB SQLite.');
 }
 
 function pdo(): PDO {
@@ -51,7 +82,8 @@ function pdo(): PDO {
         return $pdo;
     }
 
-    $pdo = new PDO('sqlite:' . db_path());
+    $dbFile = db_path();
+    $pdo = new PDO('sqlite:' . $dbFile);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     $pdo->exec('PRAGMA foreign_keys = ON');
@@ -402,10 +434,13 @@ $action = (string)($payload['action'] ?? '');
 
 switch ($action) {
     case 'healthcheck':
+        $dbPath = db_path();
         json_response([
             'ok' => true,
             'php_version' => PHP_VERSION,
-            'db_path' => db_path(),
+            'db_path' => $dbPath,
+            'db_dir' => dirname($dbPath),
+            'db_dir_writable' => is_writable(dirname($dbPath)),
             'tools_root' => tools_root(),
             'tools_root_exists' => is_dir(tools_root()),
             'service_count' => count(list_services()),

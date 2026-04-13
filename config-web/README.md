@@ -34,3 +34,17 @@ Puis recharge `index.html`.
 - correction d'une erreur de syntaxe JavaScript dans `app.js` qui empêchait le chargement de `showTest()` et des autres fonctions.
 
 - correction définitive de la ligne JS cassée autour du message Monaco.
+
+## Correctif SQLite permissions
+
+Cette version ne tente plus d'écrire aveuglément `devlab.db` dans le dossier web.
+
+Ordre de résolution:
+1. `JARVIS_DEVLAB_DB` si défini
+2. `JARVIS_DEVLAB_DB_DIR` si défini
+3. `config-web/data/devlab.db`
+4. `/tmp/jarvis-devlab/devlab.db`
+
+Le `healthcheck` renvoie maintenant aussi:
+- `db_dir`
+- `db_dir_writable`
