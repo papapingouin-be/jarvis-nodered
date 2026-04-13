@@ -3,61 +3,91 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Jarvis DevLab</title>
+<title>Jarvis DevLab V6</title>
 <style>
 :root{
-  --bg:#0b1020;--panel:#121a2b;--panel2:#0f1729;--line:#22304d;--text:#edf3ff;--muted:#93a4c7;
+  --bg:#0b1020; --panel:#121a2b; --panel2:#0f1729; --line:#22304d; --text:#edf3ff;
+  --muted:#93a4c7; --accent:#60a5fa; --ok:#10b981; --warn:#f59e0b; --err:#ef4444;
 }
 *{box-sizing:border-box}
 body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--text)}
 #layout{display:flex;min-height:100vh}
-#services{width:280px;background:var(--panel);border-right:1px solid var(--line);padding:14px}
-#serviceList button{width:100%;margin-bottom:8px;padding:10px 12px;border-radius:10px;border:1px solid transparent;background:#17233d;color:var(--text);text-align:left;cursor:pointer}
-#serviceList button:hover,#serviceList button.active{border-color:#335389;background:#1a2a48}
+#sidebar{width:300px;background:var(--panel);border-right:1px solid var(--line);padding:14px}
 #main{flex:1;padding:18px}
-.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.toolbar button{padding:10px 14px;border:none;border-radius:10px;cursor:pointer;background:#2563eb;color:white;font-weight:600}
-.toolbar button.secondary{background:#334155}
+h1,h2,h3,h4{margin:.2rem 0 .6rem}
+.small{font-size:.92rem;color:var(--muted)}
 .panel{background:var(--panel2);border:1px solid var(--line);border-radius:16px;padding:16px}
+#serviceList button,.toolbar button,.mini-btn{
+  border:none;border-radius:10px;cursor:pointer;color:var(--text)
+}
+#serviceList button{
+  width:100%;margin-bottom:8px;padding:10px 12px;text-align:left;background:#17233d;border:1px solid transparent
+}
+#serviceList button:hover,#serviceList button.active{background:#1a2a48;border-color:#335389}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.toolbar button{padding:10px 14px;background:#2563eb;font-weight:600}
+.toolbar button.secondary{background:#334155}
+.toolbar button.warn{background:#b45309}
+.mini-btn{padding:7px 10px;background:#334155}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:200px}
 label{display:block;margin:12px 0 6px;color:var(--muted);font-size:.92rem}
-input,select,textarea{width:100%;padding:10px 12px;border-radius:10px;border:1px solid #30486f;background:#0b1324;color:var(--text)}
+input,select,textarea{
+  width:100%;padding:10px 12px;border-radius:10px;border:1px solid #30486f;background:#0b1324;color:var(--text)
+}
 textarea{min-height:220px;resize:vertical;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 pre{white-space:pre-wrap;word-break:break-word;background:#0a1120;border:1px solid #1b2942;border-radius:12px;padding:12px;min-height:120px}
-.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}
 .badge{display:inline-block;padding:4px 9px;border-radius:999px;font-size:.8rem;border:1px solid var(--line);background:#13203a}
 .status{margin:12px 0 0;padding:10px 12px;border-radius:10px;font-size:.92rem}
 .status.ok{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.35)}
 .status.err{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.35)}
-.small{font-size:.9rem;color:var(--muted)} #editor{height:65vh;border:1px solid #30486f;border-radius:12px;overflow:hidden}
-table{width:100%;border-collapse:collapse} th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top}
+.status.warn{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.35)}
+#editor{height:65vh;border:1px solid #30486f;border-radius:12px;overflow:hidden}
+table{width:100%;border-collapse:collapse}
+th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top}
 code{background:#10192d;padding:2px 5px;border-radius:6px}
+.tab-muted{color:var(--muted);font-size:.88rem}
+.kv{display:grid;grid-template-columns:220px 1fr;gap:8px 12px}
+@media (max-width:1000px){
+  #layout{display:block}
+  #sidebar{width:auto;border-right:none;border-bottom:1px solid var(--line)}
+  .kv{grid-template-columns:1fr}
+}
 </style>
 </head>
 <body>
 <div id="layout">
-  <aside id="services">
+  <aside id="sidebar">
+    <h2>Jarvis DevLab V6</h2>
+    <div class="small">Service centré + DB Lab remis dans la boucle.</div>
+    <div style="margin:.8rem 0"><span class="badge" id="apiStatus">API ?</span></div>
+    <div class="small" id="apiMeta">Chargement...</div>
+    <hr style="border-color:#22304d;border-width:0 0 1px;margin:14px 0">
     <h3>Services</h3>
-    <div class="small" style="margin-bottom:12px">Point d'entrée V2 centré service.</div>
     <div id="serviceList"></div>
   </aside>
+
   <main id="main">
     <div class="row" style="align-items:center;margin-bottom:14px">
       <div>
         <h2 id="serviceTitle" style="margin:0">Aucun service</h2>
         <div class="small" id="serviceMeta">Charge d'abord la liste des services.</div>
       </div>
-      <div style="flex:0 0 auto"><span class="badge" id="apiStatus">API ?</span></div>
     </div>
+
     <div class="toolbar">
       <button onclick="showConfig()">Configurer</button>
       <button class="secondary" onclick="showTest()">Tester</button>
       <button class="secondary" onclick="showCode()">Code</button>
       <button class="secondary" onclick="showRuns()">Historique</button>
+      <button class="warn" onclick="showDbLab()">DB Lab</button>
     </div>
+
     <div id="globalStatus"></div>
     <div id="view" class="panel"></div>
   </main>
 </div>
+
 <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.44.0/min/vs/loader.js"></script>
 <script src="app.js"></script>
 </body>

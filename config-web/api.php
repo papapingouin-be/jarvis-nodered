@@ -33,33 +33,39 @@ function json_response(array $data, int $status = 200): never {
     exit;
 }
 
+function candidate_db_dirs(): array {
+    $dirs = [];
+    $env = getenv('JARVIS_DEVLAB_DB_DIR');
+    if (is_string($env) && trim($env) !== '') $dirs[] = rtrim($env, '/');
+    $dirs[] = __DIR__ . '/data';
+    $dirs[] = sys_get_temp_dir() . '/jarvis-devlab';
+    return array_values(array_unique($dirs));
+}
+
+function ensure_dir(string $dir): bool {
+    if (is_dir($dir)) return is_writable($dir);
+    return @mkdir($dir, 0775, true) && is_writable($dir);
+}
+
+function db_path(): string {
+    $envFile = getenv('JARVIS_DEVLAB_DB');
+    if (is_string($envFile) && trim($envFile) !== '') {
+        $parent = dirname($envFile);
+        if (ensure_dir($parent)) return $envFile;
+    }
+    foreach (candidate_db_dirs() as $dir) {
+        if (ensure_dir($dir)) return rtrim($dir, '/') . '/devlab.db';
+    }
+    throw new RuntimeException('Aucun dossier inscriptible pour la DB SQLite.');
+}
+
 function repo_root(): string { return __DIR__; }
 function tools_root(): string { return repo_root() . '/jarvis/toolbox/tools'; }
-
-function candidate_db_paths(): array {
-    $paths = [];
-    $env = getenv('DEVLAB_DB_PATH') ?: '';
-    if ($env !== '') $paths[] = $env;
-    $paths[] = __DIR__ . '/devlab.db';
-    $paths[] = sys_get_temp_dir() . '/jarvis_devlab.db';
-    return array_values(array_unique($paths));
-}
-
-function resolve_db_path(): string {
-    foreach (candidate_db_paths() as $path) {
-        $dir = dirname($path);
-        if ((is_dir($dir) || @mkdir($dir, 0775, true)) && is_writable($dir)) {
-            return $path;
-        }
-    }
-    throw new RuntimeException('Aucun emplacement SQLite inscriptible trouvé.');
-}
 
 function pdo(): PDO {
     static $pdo = null;
     if ($pdo instanceof PDO) return $pdo;
-    $path = resolve_db_path();
-    $pdo = new PDO('sqlite:' . $path);
+    $pdo = new PDO('sqlite:' . db_path());
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
     $pdo->exec('PRAGMA foreign_keys = ON');
@@ -72,6 +78,7 @@ function ensure_schema(PDO $pdo): void {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     )");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS service_config_values (
         profile TEXT NOT NULL DEFAULT 'default',
         service_name TEXT NOT NULL,
@@ -80,6 +87,7 @@ function ensure_schema(PDO $pdo): void {
         updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
         PRIMARY KEY(profile, service_name, config_key)
     )");
+
     $pdo->exec("CREATE TABLE IF NOT EXISTS devlab_runs (
         run_id INTEGER PRIMARY KEY AUTOINCREMENT,
         service_name TEXT NOT NULL,
@@ -102,6 +110,22 @@ function parse_payload(): array {
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) json_response(['error' => 'invalid_json'], 400);
     return $decoded;
+}
+
+function safe_db_probe(): array {
+    try {
+        $path = db_path();
+        $dir = dirname($path);
+        return [
+            'ok' => true,
+            'db_path' => $path,
+            'db_dir' => $dir,
+            'db_exists' => file_exists($path),
+            'db_dir_writable' => is_dir($dir) && is_writable($dir),
+        ];
+    } catch (Throwable $e) {
+        return ['ok' => false, 'db_error' => $e->getMessage()];
+    }
 }
 
 function discover_manifest_paths(string $root): array {
@@ -151,7 +175,7 @@ function sample_from_schema(array $schema): mixed {
 function default_demo_service(): array {
     return [
         'name' => 'example_service',
-        'description' => 'Service de démonstration pour vérifier que l’API et l’UI répondent correctement.',
+        'description' => 'Service de démonstration pour vérifier UI, DB et API.',
         'engine_default' => 'plan_only',
         'manifest_path' => null,
         'tool_dir' => null,
@@ -200,7 +224,9 @@ function list_services_full(): array {
         }
         if ($configRequirements === []) {
             $nameFallback = (string)($manifest['name'] ?? basename($toolDir));
-            $configRequirements[] = ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false];
+            $configRequirements = [
+                ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false],
+            ];
         }
 
         $services[] = [
@@ -216,6 +242,7 @@ function list_services_full(): array {
             'code_files' => $codeFiles,
         ];
     }
+
     if ($services === []) $services[] = default_demo_service();
     usort($services, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
     return $services;
@@ -237,10 +264,12 @@ function load_service_config_values(PDO $pdo, string $serviceName, string $profi
 }
 
 function save_service_config_values(PDO $pdo, string $serviceName, string $profile, array $config): void {
-    $stmt = $pdo->prepare("INSERT INTO service_config_values(profile, service_name, config_key, config_value, updated_at)
+    $stmt = $pdo->prepare("
+        INSERT INTO service_config_values(profile, service_name, config_key, config_value, updated_at)
         VALUES(:profile, :service_name, :config_key, :config_value, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
         ON CONFLICT(profile, service_name, config_key)
-        DO UPDATE SET config_value = excluded.config_value, updated_at = excluded.updated_at");
+        DO UPDATE SET config_value = excluded.config_value, updated_at = excluded.updated_at
+    ");
     foreach ($config as $key => $value) {
         $stmt->execute([
             ':profile' => $profile,
@@ -249,6 +278,34 @@ function save_service_config_values(PDO $pdo, string $serviceName, string $profi
             ':config_value' => is_scalar($value) || $value === null ? (string)$value : json_encode($value, JSON_UNESCAPED_UNICODE),
         ]);
     }
+}
+
+function delete_service_config_value(PDO $pdo, string $profile, string $service, string $key): bool {
+    $stmt = $pdo->prepare('DELETE FROM service_config_values WHERE profile = :profile AND service_name = :service AND config_key = :key');
+    $stmt->execute([':profile' => $profile, ':service' => $service, ':key' => $key]);
+    return $stmt->rowCount() > 0;
+}
+
+function list_all_config_rows(PDO $pdo): array {
+    return $pdo->query('SELECT profile, service_name, config_key, config_value, updated_at FROM service_config_values ORDER BY profile, service_name, config_key')->fetchAll();
+}
+
+function list_table_names(PDO $pdo): array {
+    $rows = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")->fetchAll();
+    return array_map(static fn(array $r): string => (string)$r['name'], $rows);
+}
+
+function get_table_rows(PDO $pdo, string $table, int $limit = 100): array {
+    if (!preg_match('/^[a-zA-Z0-9_]+$/', $table)) throw new RuntimeException('Nom de table invalide.');
+    $columns = $pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll();
+    $stmt = $pdo->prepare('SELECT * FROM ' . $table . ' LIMIT :limit');
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    return [
+        'table' => $table,
+        'columns' => array_map(static fn(array $c): string => (string)$c['name'], $columns),
+        'rows' => $stmt->fetchAll(),
+    ];
 }
 
 function is_allowed_code_path(string $path): bool {
@@ -267,10 +324,12 @@ function run_python_direct(array $service, array $payload, int $timeout): array 
     if (!$entrypoint || !$toolDir) {
         return ['status' => 'error', 'summary' => 'Entrypoint introuvable.', 'stdout' => '', 'stderr' => 'Service sans entrypoint Python.', 'output' => null];
     }
+
     $script = $toolDir . DIRECTORY_SEPARATOR . $entrypoint;
     if (!is_file($script)) {
         return ['status' => 'error', 'summary' => 'Script introuvable.', 'stdout' => '', 'stderr' => 'Fichier absent: ' . $script, 'output' => null];
     }
+
     $cmd = ['python3', $script];
     $escaped = implode(' ', array_map('escapeshellarg', $cmd));
     $descriptor = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
@@ -278,49 +337,40 @@ function run_python_direct(array $service, array $payload, int $timeout): array 
     if (!is_resource($process)) {
         return ['status' => 'error', 'summary' => 'Impossible de lancer le process.', 'stdout' => '', 'stderr' => 'proc_open a échoué.', 'output' => null];
     }
+
     fwrite($pipes[0], json_encode($payload, JSON_UNESCAPED_UNICODE));
     fclose($pipes[0]);
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
+
     $stdout = ''; $stderr = ''; $start = microtime(true); $timedOut = false;
     do {
         $status = proc_get_status($process);
         $stdout .= stream_get_contents($pipes[1]);
         $stderr .= stream_get_contents($pipes[2]);
         if (!$status['running']) break;
-        if ((microtime(true) - $start) > $timeout) { proc_terminate($process); $timedOut = true; break; }
+        if ((microtime(true) - $start) > $timeout) {
+            proc_terminate($process);
+            $timedOut = true;
+            break;
+        }
         usleep(100000);
     } while (true);
+
     $stdout .= stream_get_contents($pipes[1]);
     $stderr .= stream_get_contents($pipes[2]);
     fclose($pipes[1]); fclose($pipes[2]);
     $exitCode = proc_close($process);
-    $decoded = null; $trimmed = trim($stdout);
-    if ($trimmed !== '') { $tmp = json_decode($trimmed, true); if (json_last_error() === JSON_ERROR_NONE) $decoded = $tmp; }
+
+    $decoded = null;
+    $trimmed = trim($stdout);
+    if ($trimmed !== '') {
+        $tmp = json_decode($trimmed, true);
+        if (json_last_error() === JSON_ERROR_NONE) $decoded = $tmp;
+    }
+
     if ($timedOut) return ['status' => 'timeout', 'summary' => 'Temps limite dépassé.', 'stdout' => $stdout, 'stderr' => $stderr, 'output' => $decoded];
     return ['status' => $exitCode === 0 ? 'ok' : 'error', 'summary' => $exitCode === 0 ? 'Exécution terminée.' : 'Le process a renvoyé un code non nul.', 'stdout' => $stdout, 'stderr' => $stderr, 'output' => $decoded];
-}
-
-
-function safe_db_probe(): array {
-    try {
-        $path = db_path();
-        $dir = dirname($path);
-        $exists = file_exists($path);
-        $dirWritable = is_dir($dir) && is_writable($dir);
-        return [
-            'ok' => true,
-            'db_path' => $path,
-            'db_dir' => $dir,
-            'db_exists' => $exists,
-            'db_dir_writable' => $dirWritable,
-        ];
-    } catch (Throwable $e) {
-        return [
-            'ok' => false,
-            'db_error' => $e->getMessage(),
-        ];
-    }
 }
 
 $payload = parse_payload();
@@ -328,43 +378,28 @@ $action = (string)($payload['action'] ?? '');
 
 switch ($action) {
     case 'ping':
-        json_response([
-            'ok' => true,
-            'php_version' => PHP_VERSION,
-            'script_dir' => __DIR__,
-        ]);
+        json_response(['ok' => true, 'php_version' => PHP_VERSION, 'script_dir' => __DIR__]);
 
     case 'healthcheck':
-        $dbPath = resolve_db_path();
         json_response([
             'ok' => true,
             'php_version' => PHP_VERSION,
-            'db_path' => $dbPath,
-            'db_dir_writable' => is_writable(dirname($dbPath)),
+            'cwd' => getcwd(),
+            'script_dir' => __DIR__,
             'tools_root' => tools_root(),
             'tools_root_exists' => is_dir(tools_root()),
             'service_count' => count(list_services_full()),
-        ]);
-    case 'list_services':
-        $services = array_map(static fn(array $service): array => [
-            'name' => $service['name'],
-            'description' => $service['description'],
-            'engine_default' => $service['engine_default'],
-        ], list_services_full());
-        json_response(['ok' => true, 'services' => $services]);
-    case 'debug_env':
-        json_response([
-            'ok' => true,
-            'php_version' => PHP_VERSION,
-            'loaded_extensions' => get_loaded_extensions(),
+            'db_probe' => safe_db_probe(),
             'pdo_sqlite_loaded' => extension_loaded('pdo_sqlite'),
             'sqlite3_loaded' => extension_loaded('sqlite3'),
-            'script_dir' => __DIR__,
-            'tmp_dir' => sys_get_temp_dir(),
-            'open_basedir' => ini_get('open_basedir'),
-            'disable_functions' => ini_get('disable_functions'),
-            'db_probe' => safe_db_probe(),
         ]);
+
+    case 'list_services':
+        $items = [];
+        foreach (list_services_full() as $service) {
+            $items[] = ['name' => $service['name'], 'description' => $service['description'], 'engine_default' => $service['engine_default']];
+        }
+        json_response(['ok' => true, 'services' => $items]);
 
     case 'get_service':
         $serviceName = (string)($payload['service'] ?? '');
@@ -374,6 +409,7 @@ switch ($action) {
         $service['profile'] = $profile;
         $service['config_values'] = load_service_config_values(pdo(), $serviceName, $profile);
         json_response(['ok' => true, 'service' => $service]);
+
     case 'save_service_config':
         $serviceName = (string)($payload['service'] ?? '');
         $profile = (string)($payload['profile'] ?? 'default');
@@ -383,6 +419,7 @@ switch ($action) {
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
         save_service_config_values(pdo(), $serviceName, $profile, $config);
         json_response(['ok' => true, 'service' => $serviceName, 'profile' => $profile]);
+
     case 'run_service_test':
         $serviceName = (string)($payload['service'] ?? '');
         $engine = (string)($payload['engine'] ?? 'plan_only');
@@ -392,24 +429,59 @@ switch ($action) {
         if (!is_array($inputPayload)) json_response(['error' => 'payload_must_be_object_or_array'], 400);
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
-        $startedAt = gmdate('c'); $t0 = microtime(true);
-        if ($engine === 'python_direct') $exec = run_python_direct($service, $inputPayload, $timeout);
-        else $exec = ['status' => 'ok', 'summary' => 'Plan only: aucun moteur réel lancé.', 'stdout' => '', 'stderr' => '', 'output' => ['note' => 'Mode plan_only', 'service' => $serviceName, 'payload' => $inputPayload]];
-        $durationMs = (int)round((microtime(true) - $t0) * 1000); $endedAt = gmdate('c');
-        $stmt = pdo()->prepare("INSERT INTO devlab_runs(service_name, engine, profile, status, started_at, ended_at, duration_ms, summary, payload_json, output_json, stdout_text, stderr_text)
-            VALUES(:service_name, :engine, :profile, :status, :started_at, :ended_at, :duration_ms, :summary, :payload_json, :output_json, :stdout_text, :stderr_text)");
+
+        $startedAt = gmdate('c');
+        $t0 = microtime(true);
+        if ($engine === 'python_direct') {
+            $exec = run_python_direct($service, $inputPayload, $timeout);
+        } else {
+            $exec = [
+                'status' => 'ok',
+                'summary' => 'Mode plan_only: aucun moteur réel lancé.',
+                'stdout' => '',
+                'stderr' => '',
+                'output' => ['note' => 'plan_only', 'service' => $serviceName, 'payload' => $inputPayload],
+            ];
+        }
+        $durationMs = (int)round((microtime(true) - $t0) * 1000);
+        $endedAt = gmdate('c');
+
+        $stmt = pdo()->prepare("
+            INSERT INTO devlab_runs(service_name, engine, profile, status, started_at, ended_at, duration_ms, summary, payload_json, output_json, stdout_text, stderr_text)
+            VALUES(:service_name, :engine, :profile, :status, :started_at, :ended_at, :duration_ms, :summary, :payload_json, :output_json, :stdout_text, :stderr_text)
+        ");
         $stmt->execute([
-            ':service_name' => $serviceName, ':engine' => $engine, ':profile' => $profile, ':status' => $exec['status'],
-            ':started_at' => $startedAt, ':ended_at' => $endedAt, ':duration_ms' => $durationMs, ':summary' => $exec['summary'],
-            ':payload_json' => json_encode($inputPayload, JSON_UNESCAPED_UNICODE), ':output_json' => json_encode($exec['output'], JSON_UNESCAPED_UNICODE),
-            ':stdout_text' => $exec['stdout'], ':stderr_text' => $exec['stderr'],
+            ':service_name' => $serviceName,
+            ':engine' => $engine,
+            ':profile' => $profile,
+            ':status' => $exec['status'],
+            ':started_at' => $startedAt,
+            ':ended_at' => $endedAt,
+            ':duration_ms' => $durationMs,
+            ':summary' => $exec['summary'],
+            ':payload_json' => json_encode($inputPayload, JSON_UNESCAPED_UNICODE),
+            ':output_json' => json_encode($exec['output'], JSON_UNESCAPED_UNICODE),
+            ':stdout_text' => $exec['stdout'],
+            ':stderr_text' => $exec['stderr'],
         ]);
         $runId = (int)pdo()->lastInsertId();
+
         json_response([
-            'ok' => true, 'run_id' => $runId, 'service' => $serviceName, 'engine' => $engine, 'profile' => $profile,
-            'status' => $exec['status'], 'started_at' => $startedAt, 'ended_at' => $endedAt, 'duration_ms' => $durationMs,
-            'summary' => $exec['summary'], 'stdout' => $exec['stdout'], 'stderr' => $exec['stderr'], 'output' => $exec['output'],
+            'ok' => true,
+            'run_id' => $runId,
+            'service' => $serviceName,
+            'engine' => $engine,
+            'profile' => $profile,
+            'status' => $exec['status'],
+            'started_at' => $startedAt,
+            'ended_at' => $endedAt,
+            'duration_ms' => $durationMs,
+            'summary' => $exec['summary'],
+            'stdout' => $exec['stdout'],
+            'stderr' => $exec['stderr'],
+            'output' => $exec['output'],
         ]);
+
     case 'list_runs':
         $serviceName = (string)($payload['service'] ?? '');
         if ($serviceName !== '') {
@@ -419,6 +491,7 @@ switch ($action) {
             $stmt = pdo()->query('SELECT * FROM devlab_runs ORDER BY run_id DESC LIMIT 50');
         }
         json_response(['ok' => true, 'runs' => $stmt->fetchAll()]);
+
     case 'list_service_code_files':
         $serviceName = (string)($payload['service'] ?? '');
         $service = find_service($serviceName);
@@ -426,33 +499,71 @@ switch ($action) {
         $files = $service['code_files'] ?? [];
         if (($service['manifest_path'] ?? null) && is_file($service['manifest_path'])) $files[] = ['path' => $service['manifest_path'], 'filename' => basename($service['manifest_path'])];
         json_response(['ok' => true, 'files' => $files]);
+
     case 'read_code_file':
         $path = (string)($payload['path'] ?? '');
         if ($path === '' || !is_allowed_code_path($path)) json_response(['error' => 'invalid_or_forbidden_path'], 403);
         json_response(['ok' => true, 'path' => realpath($path), 'content' => file_get_contents($path)]);
+
     case 'save_code_file':
         $path = (string)($payload['path'] ?? '');
         $content = (string)($payload['content'] ?? '');
         if ($path === '' || !is_allowed_code_path($path) || !is_writable($path)) json_response(['error' => 'invalid_or_unwritable_path'], 403);
         file_put_contents($path, $content);
         json_response(['ok' => true, 'path' => realpath($path), 'bytes' => strlen($content)]);
+
     case 'validate_code_file':
         $path = (string)($payload['path'] ?? '');
         $content = (string)($payload['content'] ?? '');
         $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
         if ($ext === 'json') {
             json_decode($content, true);
             $valid = json_last_error() === JSON_ERROR_NONE;
             json_response(['ok' => true, 'valid' => $valid, 'language' => 'json', 'message' => $valid ? 'JSON valide.' : json_last_error_msg()]);
         }
+
         if ($ext === 'py') {
             $tmp = tempnam(sys_get_temp_dir(), 'devlab_py_');
             file_put_contents($tmp, $content);
             $cmd = 'python3 -m py_compile ' . escapeshellarg($tmp) . ' 2>&1';
-            $output = []; $exitCode = 0; exec($cmd, $output, $exitCode); @unlink($tmp);
+            $output = [];
+            $exitCode = 0;
+            exec($cmd, $output, $exitCode);
+            @unlink($tmp);
             json_response(['ok' => true, 'valid' => $exitCode === 0, 'language' => 'python', 'message' => $exitCode === 0 ? 'Python valide.' : implode("\n", $output)]);
         }
+
         json_response(['ok' => true, 'valid' => true, 'language' => $ext ?: 'text', 'message' => 'Validation non spécifique, considérée comme OK.']);
+
+    case 'db_list_tables':
+        json_response(['ok' => true, 'tables' => list_table_names(pdo())]);
+
+    case 'db_get_table':
+        $table = (string)($payload['table'] ?? 'service_config_values');
+        $limit = max(1, min(500, (int)($payload['limit'] ?? 100)));
+        json_response(['ok' => true] + get_table_rows(pdo(), $table, $limit));
+
+    case 'db_list_config':
+        json_response(['ok' => true, 'rows' => list_all_config_rows(pdo())]);
+
+    case 'db_set_config':
+        $profile = trim((string)($payload['profile'] ?? 'default'));
+        $service = trim((string)($payload['service'] ?? ''));
+        $key = trim((string)($payload['key'] ?? ''));
+        $value = (string)($payload['value'] ?? '');
+        if ($service === '' || $key === '') json_response(['error' => 'service_and_key_required'], 400);
+        save_service_config_values(pdo(), $service, $profile, [$key => $value]);
+        json_response(['ok' => true, 'profile' => $profile, 'service' => $service, 'key' => $key]);
+
+    case 'db_delete_config':
+        $profile = trim((string)($payload['profile'] ?? 'default'));
+        $service = trim((string)($payload['service'] ?? ''));
+        $key = trim((string)($payload['key'] ?? ''));
+        if ($service === '' || $key === '') json_response(['error' => 'service_and_key_required'], 400);
+        $deleted = delete_service_config_value(pdo(), $profile, $service, $key);
+        json_response(['ok' => true, 'deleted' => $deleted]);
+
     default:
         json_response(['error' => 'unknown_action', 'action' => $action], 400);
 }

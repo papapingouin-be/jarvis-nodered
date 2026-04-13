@@ -1,24 +1,60 @@
-# config-web corrected v4
+# Jarvis DevLab V6
 
-Correctif principal :
-- fallback automatique du fichier SQLite vers un emplacement inscriptible
-- priorité : `DEVLAB_DB_PATH`, puis `./devlab.db`, puis `/tmp/jarvis_devlab.db`
+Contenu:
+- `index.html`
+- `app.js`
+- `api.php`
 
-Si ton dossier web n'est pas inscriptible, cette version évite le 500 sur `get_service`.
+## Ce que fait cette V6
 
-Conseil :
-- remplace les 4 fichiers
-- fais un Ctrl+F5
-- vérifie dans l'UI la ligne `DB ... writable oui/non`
+- vue **Configurer** centrée sur les besoins du service
+- vue **Tester** avec moteur, payload JSON, sortie et logs
+- vue **Code** avec Monaco, lecture/sauvegarde/validation
+- vue **Historique** des exécutions
+- **DB Lab** remis dans l'outil:
+  - lister les tables
+  - prévisualiser une table SQLite
+  - lister la configuration stockée
+  - ajouter / modifier / supprimer une config
 
+## Tables SQLite
 
-## V5 debug
+- `infra_meta`
+- `service_config_values`
+- `devlab_runs`
 
-Cette version ajoute:
-- `action=ping`
-- `action=healthcheck` sans ouverture forcée de SQLite
-- `action=debug_env`
-- affichage détaillé côté `app.js`: message, fichier, ligne
+## Résolution DB
 
-Si ça casse encore, la console du navigateur doit maintenant afficher par exemple:
-`php_error — <message> @ /chemin/api.php:123`
+Ordre:
+1. `JARVIS_DEVLAB_DB`
+2. `JARVIS_DEVLAB_DB_DIR`
+3. `config-web/data/devlab.db`
+4. `/tmp/jarvis-devlab/devlab.db`
+
+## Limites honnêtes
+
+- le moteur réel disponible ici est `python_direct`
+- il envoie le JSON sur **stdin** au `tool.py`
+- si tes tools ne lisent pas stdin, utilise `plan_only` ou adapte le runner ensuite
+- `toolbox_runner` n'est pas encore branché dans cette version
+
+## Déploiement
+
+Copie les fichiers dans ton dossier web `config-web`.
+
+Teste ensuite:
+- `index.html`
+- le bouton **DB Lab**
+- l'action `healthcheck` au chargement
+
+## Vérification rapide
+
+Dans la console navigateur:
+
+```js
+fetch("api.php", {
+  method: "POST",
+  headers: {"Content-Type":"application/json"},
+  body: JSON.stringify({action:"healthcheck"})
+}).then(r => r.json()).then(console.log)
+```
