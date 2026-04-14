@@ -7,6 +7,7 @@ import sqlite3
 import sys
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 from urllib import error, request
 
 ACTIONS = {"list", "add", "delete"}
@@ -77,8 +78,25 @@ def _read_secret(conn: sqlite3.Connection, key: str) -> str:
         (key,),
     ).fetchone()
     if row is None:
-        raise ValueError(f"missing npm secret: {key}")
+        raise ValueError(
+            "missing npm secret: "
+            f"{key}. Add sensitive_values(namespace='npm', key='{key}', value='...')."
+        )
     return str(row["value"])
+
+
+def _normalize_base_url(base_url: str) -> str:
+    trimmed = base_url.strip()
+    if not trimmed:
+        raise ValueError("base_url is empty")
+
+    parsed = urlparse(trimmed)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError(
+            "invalid base_url: expected absolute URL like http://npm.local:81 "
+            f"but received '{base_url}'"
+        )
+    return trimmed.rstrip("/")
 
 
 def _read_value(conn: sqlite3.Connection, namespace: str, key: str) -> str | None:
@@ -253,7 +271,13 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
 
 
 def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dict[str, Any]]:
-    token_url = f"{base_url.rstrip('/')}/api/tokens"
+    normalized_base_url = _normalize_base_url(base_url)
+    api_root = (
+        normalized_base_url
+        if normalized_base_url.endswith("/api")
+        else f"{normalized_base_url}/api"
+    )
+    token_url = f"{api_root}/tokens"
     token_req = request.Request(
         token_url,
         data=json.dumps({"identity": login, "secret": password}).encode("utf-8"),
@@ -263,14 +287,25 @@ def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dic
     try:
         with request.urlopen(token_req, timeout=10) as response:
             token_payload = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:300]
+        raise ValueError(
+            "npm token request failed "
+            f"(status={exc.code}, url={token_url}, reason={exc.reason}, body={body!r})"
+        ) from exc
     except error.URLError as exc:
-        raise ValueError(f"npm token request failed: {exc}") from exc
+        raise ValueError(
+            f"npm token request failed (url={token_url}, reason={exc.reason!r})"
+        ) from exc
 
     token = token_payload.get("token")
     if not token:
-        raise ValueError("npm token request did not return a token")
+        raise ValueError(
+            "npm token request did not return a token "
+            f"(url={token_url}, payload_keys={sorted(token_payload.keys())})"
+        )
 
-    hosts_url = f"{base_url.rstrip('/')}/api/nginx/proxy-hosts"
+    hosts_url = f"{api_root}/nginx/proxy-hosts"
     hosts_req = request.Request(
         hosts_url,
         headers={"Authorization": f"Bearer {token}"},
@@ -279,11 +314,22 @@ def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dic
     try:
         with request.urlopen(hosts_req, timeout=10) as response:
             raw_hosts = json.loads(response.read().decode("utf-8"))
+    except error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")[:300]
+        raise ValueError(
+            "npm list request failed "
+            f"(status={exc.code}, url={hosts_url}, reason={exc.reason}, body={body!r})"
+        ) from exc
     except error.URLError as exc:
-        raise ValueError(f"npm list request failed: {exc}") from exc
+        raise ValueError(
+            f"npm list request failed (url={hosts_url}, reason={exc.reason!r})"
+        ) from exc
 
     if not isinstance(raw_hosts, list):
-        raise ValueError("npm list response is not an array")
+        raise ValueError(
+            "npm list response is not an array "
+            f"(url={hosts_url}, payload_type={type(raw_hosts).__name__})"
+        )
 
     services: list[dict[str, Any]] = []
     for item in raw_hosts:
