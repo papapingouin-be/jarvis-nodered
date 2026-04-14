@@ -30,11 +30,25 @@ def _validate(schema: dict[str, Any], payload: dict[str, Any]) -> None:
 def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, Any]:
     _validate(manifest["input_schema"], tool_input)
     entrypoint = Path(manifest["tool_root"]) / manifest["entrypoint"]
+    script_detected = entrypoint.suffix == ".py"
     timeout_s = int(os.getenv("TOOL_TIMEOUT_S", "30"))
-    log_event(logger, service="toolbox_runner", event="tool_execute_start", tool=manifest["name"], entrypoint=str(entrypoint), timeout_s=timeout_s)
+    command = ["python", str(entrypoint)]
+    log_event(
+        logger,
+        service="toolbox_runner",
+        event="tool_execute_start",
+        tool=manifest["name"],
+        entrypoint=str(entrypoint),
+        timeout_s=timeout_s,
+        script_exists=entrypoint.exists(),
+        script_suffix=entrypoint.suffix,
+        python_script_detected=script_detected,
+        command=command,
+        input_keys=sorted(tool_input.keys()),
+    )
     try:
         result = subprocess.run(
-            ["python", str(entrypoint)],
+            command,
             input=json.dumps(tool_input),
             text=True,
             capture_output=True,
