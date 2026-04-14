@@ -44,10 +44,12 @@ function dbLink(path){
 }
 
 async function api(action, data = {}) {
+  const payload = { action, ...data };
+  if (state.activeDbPath) payload.db_path = state.activeDbPath;
   const response = await fetch('api.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, db_path: state.activeDbPath, ...data })
+    body: JSON.stringify(payload)
   });
 
   const text = await response.text();
@@ -69,7 +71,9 @@ async function api(action, data = {}) {
 }
 
 async function bootstrap(){
+  const savedDbPath = state.activeDbPath;
   try {
+    state.activeDbPath = '';
     const health = await api('healthcheck');
     if (health.preferred_db_path) setActiveDbPath(health.preferred_db_path);
     setApiStatus('API OK', true);
@@ -82,6 +86,8 @@ async function bootstrap(){
     setApiStatus('API erreur', false);
     setGlobalStatus(e.message || String(e), 'err');
     console.error(e);
+  } finally {
+    if (!state.activeDbPath) state.activeDbPath = savedDbPath;
   }
 }
 
