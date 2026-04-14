@@ -117,6 +117,17 @@ def _read_value_first(conn: sqlite3.Connection, namespaces: tuple[str, ...], key
     return None
 
 
+def _read_fallback_value(conn: sqlite3.Connection, namespaces: tuple[str, ...], key: str) -> str | None:
+    db_value = _read_value_first(conn, namespaces, key)
+    if db_value:
+        return db_value
+
+    env_value = os.getenv(key)
+    if env_value and env_value.strip():
+        return env_value.strip()
+    return None
+
+
 def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     instance = payload["instance"]
     raw_password = instance.get("password")
@@ -211,7 +222,10 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     if instance is None:
         fallback_keys = ("NPM_URL", "NPM_IDENTITY", "NPM_SECRET")
         fallback_namespaces = ("npm_service", "npm")
-        fallback_values = {key: _read_value_first(conn, fallback_namespaces, key) for key in fallback_keys}
+        fallback_values = {
+            key: _read_fallback_value(conn, fallback_namespaces, key)
+            for key in fallback_keys
+        }
         missing_fallback_keys = [key for key, value in fallback_values.items() if not value]
         return {
             "instance_name": instance_name,
@@ -273,9 +287,9 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
     # Also accept legacy namespace `npm` for backward compatibility.
     # This allows list_services(default) to work without a prior register_instance step.
     fallback_namespaces = ("npm_service", "npm")
-    base_url = _read_value_first(conn, fallback_namespaces, "NPM_URL")
-    login = _read_value_first(conn, fallback_namespaces, "NPM_IDENTITY")
-    password = _read_value_first(conn, fallback_namespaces, "NPM_SECRET")
+    base_url = _read_fallback_value(conn, fallback_namespaces, "NPM_URL")
+    login = _read_fallback_value(conn, fallback_namespaces, "NPM_IDENTITY")
+    password = _read_fallback_value(conn, fallback_namespaces, "NPM_SECRET")
     if base_url and login and password:
         return {
             "name": instance_name,
