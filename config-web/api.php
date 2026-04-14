@@ -59,7 +59,16 @@ function db_path(): string {
     throw new RuntimeException('Aucun dossier inscriptible pour la DB SQLite.');
 }
 
-function repo_root(): string { return __DIR__; }
+function repo_root(): string {
+    $candidates = [realpath(__DIR__), realpath(dirname(__DIR__))];
+    foreach ($candidates as $candidate) {
+        if (is_string($candidate) && $candidate !== '' && is_dir($candidate . '/jarvis')) {
+            return $candidate;
+        }
+    }
+    return dirname(__DIR__);
+}
+
 function tools_root(): string { return repo_root() . '/jarvis/toolbox/tools'; }
 
 function pdo(): PDO {
@@ -190,6 +199,27 @@ function default_demo_service(): array {
     ];
 }
 
+function inferred_config_requirements(string $serviceName): array {
+    $map = [
+        'npm_service' => [
+            ['namespace' => 'npm_service', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
+            ['namespace' => 'npm_service', 'key' => 'NPM_URL', 'label' => 'NPM URL', 'required' => false],
+            ['namespace' => 'npm_service', 'key' => 'NPM_IDENTITY', 'label' => 'NPM Identity', 'required' => false],
+            ['namespace' => 'npm_service', 'key' => 'NPM_SECRET', 'label' => 'NPM Secret', 'required' => false],
+        ],
+        'proxmox_ct' => [
+            ['namespace' => 'proxmox_ct', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_HOST', 'label' => 'Proxmox host', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_USER', 'label' => 'Proxmox user', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_PASSWORD', 'label' => 'Proxmox password', 'required' => false],
+        ],
+        'sensitive_store' => [
+            ['namespace' => 'sensitive_store', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
+        ],
+    ];
+    return $map[$serviceName] ?? [];
+}
+
 function list_services_full(): array {
     $services = [];
     foreach (discover_manifest_paths(tools_root()) as $manifestPath) {
@@ -224,9 +254,12 @@ function list_services_full(): array {
         }
         if ($configRequirements === []) {
             $nameFallback = (string)($manifest['name'] ?? basename($toolDir));
-            $configRequirements = [
-                ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false],
-            ];
+            $configRequirements = inferred_config_requirements($nameFallback);
+            if ($configRequirements === []) {
+                $configRequirements = [
+                    ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false],
+                ];
+            }
         }
 
         $services[] = [
@@ -318,7 +351,7 @@ function is_allowed_code_path(string $path): bool {
     return false;
 }
 
-function run_python_direct(array $service, array $payload, int $timeout): array {
+function run_python_direct(array $service, array $payload, int $timeout, array $configValues = []): array {
     $entrypoint = $service['entrypoint'] ?? null;
     $toolDir = $service['tool_dir'] ?? null;
     if (!$entrypoint || !$toolDir) {
@@ -333,7 +366,15 @@ function run_python_direct(array $service, array $payload, int $timeout): array 
     $cmd = ['python3', $script];
     $escaped = implode(' ', array_map('escapeshellarg', $cmd));
     $descriptor = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
-    $process = proc_open($escaped, $descriptor, $pipes, $toolDir);
+    $env = [];
+    foreach ($_SERVER as $k => $v) {
+        if (is_string($k) && is_scalar($v)) $env[$k] = (string)$v;
+    }
+    foreach ($configValues as $k => $v) {
+        if (is_string($k) && $k !== '' && is_scalar($v)) $env[$k] = (string)$v;
+    }
+
+    $process = proc_open($escaped, $descriptor, $pipes, $toolDir, $env);
     if (!is_resource($process)) {
         return ['status' => 'error', 'summary' => 'Impossible de lancer le process.', 'stdout' => '', 'stderr' => 'proc_open a échoué.', 'output' => null];
     }
@@ -430,17 +471,26 @@ switch ($action) {
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
 
+        $configValues = load_service_config_values(pdo(), $serviceName, $profile);
+        $configValues['JARVIS_CONFIG_PROFILE'] = $profile;
+
         $startedAt = gmdate('c');
         $t0 = microtime(true);
         if ($engine === 'python_direct') {
-            $exec = run_python_direct($service, $inputPayload, $timeout);
+            $exec = run_python_direct($service, $inputPayload, $timeout, $configValues);
         } else {
             $exec = [
                 'status' => 'ok',
                 'summary' => 'Mode plan_only: aucun moteur réel lancé.',
                 'stdout' => '',
                 'stderr' => '',
-                'output' => ['note' => 'plan_only', 'service' => $serviceName, 'payload' => $inputPayload],
+                'output' => [
+                    'note' => 'plan_only',
+                    'service' => $serviceName,
+                    'payload' => $inputPayload,
+                    'config_profile' => $profile,
+                    'config_values' => $configValues,
+                ],
             ];
         }
         $durationMs = (int)round((microtime(true) - $t0) * 1000);
@@ -480,6 +530,8 @@ switch ($action) {
             'stdout' => $exec['stdout'],
             'stderr' => $exec['stderr'],
             'output' => $exec['output'],
+            'config_profile' => $profile,
+            'config_values' => $configValues,
         ]);
 
     case 'list_runs':
