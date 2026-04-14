@@ -8,6 +8,20 @@
     "description": {"type": "string"},
     "action_types": {"type": "array", "items": {"type": "string"}},
     "entrypoint": {"type": "string"},
+    "config_requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key"],
+        "properties": {
+          "namespace": {"type": "string"},
+          "key": {"type": "string"},
+          "label": {"type": "string"},
+          "required": {"type": "boolean"}
+        },
+        "additionalProperties": false
+      }
+    },
     "input_schema": {"type": "object"},
     "output_schema": {"type": "object"}
   },
