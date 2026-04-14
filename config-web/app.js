@@ -11,8 +11,8 @@ const state = {
   dbBrowserPath: '/var/www/jarvis/database',
   dbSelectedPath: null,
   dbAction: null,
-  configMode: 'grid',
-  dbConfigMode: 'grid'
+  configMode: 'text',
+  dbConfigMode: 'text'
 };
 
 function esc(v){
@@ -138,12 +138,18 @@ function ensureCurrent(){
 function showConfig(){
   if (!ensureCurrent()) return;
 
-  const req = state.current.config_requirements || [];
+  const rawReq = state.current.config_requirements || [];
   const values = state.current.config_values || {};
   const entries = Array.isArray(state.current.config_entries) ? state.current.config_entries : [];
   const profile = state.current.profile || 'default';
   const runtimeEnv = Array.isArray(state.current.runtime_env_keys) ? state.current.runtime_env_keys : [];
   const missingRuntime = Array.isArray(state.current.missing_runtime_env_keys) ? state.current.missing_runtime_env_keys : [];
+  const req = rawReq.filter(r => {
+    const key = String(r?.key || '');
+    if (!key.endsWith('_DIR')) return true;
+    const sibling = rawReq.find(x => String(x?.key || '') === key.replace(/_DIR$/, ''));
+    return !sibling;
+  });
 
   const entryMap = {};
   entries.forEach(e => {
@@ -162,7 +168,11 @@ function showConfig(){
     `;
   }).join('');
 
-  const entriesText = (entries.length ? entries : req.map(r => ({ namespace: r.namespace || state.current.name, key: r.key, value: values[r.key] ?? '' })))
+  const baseEntries = entries.length ? entries : req.map(r => ({ namespace: r.namespace || state.current.name, key: r.key, value: values[r.key] ?? '' }));
+  const runtimeEntries = runtimeEnv
+    .filter(key => !baseEntries.some(e => e.namespace === state.current.name && e.key === key))
+    .map(key => ({ namespace: state.current.name, key, value: values[key] ?? '' }));
+  const entriesText = [...baseEntries, ...runtimeEntries]
     .map(e => `${e.namespace}.${e.key}=${e.value ?? ''}`)
     .join('\n');
 
@@ -512,6 +522,9 @@ async function showDbLab(){
     const currentProfile = 'default';
     const currentRows = rows.filter(r => (r.profile || '') === currentProfile && (r.service_name || '') === currentService);
     const entriesText = currentRows.map(r => `${r.service_name}.${r.config_key}=${r.config_value ?? ''}`).join('\n');
+    const fullConfigText = rows
+      .map(r => `${r.profile}.${r.service_name}.${r.config_key}=${r.config_value ?? ''}`)
+      .join('\n');
 
     let html = `
       <h3 style="margin-top:0">DB Lab</h3>
@@ -569,17 +582,16 @@ async function showDbLab(){
         </div>
       </div>
 
-      <h4>Config actuelle</h4>
-      <table><thead><tr>
-        <th>Profil</th><th>Service</th><th>Clé</th><th>Valeur</th><th></th>
-      </tr></thead><tbody id="db_config_rows"></tbody></table>
+      <h4>Config actuelle (texte)</h4>
+      <label>Vue globale (profil.service.clé=valeur)</label>
+      <textarea id="db_current_config_text" style="min-height:220px" readonly>${esc(fullConfigText || '# Aucune entrée en base')}</textarea>
+      <div class="small">Vue en lecture seule de toutes les entrées DB (pas seulement le service sélectionné).</div>
 
       <h4>Prévisualisation de table</h4>
       <pre id="db_table_preview">Chargement...</pre>
     `;
 
     document.getElementById('view').innerHTML = html;
-    renderDbConfigRows(rows);
     await loadDbTablePreview();
   } catch (e) {
     setGlobalStatus(e.message || String(e), 'err');
