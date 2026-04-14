@@ -681,7 +681,18 @@ $payload = parse_payload();
 if (isset($_GET['action']) && !isset($payload['action'])) $payload['action'] = (string)$_GET['action'];
 if (isset($_GET['db_path']) && !isset($payload['db_path'])) $payload['db_path'] = (string)$_GET['db_path'];
 $action = (string)($payload['action'] ?? '');
-$activeDbPath = resolve_db_path($payload);
+$dbPathWarning = null;
+try {
+    $activeDbPath = resolve_db_path($payload);
+} catch (Throwable $e) {
+    $activeDbPath = db_path();
+    $dbPathWarning = [
+        'code' => 'invalid_db_path',
+        'message' => $e->getMessage(),
+        'requested_db_path' => is_string($payload['db_path'] ?? null) ? (string)$payload['db_path'] : null,
+        'fallback_db_path' => $activeDbPath,
+    ];
+}
 
 switch ($action) {
     case 'ping':
@@ -700,6 +711,7 @@ switch ($action) {
             'pdo_sqlite_loaded' => extension_loaded('pdo_sqlite'),
             'sqlite3_loaded' => extension_loaded('sqlite3'),
             'preferred_db_path' => $activeDbPath,
+            'db_path_warning' => $dbPathWarning,
         ]);
 
     case 'list_services':
