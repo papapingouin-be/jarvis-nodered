@@ -206,6 +206,45 @@ function safe_db_probe(?string $path = null): array {
     }
 }
 
+function inspect_db_path(string $path): array {
+    $normalized = normalize_db_candidate($path);
+    $dir = dirname($normalized);
+    $result = [
+        'path' => $normalized,
+        'dirname' => $dir,
+        'exists' => file_exists($normalized),
+        'is_file' => is_file($normalized),
+        'readable' => is_readable($normalized),
+        'writable' => is_writable($normalized),
+        'dir_exists' => is_dir($dir),
+        'dir_writable' => is_dir($dir) && is_writable($dir),
+        'realpath' => realpath($normalized) ?: null,
+        'allowed_root' => path_in_allowed_roots($normalized),
+    ];
+
+    try {
+        $probe = new PDO('sqlite:' . $normalized);
+        $probe->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $probe->query('SELECT 1');
+        $result['pdo_open_ok'] = true;
+        $result['pdo_error'] = null;
+    } catch (Throwable $e) {
+        $result['pdo_open_ok'] = false;
+        $result['pdo_error'] = $e->getMessage();
+    }
+
+    $cmd = 'python3 -c ' . escapeshellarg(
+        'import sqlite3,sys; p=sys.argv[1]; sqlite3.connect(p).execute("select 1"); print("ok")'
+    ) . ' ' . escapeshellarg($normalized) . ' 2>&1';
+    $out = [];
+    $code = 0;
+    exec($cmd, $out, $code);
+    $result['python_sqlite_ok'] = $code === 0;
+    $result['python_sqlite_output'] = implode("\n", $out);
+
+    return $result;
+}
+
 function discover_manifest_paths(string $root): array {
     if (!is_dir($root)) return [];
     $paths = [];
@@ -894,6 +933,34 @@ switch ($action) {
 
     case 'db_list_config':
         json_response(['ok' => true, 'rows' => list_all_config_rows(pdo($activeDbPath))]);
+
+    case 'debug_db_access':
+        $paths = $payload['paths'] ?? [];
+        $candidateList = [];
+        if (is_array($paths)) {
+            foreach ($paths as $candidate) {
+                if (!is_string($candidate)) continue;
+                $trimmed = trim($candidate);
+                if ($trimmed !== '') $candidateList[] = $trimmed;
+            }
+        }
+        if (!$candidateList) $candidateList = [$activeDbPath];
+        $candidateList = array_values(array_unique($candidateList));
+
+        $inspections = [];
+        foreach ($candidateList as $candidate) {
+            try {
+                $inspections[] = inspect_db_path($candidate);
+            } catch (Throwable $e) {
+                $inspections[] = ['path' => $candidate, 'error' => $e->getMessage()];
+            }
+        }
+        json_response([
+            'ok' => true,
+            'active_db_path' => $activeDbPath,
+            'php_user' => function_exists('get_current_user') ? get_current_user() : null,
+            'inspections' => $inspections,
+        ]);
 
     case 'db_set_config':
         $profile = trim((string)($payload['profile'] ?? 'default'));
