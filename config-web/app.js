@@ -349,7 +349,6 @@ function showTest(){
       <button class="secondary" onclick="fillPayload('required')">Requis mini</button>
       <button class="secondary" onclick="fillPayload('trace')">Mode trace</button>
       <button onclick="runTest()">Exécuter</button>
-      <button class="warn" onclick="runDbDebug()">Diagnostic DB</button>
     </div>
 
     <h4>Résultat</h4>
@@ -403,65 +402,24 @@ async function runTest(){
 
 function renderTestHints(result){
   const hints = [];
-  const errorText = String(result?.output?.error || '');
-  const cfg = result?.config_values || {};
-  const configuredDb = cfg.JARVIS_INFRA_DB || '';
-  if (errorText.toLowerCase().includes('unable to open database file')) {
-    hints.push("Erreur SQLite détectée: le process Python n'arrive pas à ouvrir la base.");
-    if (configuredDb) hints.push(`JARVIS_INFRA_DB configuré: ${configuredDb}`);
-    if (configuredDb && configuredDb !== state.activeDbPath) {
-      hints.push(`La DB DevLab active est différente: ${state.activeDbPath}`);
-    }
-    hints.push('Action rapide: clique sur "Diagnostic DB" pour vérifier existence + permissions + test Python.');
-  } else if (errorText.includes('provide exactly one of instance.password or instance.password_secret_key')) {
-    hints.push("Erreur de payload npm_service/register_instance: renseigne exactement un seul mode d'authentification.");
-    hints.push('- Mode 1 (inline): `instance.password`');
-    hints.push('- Mode 2 (secret): `instance.password_secret_key` (clé existante dans `sensitive_values`).');
-    hints.push("Ne fournis pas les deux en même temps, et n'envoie pas une chaîne vide.");
-    if (cfg.NPM_URL || cfg.NPM_IDENTITY || cfg.NPM_SECRET) {
-      hints.push("Note: les clés runtime `NPM_URL` / `NPM_IDENTITY` / `NPM_SECRET` ne servent qu'au fallback de `list_services`, pas à `register_instance`.");
-    }
+  const output = result?.output;
+  if (Array.isArray(output?.hints) && output.hints.length) {
+    output.hints.forEach(h => hints.push(String(h)));
+  } else if (typeof output?.help === 'string' && output.help.trim() !== '') {
+    hints.push(output.help.trim());
+  } else if (typeof output?.debug === 'string' && output.debug.trim() !== '') {
+    hints.push(output.debug.trim());
+  } else if (typeof output?.error === 'string' && output.error.trim() !== '') {
+    hints.push(`Erreur remontée par le tool Python: ${output.error.trim()}`);
   } else if (result?.status === 'ok') {
     hints.push('Pas d’erreur bloquante détectée côté moteur.');
   } else {
-    hints.push('Aucune règle de diagnostic automatique pour cette erreur.');
+    hints.push("Aucun diagnostic générique disponible dans config-web.");
+    hints.push("Ajoute les détails de debug/help/test directement dans la réponse Python du tool (output.hints / output.help / output.debug).");
   }
 
   const el = document.getElementById('testHints');
   if (el) el.textContent = hints.join('\n');
-}
-
-async function runDbDebug(){
-  if (!ensureCurrent()) return;
-  try {
-    const profile = document.getElementById('test_profile')?.value || state.current.profile || 'default';
-    const refreshed = await api('get_service', { service: state.current.name, profile });
-    const cfg = refreshed?.service?.config_values || {};
-    const candidates = [
-      cfg.JARVIS_INFRA_DB,
-      state.activeDbPath
-    ].filter(Boolean);
-    const report = await api('debug_db_access', { paths: candidates });
-    const lines = [];
-    lines.push('Diagnostic DB terminé.');
-    (report.inspections || []).forEach((item, idx) => {
-      lines.push(`\n[${idx + 1}] ${item.path || 'path inconnu'}`);
-      if (item.error) {
-        lines.push(`- erreur: ${item.error}`);
-        return;
-      }
-      lines.push(`- exists=${item.exists} is_file=${item.is_file} readable=${item.readable} writable=${item.writable}`);
-      lines.push(`- dir_exists=${item.dir_exists} dir_writable=${item.dir_writable} allowed_root=${item.allowed_root}`);
-      lines.push(`- pdo_open_ok=${item.pdo_open_ok} python_sqlite_ok=${item.python_sqlite_ok}`);
-      if (item.pdo_error) lines.push(`- pdo_error=${item.pdo_error}`);
-      if (item.python_sqlite_output) lines.push(`- python_output=${item.python_sqlite_output}`);
-    });
-    const hints = document.getElementById('testHints');
-    if (hints) hints.textContent = lines.join('\n');
-    setGlobalStatus('Diagnostic DB terminé.', 'ok');
-  } catch (e) {
-    setGlobalStatus(e.message || String(e), 'err');
-  }
 }
 
 async function showCode(){
