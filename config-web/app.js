@@ -418,8 +418,8 @@ function renderTestHints(result){
     hints.push('- Mode 1 (inline): `instance.password`');
     hints.push('- Mode 2 (secret): `instance.password_secret_key` (clé existante dans `sensitive_values`).');
     hints.push("Ne fournis pas les deux en même temps, et n'envoie pas une chaîne vide.");
-    if (cfg.NPM_SECRET) {
-      hints.push("Note: `NPM_SECRET` dans la config runtime sert au fallback list_services, pas à register_instance.");
+    if (cfg.NPM_URL || cfg.NPM_IDENTITY || cfg.NPM_SECRET) {
+      hints.push("Note: les clés runtime `NPM_URL` / `NPM_IDENTITY` / `NPM_SECRET` ne servent qu'au fallback de `list_services`, pas à `register_instance`.");
     }
   } else if (result?.status === 'ok') {
     hints.push('Pas d’erreur bloquante détectée côté moteur.');
