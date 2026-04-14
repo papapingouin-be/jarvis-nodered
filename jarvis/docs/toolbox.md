@@ -13,7 +13,7 @@
 
 ## Proxmox/NPM et stockage des accès
 
-- DB partagée: `JARVIS_INFRA_DB` (défaut `jarvis/database/db.db`).
+- DB partagée: `JARVIS_INFRA_DB` (défaut `/opt/jarvis/database/jarvis.db`).
 - Les outils `proxmox_ct` et `npm_service` supportent deux modes pour le mot de passe:
   - inline (`password`)
   - référence secrète (`password_secret_key`) lue dans `sensitive_store`.
