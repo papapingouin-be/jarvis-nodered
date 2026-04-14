@@ -10,7 +10,8 @@ const state = {
   activeDbPath: localStorage.getItem(DB_KEY) || DEFAULT_DB,
   dbBrowserPath: '/var/www/jarvis/database',
   dbSelectedPath: null,
-  dbAction: null
+  dbAction: null,
+  configMode: 'grid'
 };
 
 function esc(v){
@@ -138,26 +139,62 @@ function showConfig(){
 
   const req = state.current.config_requirements || [];
   const values = state.current.config_values || {};
+  const entries = Array.isArray(state.current.config_entries) ? state.current.config_entries : [];
   const profile = state.current.profile || 'default';
+  const runtimeEnv = Array.isArray(state.current.runtime_env_keys) ? state.current.runtime_env_keys : [];
+  const missingRuntime = Array.isArray(state.current.missing_runtime_env_keys) ? state.current.missing_runtime_env_keys : [];
+
+  const entryMap = {};
+  entries.forEach(e => {
+    if (!e || !e.namespace || !e.key) return;
+    entryMap[`${e.namespace}|${e.key}`] = e.value ?? '';
+  });
+
+  const reqRows = req.map(r => {
+    const ns = r.namespace || state.current.name;
+    const value = entryMap[`${ns}|${r.key}`] ?? values[r.key] ?? '';
+    return `
+      <div class="cfg-row">
+        <div class="cfg-label">${esc(r.label || r.key)}${r.required ? ' *' : ''}<div class="small">${esc(ns)} / ${esc(r.key)}</div></div>
+        <input data-cfg-namespace="${esc(ns)}" data-cfg-key="${esc(r.key)}" value="${esc(value)}" placeholder="${esc(r.key)}">
+      </div>
+    `;
+  }).join('');
+
+  const entriesText = (entries.length ? entries : req.map(r => ({ namespace: r.namespace || state.current.name, key: r.key, value: values[r.key] ?? '' })))
+    .map(e => `${e.namespace}.${e.key}=${e.value ?? ''}`)
+    .join('\n');
 
   let html = `
     <h3 style="margin-top:0">Configuration du service</h3>
-    <div class="small">Point d'entrée simple : ce que le service a besoin pour fonctionner.</div>
+    <div class="small">Interface compacte avec 2 modes: liste 2 colonnes ou texte <code>namespace.key=valeur</code>.</div>
     <label>Profil</label>
     <input id="cfg_profile" value="${esc(profile)}" placeholder="default">
+    <div class="toolbar" style="margin-top:10px">
+      <button class="${state.configMode === 'grid' ? '' : 'secondary'}" onclick="setConfigMode('grid')">Mode liste</button>
+      <button class="${state.configMode === 'text' ? '' : 'secondary'}" onclick="setConfigMode('text')">Mode texte</button>
+    </div>
   `;
 
   if (!req.length) {
     html += `<div class="status ok">Ce service n'a pas déclaré de besoins de configuration.</div>`;
-  } else {
-    req.forEach(r => {
-      const value = values[r.key] ?? '';
-      html += `
-        <label>${esc(r.label || r.key)} ${r.required ? ' *' : ''}</label>
-        <input id="cfg_${esc(r.key)}" value="${esc(value)}" placeholder="${esc(r.key)}">
-        <div class="small">${esc(r.namespace || state.current.name)} / ${esc(r.key)}</div>
-      `;
-    });
+  }
+
+  html += `
+    <div id="cfg_mode_grid" style="${state.configMode === 'grid' ? '' : 'display:none'}">
+      <div class="cfg-grid">${reqRows || '<div class="small">Aucun champ déclaré.</div>'}</div>
+    </div>
+    <div id="cfg_mode_text" style="${state.configMode === 'text' ? '' : 'display:none'}">
+      <label>Entrées (namespace.key=valeur)</label>
+      <textarea id="cfg_entries_text" style="min-height:180px">${esc(entriesText)}</textarea>
+    </div>
+  `;
+
+  if (runtimeEnv.length) {
+    html += `<div class="small" style="margin-top:10px">Clés d'environnement détectées dans le code: <code>${esc(runtimeEnv.join(', '))}</code></div>`;
+    if (missingRuntime.length) {
+      html += `<div class="status warn">Clés détectées mais non renseignées: ${esc(missingRuntime.join(', '))}</div>`;
+    }
   }
 
   html += `
@@ -169,21 +206,57 @@ function showConfig(){
   document.getElementById('view').innerHTML = html;
 }
 
+function setConfigMode(mode){
+  state.configMode = mode === 'text' ? 'text' : 'grid';
+  showConfig();
+}
+
+function parseConfigEntriesText(raw, defaultNamespace){
+  const entries = [];
+  const lines = String(raw || '').split('\n');
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq <= 0) throw new Error(`Ligne invalide: ${t}`);
+    const left = t.slice(0, eq).trim();
+    const value = t.slice(eq + 1);
+    const dot = left.indexOf('.');
+    const namespace = dot > 0 ? left.slice(0, dot).trim() : defaultNamespace;
+    const key = dot > 0 ? left.slice(dot + 1).trim() : left;
+    if (!namespace || !key) throw new Error(`Namespace/clé invalide: ${t}`);
+    entries.push({ namespace, key, value });
+  }
+  return entries;
+}
+
 async function saveConfig(){
   if (!ensureCurrent()) return;
   try {
     const req = state.current.config_requirements || [];
     const profile = document.getElementById('cfg_profile')?.value?.trim() || 'default';
+    let entries = [];
+    if (state.configMode === 'text') {
+      entries = parseConfigEntriesText(document.getElementById('cfg_entries_text')?.value || '', state.current.name);
+    } else {
+      entries = [...document.querySelectorAll('[data-cfg-key]')].map(el => ({
+        namespace: el.dataset.cfgNamespace || state.current.name,
+        key: el.dataset.cfgKey || '',
+        value: el.value
+      })).filter(e => e.key);
+    }
     const config = {};
     req.forEach(r => {
-      const el = document.getElementById('cfg_' + r.key);
-      config[r.key] = el ? el.value : '';
+      const ns = r.namespace || state.current.name;
+      const found = entries.find(e => e.namespace === ns && e.key === r.key);
+      config[r.key] = found ? found.value : '';
     });
 
     await api('save_service_config', {
       service: state.current.name,
       profile,
-      config
+      config,
+      config_entries: entries
     });
 
     const refreshed = await api('get_service', { service: state.current.name, profile });

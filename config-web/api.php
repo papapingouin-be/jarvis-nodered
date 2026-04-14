@@ -281,12 +281,60 @@ function inferred_config_requirements(string $serviceName): array {
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_HOST', 'label' => 'Proxmox host', 'required' => false],
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_USER', 'label' => 'Proxmox user', 'required' => false],
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_PASSWORD', 'label' => 'Proxmox password', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_API_TOKEN_ID', 'label' => 'Proxmox API token ID', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_API_TOKEN_SECRET', 'label' => 'Proxmox API token secret', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_SSH_PORT', 'label' => 'Proxmox SSH port', 'required' => false],
+            ['namespace' => 'proxmox', 'key' => 'PROXMOX_WEB', 'label' => 'Proxmox web URL', 'required' => false],
         ],
         'sensitive_store' => [
             ['namespace' => 'sensitive_store', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
         ],
     ];
     return $map[$serviceName] ?? [];
+}
+
+function env_keys_from_python_file(string $path): array {
+    $content = @file_get_contents($path);
+    if (!is_string($content) || $content === '') return [];
+    $keys = [];
+
+    preg_match_all('/os\.getenv\(\s*[\'"]([A-Z0-9_]+)[\'"]/', $content, $m1);
+    preg_match_all('/os\.environ\.get\(\s*[\'"]([A-Z0-9_]+)[\'"]/', $content, $m2);
+    preg_match_all('/os\.environ\[\s*[\'"]([A-Z0-9_]+)[\'"]\s*\]/', $content, $m3);
+
+    foreach ([$m1[1] ?? [], $m2[1] ?? [], $m3[1] ?? []] as $group) {
+        foreach ($group as $k) $keys[] = (string)$k;
+    }
+
+    $keys = array_values(array_unique(array_filter($keys, static fn(string $k): bool => $k !== '')));
+    sort($keys);
+    return $keys;
+}
+
+function runtime_env_keys_for_tool(array $service): array {
+    $toolDir = $service['tool_dir'] ?? null;
+    if (!is_string($toolDir) || $toolDir === '' || !is_dir($toolDir)) return [];
+    $keys = [];
+    foreach (discover_python_paths($toolDir) as $path) {
+        $keys = array_merge($keys, env_keys_from_python_file($path));
+    }
+    $keys = array_values(array_unique($keys));
+    sort($keys);
+    return $keys;
+}
+
+function config_namespaces_for_service(array $service): array {
+    $namespaces = [];
+    $serviceName = (string)($service['name'] ?? '');
+    if ($serviceName !== '') $namespaces[] = $serviceName;
+    foreach (($service['config_requirements'] ?? []) as $row) {
+        if (is_array($row) && isset($row['namespace']) && is_string($row['namespace']) && trim($row['namespace']) !== '') {
+            $namespaces[] = trim($row['namespace']);
+        }
+    }
+    $namespaces = array_values(array_unique($namespaces));
+    sort($namespaces);
+    return $namespaces;
 }
 
 function list_services_full(): array {
@@ -363,6 +411,75 @@ function load_service_config_values(PDO $pdo, string $serviceName, string $profi
     $out = [];
     foreach ($stmt->fetchAll() as $row) $out[(string)$row['config_key']] = $row['config_value'];
     return $out;
+}
+
+function load_config_rows_by_namespaces(PDO $pdo, string $profile, array $namespaces): array {
+    $clean = [];
+    foreach ($namespaces as $ns) {
+        if (is_string($ns) && trim($ns) !== '') $clean[] = trim($ns);
+    }
+    $clean = array_values(array_unique($clean));
+    if ($clean === []) return [];
+    $holders = implode(',', array_fill(0, count($clean), '?'));
+    $sql = "SELECT profile, service_name, config_key, config_value, updated_at
+            FROM service_config_values
+            WHERE profile = ? AND service_name IN ($holders)
+            ORDER BY service_name, config_key";
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute(array_merge([$profile], $clean));
+    return $stmt->fetchAll();
+}
+
+function resolve_service_config(array $service, PDO $pdo, string $profile): array {
+    $serviceName = (string)($service['name'] ?? '');
+    $requirements = is_array($service['config_requirements'] ?? null) ? $service['config_requirements'] : [];
+    $namespaces = config_namespaces_for_service($service);
+    $rows = load_config_rows_by_namespaces($pdo, $profile, $namespaces);
+
+    $byNamespace = [];
+    $allValues = [];
+    foreach ($rows as $row) {
+        $ns = (string)$row['service_name'];
+        $key = (string)$row['config_key'];
+        $val = $row['config_value'];
+        if (!isset($byNamespace[$ns])) $byNamespace[$ns] = [];
+        $byNamespace[$ns][$key] = $val;
+        if (!array_key_exists($key, $allValues)) $allValues[$key] = $val;
+    }
+
+    $resolved = [];
+    $entries = [];
+    foreach ($requirements as $req) {
+        if (!is_array($req) || !isset($req['key'])) continue;
+        $key = (string)$req['key'];
+        $ns = (string)($req['namespace'] ?? $serviceName);
+        $value = $byNamespace[$ns][$key] ?? ($byNamespace[$serviceName][$key] ?? ($allValues[$key] ?? ''));
+        $resolved[$key] = $value;
+        $entries[] = ['namespace' => $ns, 'key' => $key, 'value' => $value];
+    }
+
+    foreach ($rows as $row) {
+        $entries[] = [
+            'namespace' => (string)$row['service_name'],
+            'key' => (string)$row['config_key'],
+            'value' => $row['config_value'],
+        ];
+    }
+    $seen = [];
+    $deduped = [];
+    foreach ($entries as $entry) {
+        $id = $entry['namespace'] . '|' . $entry['key'];
+        if (isset($seen[$id])) continue;
+        $seen[$id] = true;
+        $deduped[] = $entry;
+    }
+
+    return [
+        'values' => $resolved,
+        'entries' => $deduped,
+        'namespaces' => $namespaces,
+        'rows' => $rows,
+    ];
 }
 
 function save_service_config_values(PDO $pdo, string $serviceName, string $profile, array $config): void {
@@ -521,17 +638,40 @@ switch ($action) {
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
         $service['profile'] = $profile;
-        $service['config_values'] = load_service_config_values(pdo($activeDbPath), $serviceName, $profile);
+        $resolvedConfig = resolve_service_config($service, pdo($activeDbPath), $profile);
+        $runtimeEnvKeys = runtime_env_keys_for_tool($service);
+        $service['config_values'] = $resolvedConfig['values'];
+        $service['config_entries'] = $resolvedConfig['entries'];
+        $service['config_namespaces'] = $resolvedConfig['namespaces'];
+        $service['runtime_env_keys'] = $runtimeEnvKeys;
+        $service['missing_runtime_env_keys'] = array_values(array_filter(
+            $runtimeEnvKeys,
+            static fn(string $k): bool => !array_key_exists($k, $resolvedConfig['values']) && !array_filter(
+                $resolvedConfig['entries'],
+                static fn(array $e): bool => ($e['key'] ?? '') === $k && trim((string)($e['value'] ?? '')) !== ''
+            )
+        ));
         json_response(['ok' => true, 'service' => $service]);
 
     case 'save_service_config':
         $serviceName = (string)($payload['service'] ?? '');
         $profile = (string)($payload['profile'] ?? 'default');
         $config = $payload['config'] ?? null;
-        if (!is_array($config)) json_response(['error' => 'invalid_config'], 400);
+        $entries = $payload['config_entries'] ?? null;
+        if (!is_array($config) && !is_array($entries)) json_response(['error' => 'invalid_config'], 400);
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
-        save_service_config_values(pdo($activeDbPath), $serviceName, $profile, $config);
+        $pdoConn = pdo($activeDbPath);
+        if (is_array($config)) save_service_config_values($pdoConn, $serviceName, $profile, $config);
+        if (is_array($entries)) {
+            foreach ($entries as $entry) {
+                if (!is_array($entry)) continue;
+                $namespace = trim((string)($entry['namespace'] ?? $serviceName));
+                $key = trim((string)($entry['key'] ?? ''));
+                if ($namespace === '' || $key === '') continue;
+                save_service_config_values($pdoConn, $namespace, $profile, [$key => (string)($entry['value'] ?? '')]);
+            }
+        }
         json_response(['ok' => true, 'service' => $serviceName, 'profile' => $profile]);
 
     case 'run_service_test':
@@ -544,7 +684,14 @@ switch ($action) {
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
 
-        $configValues = load_service_config_values(pdo($activeDbPath), $serviceName, $profile);
+        $configResolved = resolve_service_config($service, pdo($activeDbPath), $profile);
+        $configValues = $configResolved['values'];
+        foreach ($configResolved['entries'] as $entry) {
+            if (!is_array($entry)) continue;
+            $k = (string)($entry['key'] ?? '');
+            $v = $entry['value'] ?? '';
+            if ($k !== '' && !array_key_exists($k, $configValues)) $configValues[$k] = $v;
+        }
         $configValues['JARVIS_CONFIG_PROFILE'] = $profile;
 
         $startedAt = gmdate('c');

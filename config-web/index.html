@@ -49,10 +49,14 @@ th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;verti
 code{background:#10192d;padding:2px 5px;border-radius:6px}
 .tab-muted{color:var(--muted);font-size:.88rem}
 .kv{display:grid;grid-template-columns:220px 1fr;gap:8px 12px}
+.cfg-grid{display:grid;grid-template-columns:1fr;gap:8px}
+.cfg-row{display:grid;grid-template-columns:240px 1fr;gap:10px;align-items:center}
+.cfg-label{font-size:.92rem;color:var(--text)}
 @media (max-width:1000px){
   #layout{display:block}
   #sidebar{width:auto;border-right:none;border-bottom:1px solid var(--line)}
   .kv{grid-template-columns:1fr}
+  .cfg-row{grid-template-columns:1fr}
 }
 </style>
 </head>
