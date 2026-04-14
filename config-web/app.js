@@ -413,6 +413,14 @@ function renderTestHints(result){
       hints.push(`La DB DevLab active est différente: ${state.activeDbPath}`);
     }
     hints.push('Action rapide: clique sur "Diagnostic DB" pour vérifier existence + permissions + test Python.');
+  } else if (errorText.includes('provide exactly one of instance.password or instance.password_secret_key')) {
+    hints.push("Erreur de payload npm_service/register_instance: renseigne exactement un seul mode d'authentification.");
+    hints.push('- Mode 1 (inline): `instance.password`');
+    hints.push('- Mode 2 (secret): `instance.password_secret_key` (clé existante dans `sensitive_values`).');
+    hints.push("Ne fournis pas les deux en même temps, et n'envoie pas une chaîne vide.");
+    if (cfg.NPM_SECRET) {
+      hints.push("Note: `NPM_SECRET` dans la config runtime sert au fallback list_services, pas à register_instance.");
+    }
   } else if (result?.status === 'ok') {
     hints.push('Pas d’erreur bloquante détectée côté moteur.');
   } else {
