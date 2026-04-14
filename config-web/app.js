@@ -317,7 +317,7 @@ function showTest(){
   const ops = Array.isArray(state.current.operations) ? state.current.operations : [];
   const allTools = (state.services || []).map(s => s.name).join(', ');
   const opsBadges = ops.length
-    ? ops.map(op => `<button class="badge" style="margin-right:6px;cursor:pointer" onclick="setPayloadOperation(${JSON.stringify(op)})" title="Appliquer cette opération au JSON">${esc(op)}</button>`).join('')
+    ? ops.map(op => `<button class="badge op-badge" style="margin-right:6px;cursor:pointer" data-operation="${encodeURIComponent(String(op))}" title="Appliquer cette opération au JSON">${esc(op)}</button>`).join('')
     : '<span class="small">Aucune opération détectée.</span>';
   document.getElementById('view').innerHTML = `
     <h3 style="margin-top:0">Test du service</h3>
@@ -358,6 +358,14 @@ function showTest(){
     <h4>Diagnostic guidé</h4>
     <pre id="testHints">Lance un test pour obtenir des pistes automatiques.</pre>
   `;
+
+  document.querySelectorAll('.op-badge').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const encoded = btn.getAttribute('data-operation') || '';
+      const operation = decodeURIComponent(encoded);
+      setPayloadOperation(operation);
+    });
+  });
 
   fillPayload('sample');
 }
