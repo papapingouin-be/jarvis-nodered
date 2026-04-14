@@ -268,43 +268,37 @@ function default_demo_service(): array {
     ];
 }
 
-function inferred_config_requirements(string $serviceName): array {
-    $map = [
-        'npm_service' => [
-            ['namespace' => 'npm_service', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
-            ['namespace' => 'npm_service', 'key' => 'NPM_URL', 'label' => 'NPM URL', 'required' => false],
-            ['namespace' => 'npm_service', 'key' => 'NPM_IDENTITY', 'label' => 'NPM Identity', 'required' => false],
-            ['namespace' => 'npm_service', 'key' => 'NPM_SECRET', 'label' => 'NPM Secret', 'required' => false],
-        ],
-        'proxmox_ct' => [
-            ['namespace' => 'proxmox_ct', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
-            ['namespace' => 'proxmox_ct', 'key' => 'JARVIS_INFRA_DB_DIR', 'label' => 'Dossier DB infra', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_HOST', 'label' => 'Proxmox host', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_USER', 'label' => 'Proxmox user', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_PASSWORD', 'label' => 'Proxmox password', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_API_TOKEN_ID', 'label' => 'Proxmox API token ID', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_API_TOKEN_SECRET', 'label' => 'Proxmox API token secret', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_SSH_PORT', 'label' => 'Proxmox SSH port', 'required' => false],
-            ['namespace' => 'proxmox', 'key' => 'PROXMOX_WEB', 'label' => 'Proxmox web URL', 'required' => false],
-        ],
-        'sensitive_store' => [
-            ['namespace' => 'sensitive_store', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
-        ],
-    ];
-    return $map[$serviceName] ?? [];
+function inferred_config_requirements(string $serviceName, array $runtimeEnvKeys = []): array {
+    $requirements = [];
+    $keys = [];
+    foreach ($runtimeEnvKeys as $key) {
+        if (!is_string($key)) continue;
+        $clean = trim($key);
+        if ($clean !== '') $keys[] = $clean;
+    }
+    $keys = array_values(array_unique($keys));
+    sort($keys);
+
+    foreach ($keys as $key) {
+        $label = ucwords(strtolower(str_replace('_', ' ', $key)));
+        $requirements[] = [
+            'namespace' => $serviceName,
+            'key' => $key,
+            'label' => $label,
+            'required' => false,
+        ];
+    }
+
+    if ($requirements === []) {
+        $requirements[] = ['namespace' => $serviceName, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false];
+    }
+
+    return $requirements;
 }
 
 function canonical_config_namespace(string $serviceName, string $namespace, string $key): string {
-    $serviceName = trim($serviceName);
     $namespace = trim($namespace);
-    $key = trim($key);
-
-    if ($serviceName === 'proxmox_ct') {
-        if (str_starts_with($key, 'PROXMOX_')) return 'proxmox';
-        if ($key === 'JARVIS_INFRA_DB' || $key === 'JARVIS_INFRA_DB_DIR') return 'proxmox_ct';
-    }
-
-    return $namespace !== '' ? $namespace : $serviceName;
+    return $namespace !== '' ? $namespace : trim($serviceName);
 }
 
 function normalize_runtime_config_values(array $configValues): array {
@@ -380,6 +374,13 @@ function list_services_full(): array {
         foreach (discover_python_paths($toolDir) as $py) {
             $codeFiles[] = ['path' => $py, 'filename' => basename($py)];
         }
+        $runtimeEnvKeys = [];
+        foreach ($codeFiles as $codeFile) {
+            if (!is_array($codeFile) || !is_string($codeFile['path'] ?? null)) continue;
+            $runtimeEnvKeys = array_merge($runtimeEnvKeys, env_keys_from_python_file($codeFile['path']));
+        }
+        $runtimeEnvKeys = array_values(array_unique($runtimeEnvKeys));
+        sort($runtimeEnvKeys);
 
         $sampleInput = [];
         if (isset($manifest['input_schema']) && is_array($manifest['input_schema'])) {
@@ -402,12 +403,7 @@ function list_services_full(): array {
         }
         if ($configRequirements === []) {
             $nameFallback = (string)($manifest['name'] ?? basename($toolDir));
-            $configRequirements = inferred_config_requirements($nameFallback);
-            if ($configRequirements === []) {
-                $configRequirements = [
-                    ['namespace' => $nameFallback, 'key' => 'SERVICE_URL', 'label' => 'Service URL', 'required' => false],
-                ];
-            }
+            $configRequirements = inferred_config_requirements($nameFallback, $runtimeEnvKeys);
         }
 
         $services[] = [
@@ -421,6 +417,7 @@ function list_services_full(): array {
             'required_fields' => $manifest['input_schema']['required'] ?? [],
             'config_requirements' => $configRequirements,
             'code_files' => $codeFiles,
+            'runtime_env_keys' => $runtimeEnvKeys,
         ];
     }
 
@@ -660,7 +657,13 @@ switch ($action) {
     case 'list_services':
         $items = [];
         foreach (list_services_full() as $service) {
-            $items[] = ['name' => $service['name'], 'description' => $service['description'], 'engine_default' => $service['engine_default']];
+            $items[] = [
+                'name' => $service['name'],
+                'description' => $service['description'],
+                'engine_default' => $service['engine_default'],
+                'config_requirements' => $service['config_requirements'] ?? [],
+                'runtime_env_keys' => $service['runtime_env_keys'] ?? [],
+            ];
         }
         json_response(['ok' => true, 'services' => $items]);
 
