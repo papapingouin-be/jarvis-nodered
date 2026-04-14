@@ -20,6 +20,10 @@
 - Les outils `proxmox_ct` et `npm_service` supportent deux modes pour le mot de passe:
   - inline (`password`)
   - référence secrète (`password_secret_key`) lue dans `sensitive_store`.
+- Pour `npm_service/register_instance`, il faut **exactement un** des deux champs:
+  - `instance.password` (mot de passe en clair), ou
+  - `instance.password_secret_key` (clé vers `sensitive_values` namespace `npm`).
+  - Si les deux sont absents (ou vides) ou si les deux sont fournis, l'outil renvoie une erreur de validation.
 
 Ce modèle prépare l'étape suivante: exposer une interface web d'édition des valeurs DB sans changer les contrats outillés.
 

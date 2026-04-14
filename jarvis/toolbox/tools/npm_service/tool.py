@@ -119,10 +119,27 @@ def _read_value_first(conn: sqlite3.Connection, namespaces: tuple[str, ...], key
 
 def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
     instance = payload["instance"]
-    password = instance.get("password")
-    password_secret_key = instance.get("password_secret_key")
-    if bool(password) == bool(password_secret_key):
-        raise ValueError("provide exactly one of instance.password or instance.password_secret_key")
+    raw_password = instance.get("password")
+    raw_password_secret_key = instance.get("password_secret_key")
+
+    password = raw_password.strip() if isinstance(raw_password, str) else raw_password
+    password_secret_key = (
+        raw_password_secret_key.strip()
+        if isinstance(raw_password_secret_key, str)
+        else raw_password_secret_key
+    )
+
+    has_password = isinstance(password, str) and bool(password)
+    has_password_secret_key = isinstance(password_secret_key, str) and bool(password_secret_key)
+
+    if has_password == has_password_secret_key:
+        raise ValueError(
+            "provide exactly one of instance.password or instance.password_secret_key "
+            f"(received password={'set' if has_password else 'missing'}, "
+            f"password_secret_key={'set' if has_password_secret_key else 'missing'}). "
+            "Example (inline): instance.password='***' and omit instance.password_secret_key. "
+            "Example (secret ref): instance.password_secret_key='npm-admin-pass' and omit instance.password."
+        )
 
     conn.execute(
         """
@@ -138,8 +155,8 @@ def _register_instance(conn: sqlite3.Connection, payload: dict[str, Any]) -> dic
             instance["name"],
             instance["base_url"],
             instance["login"],
-            password,
-            password_secret_key,
+            password if has_password else None,
+            password_secret_key if has_password_secret_key else None,
         ),
     )
     conn.commit()
