@@ -303,18 +303,8 @@ function canonical_config_namespace(string $serviceName, string $namespace, stri
 
 function normalize_runtime_config_values(array $configValues): array {
     $dbPath = trim((string)($configValues['JARVIS_INFRA_DB'] ?? ''));
-    $dbDir = trim((string)($configValues['JARVIS_INFRA_DB_DIR'] ?? ''));
-
-    if ($dbPath !== '') {
-        unset($configValues['JARVIS_INFRA_DB_DIR']);
-        return $configValues;
-    }
-
-    if ($dbDir !== '') {
-        $configValues['JARVIS_INFRA_DB'] = rtrim($dbDir, '/\\') . DIRECTORY_SEPARATOR . 'jarvis.db';
-        unset($configValues['JARVIS_INFRA_DB_DIR']);
-    }
-
+    if ($dbPath !== '') $configValues['JARVIS_INFRA_DB'] = $dbPath;
+    unset($configValues['JARVIS_INFRA_DB_DIR']);
     return $configValues;
 }
 
@@ -360,6 +350,21 @@ function config_namespaces_for_service(array $service): array {
     $namespaces = array_values(array_unique($namespaces));
     sort($namespaces);
     return $namespaces;
+}
+
+
+
+function service_operations_from_manifest(array $manifest): array {
+    $ops = [];
+    $properties = $manifest['input_schema']['properties'] ?? [];
+    if (is_array($properties) && isset($properties['operation']['enum']) && is_array($properties['operation']['enum'])) {
+        foreach ($properties['operation']['enum'] as $op) {
+            if (is_string($op) && trim($op) !== '') $ops[] = trim($op);
+        }
+    }
+    $ops = array_values(array_unique($ops));
+    sort($ops);
+    return $ops;
 }
 
 function list_services_full(): array {
@@ -418,6 +423,7 @@ function list_services_full(): array {
             'config_requirements' => $configRequirements,
             'code_files' => $codeFiles,
             'runtime_env_keys' => $runtimeEnvKeys,
+            'operations' => service_operations_from_manifest($manifest),
         ];
     }
 
@@ -663,6 +669,7 @@ switch ($action) {
                 'engine_default' => $service['engine_default'],
                 'config_requirements' => $service['config_requirements'] ?? [],
                 'runtime_env_keys' => $service['runtime_env_keys'] ?? [],
+                'operations' => $service['operations'] ?? [],
             ];
         }
         json_response(['ok' => true, 'services' => $items]);

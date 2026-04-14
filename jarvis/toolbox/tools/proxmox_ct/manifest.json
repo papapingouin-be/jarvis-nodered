@@ -1,19 +1,22 @@
 {
   "name": "proxmox_ct",
   "description": "Gère les CT Proxmox et la résolution de services via une base SQLite",
-  "action_types": ["run_tool", "analysis"],
+  "action_types": [
+    "run_tool",
+    "analysis"
+  ],
   "entrypoint": "tool.py",
   "config_requirements": [
     {
       "namespace": "proxmox_ct",
       "key": "JARVIS_INFRA_DB",
-      "label": "Chemin DB infrastructure SQLite",
+      "label": "Chemin complet DB SQLite (path+nomfichier)",
       "required": true
     },
     {
       "namespace": "proxmox_ct",
-      "key": "JARVIS_INFRA_DB_DIR",
-      "label": "Dossier DB (fallback si JARVIS_INFRA_DB vide)",
+      "key": "PROXMOX_SECRET_NAMESPACE",
+      "label": "Namespace secrets Proxmox",
       "required": false
     }
   ],
@@ -28,64 +31,151 @@
           "resolve_service",
           "plan_ct_action",
           "list_targets",
-          "list_services"
+          "list_services",
+          "describe"
         ]
       },
       "target": {
         "type": "object",
         "properties": {
-          "name": {"type": "string"},
-          "ip": {"type": "string"},
-          "api_path": {"type": "string"},
-          "login": {"type": "string"},
-          "password": {"type": "string"},
-          "password_secret_key": {"type": "string"},
-          "node": {"type": "string"}
+          "name": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "api_path": {
+            "type": "string"
+          },
+          "login": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          },
+          "password_secret_key": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          }
         },
-        "required": ["name", "ip", "login", "node"]
+        "required": [
+          "name",
+          "ip",
+          "login",
+          "node"
+        ]
       },
       "service": {
         "type": "object",
         "properties": {
-          "name": {"type": "string"},
-          "target_name": {"type": "string"},
-          "ctid": {"type": "integer"},
-          "path": {"type": "string"}
+          "name": {
+            "type": "string"
+          },
+          "target_name": {
+            "type": "string"
+          },
+          "ctid": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          }
         }
       },
-      "service_name": {"type": "string"},
-      "include_secret": {"type": "boolean"},
+      "service_name": {
+        "type": "string"
+      },
+      "include_secret": {
+        "type": "boolean"
+      },
       "action": {
         "type": "string",
-        "enum": ["status", "start", "stop", "restart"]
+        "enum": [
+          "status",
+          "start",
+          "stop",
+          "restart"
+        ]
       }
     },
-    "required": ["operation"],
+    "required": [
+      "operation"
+    ],
     "allOf": [
       {
-        "if": {"properties": {"operation": {"const": "register_target"}}},
-        "then": {"required": ["target"]}
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "register_target"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "target"
+          ]
+        }
       },
       {
-        "if": {"properties": {"operation": {"const": "register_service"}}},
-        "then": {"required": ["service"]}
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "register_service"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "service"
+          ]
+        }
       },
       {
-        "if": {"properties": {"operation": {"const": "resolve_service"}}},
-        "then": {"required": ["service_name"]}
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "resolve_service"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "service_name"
+          ]
+        }
       },
       {
-        "if": {"properties": {"operation": {"const": "plan_ct_action"}}},
-        "then": {"required": ["service_name", "action"]}
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "plan_ct_action"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "service_name",
+            "action"
+          ]
+        }
       }
     ]
   },
   "output_schema": {
     "type": "object",
     "properties": {
-      "operation": {"type": "string"},
-      "result": {"type": "object"}
+      "operation": {
+        "type": "string"
+      },
+      "result": {
+        "type": "object"
+      }
     },
-    "required": ["operation", "result"]
+    "required": [
+      "operation",
+      "result"
+    ]
   }
 }

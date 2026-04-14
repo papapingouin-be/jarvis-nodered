@@ -14,10 +14,6 @@ def _db_path() -> Path:
     if env_db:
         return Path(env_db)
 
-    env_db_dir = os.getenv("JARVIS_INFRA_DB_DIR")
-    if env_db_dir:
-        return Path(env_db_dir) / "jarvis.db"
-
     opt_db = Path("/opt/jarvis/database/jarvis.db")
     if opt_db.exists() or opt_db.parent.exists():
         return opt_db
@@ -91,6 +87,17 @@ def _delete_value(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str
     return {"deleted": bool(deleted), "namespace": payload["namespace"], "key": payload["key"]}
 
 
+def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
+    namespaces = [str(row["namespace"]) for row in conn.execute("SELECT DISTINCT namespace FROM sensitive_values ORDER BY namespace").fetchall()]
+    return {
+        "tool": "sensitive_store",
+        "db_path": str(_db_path()),
+        "operations": ["set", "get", "list", "delete"],
+        "required_config": ["JARVIS_INFRA_DB"],
+        "namespaces": namespaces,
+    }
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -104,6 +111,8 @@ def main() -> int:
                 result = _list_values(conn, payload)
             elif operation == "delete":
                 result = _delete_value(conn, payload)
+            elif operation == "describe":
+                result = _describe(conn)
             else:
                 raise ValueError(f"unsupported operation: {operation}")
     except Exception as exc:

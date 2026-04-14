@@ -1,29 +1,105 @@
 {
   "name": "sensitive_store",
   "description": "Stockage SQLite des informations sensibles (login/password/ip, etc.)",
-  "action_types": ["run_tool", "analysis"],
+  "action_types": [
+    "run_tool",
+    "analysis"
+  ],
   "entrypoint": "tool.py",
   "input_schema": {
     "type": "object",
     "properties": {
-      "operation": {"type": "string", "enum": ["set", "get", "list", "delete"]},
-      "namespace": {"type": "string"},
-      "key": {"type": "string"},
-      "value": {"type": "string"}
+      "operation": {
+        "type": "string",
+        "enum": [
+          "set",
+          "get",
+          "list",
+          "delete",
+          "describe"
+        ]
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "key": {
+        "type": "string"
+      },
+      "value": {
+        "type": "string"
+      }
     },
-    "required": ["operation", "namespace"],
+    "required": [
+      "operation",
+      "namespace"
+    ],
     "allOf": [
-      {"if": {"properties": {"operation": {"const": "set"}}}, "then": {"required": ["key", "value"]}},
-      {"if": {"properties": {"operation": {"const": "get"}}}, "then": {"required": ["key"]}},
-      {"if": {"properties": {"operation": {"const": "delete"}}}, "then": {"required": ["key"]}}
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "set"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "key",
+            "value"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "get"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "key"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "delete"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "key"
+          ]
+        }
+      }
     ]
   },
   "output_schema": {
     "type": "object",
     "properties": {
-      "operation": {"type": "string"},
-      "result": {"type": "object"}
+      "operation": {
+        "type": "string"
+      },
+      "result": {
+        "type": "object"
+      }
     },
-    "required": ["operation", "result"]
-  }
+    "required": [
+      "operation",
+      "result"
+    ]
+  },
+  "config_requirements": [
+    {
+      "namespace": "sensitive_store",
+      "key": "JARVIS_INFRA_DB",
+      "label": "Chemin complet DB SQLite (path+nomfichier)",
+      "required": true
+    }
+  ]
 }
