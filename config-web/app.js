@@ -316,7 +316,9 @@ function showTest(){
   const engine = state.current.engine_default || 'plan_only';
   const ops = Array.isArray(state.current.operations) ? state.current.operations : [];
   const allTools = (state.services || []).map(s => s.name).join(', ');
-  const opsBadges = ops.length ? ops.map(op => `<span class="badge" style="margin-right:6px">${esc(op)}</span>`).join('') : '<span class="small">Aucune opération détectée.</span>';
+  const opsBadges = ops.length
+    ? ops.map(op => `<button class="badge" style="margin-right:6px;cursor:pointer" onclick="setPayloadOperation(${JSON.stringify(op)})" title="Appliquer cette opération au JSON">${esc(op)}</button>`).join('')
+    : '<span class="small">Aucune opération détectée.</span>';
   document.getElementById('view').innerHTML = `
     <h3 style="margin-top:0">Test du service</h3>
     <div class="small">Choix moteur + JSON vide/exemple + sortie et logs.</div>
@@ -364,6 +366,22 @@ function fillPayload(kind){
   const payload = buildSamplePayload(kind);
   const el = document.getElementById('jsonInput');
   if (el) el.value = JSON.stringify(payload, null, 2);
+}
+
+function setPayloadOperation(operation){
+  const el = document.getElementById('jsonInput');
+  if (!el) return;
+
+  try {
+    const raw = (el.value || '').trim();
+    const base = raw ? JSON.parse(raw) : {};
+    const next = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
+    next.operation = operation;
+    el.value = JSON.stringify(next, null, 2);
+    setGlobalStatus(`Opération appliquée: ${operation}`, 'ok');
+  } catch {
+    setGlobalStatus("Le JSON est invalide. Corrige-le avant d'appliquer une opération.", 'err');
+  }
 }
 
 async function runTest(){
