@@ -10,7 +10,19 @@ from typing import Any
 
 
 def _db_path() -> Path:
-    return Path(os.getenv("JARVIS_INFRA_DB", str(Path(__file__).resolve().parents[3] / "database" / "jarvis.db")))
+    env_db = os.getenv("JARVIS_INFRA_DB")
+    if env_db:
+        return Path(env_db)
+
+    env_db_dir = os.getenv("JARVIS_INFRA_DB_DIR")
+    if env_db_dir:
+        return Path(env_db_dir) / "jarvis.db"
+
+    opt_db = Path("/opt/jarvis/database/jarvis.db")
+    if opt_db.exists() or opt_db.parent.exists():
+        return opt_db
+
+    return Path(__file__).resolve().parents[3] / "database" / "jarvis.db"
 
 
 def _connect() -> sqlite3.Connection:

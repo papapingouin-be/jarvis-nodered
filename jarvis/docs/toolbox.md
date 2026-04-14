@@ -13,7 +13,10 @@
 
 ## Proxmox/NPM et stockage des accès
 
-- DB partagée: `JARVIS_INFRA_DB` (défaut `/opt/jarvis/database/jarvis.db`).
+- DB partagée:
+  - `JARVIS_INFRA_DB` pour imposer le chemin complet du fichier SQLite.
+  - `JARVIS_INFRA_DB_DIR` pour imposer seulement le dossier (fichier `jarvis.db`).
+  - Défaut: `/opt/jarvis/database/jarvis.db` si ce dossier existe, sinon `jarvis/database/jarvis.db` dans le repo.
 - Les outils `proxmox_ct` et `npm_service` supportent deux modes pour le mot de passe:
   - inline (`password`)
   - référence secrète (`password_secret_key`) lue dans `sensitive_store`.
