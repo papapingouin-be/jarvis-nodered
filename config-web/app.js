@@ -11,7 +11,8 @@ const state = {
   dbBrowserPath: '/var/www/jarvis/database',
   dbSelectedPath: null,
   dbAction: null,
-  configMode: 'grid'
+  configMode: 'grid',
+  dbConfigMode: 'grid'
 };
 
 function esc(v){
@@ -507,6 +508,11 @@ async function showDbLab(){
     const tables = tablesData.tables || [];
     const rows = rowsData.rows || [];
 
+    const currentService = state.current?.name || '';
+    const currentProfile = 'default';
+    const currentRows = rows.filter(r => (r.profile || '') === currentProfile && (r.service_name || '') === currentService);
+    const entriesText = currentRows.map(r => `${r.service_name}.${r.config_key}=${r.config_value ?? ''}`).join('\n');
+
     let html = `
       <h3 style="margin-top:0">DB Lab</h3>
       <div class="small">Gestion du fichier DB + édition directe de la configuration.</div>
@@ -535,16 +541,32 @@ async function showDbLab(){
 
       <h4>Ajouter / modifier une config</h4>
       <div class="row">
-        <div><label>Profil</label><input id="db_profile" value="default"></div>
-        <div><label>Service</label><input id="db_service" value="${esc(state.current?.name || '')}"></div>
+        <div><label>Profil</label><input id="db_profile" value="${esc(currentProfile)}"></div>
+        <div><label>Service</label><input id="db_service" value="${esc(currentService)}"></div>
       </div>
-      <div class="row">
-        <div><label>Clé</label><input id="db_key" placeholder="API_URL"></div>
-        <div><label>Valeur</label><input id="db_value" placeholder="http://..."></div>
+      <div class="toolbar" style="margin-top:10px">
+        <button class="${state.dbConfigMode === 'grid' ? '' : 'secondary'}" onclick="setDbConfigMode('grid')">Mode liste</button>
+        <button class="${state.dbConfigMode === 'text' ? '' : 'secondary'}" onclick="setDbConfigMode('text')">Mode texte</button>
       </div>
-      <div class="toolbar">
-        <button onclick="dbSetConfig()">Sauver en DB</button>
-        <button class="secondary" onclick="reloadCurrentServiceFromDb()">Recharger le service</button>
+
+      <div id="db_cfg_mode_grid" style="${state.dbConfigMode === 'grid' ? '' : 'display:none'}">
+        <div class="row">
+          <div><label>Clé</label><input id="db_key" placeholder="API_URL"></div>
+          <div><label>Valeur</label><input id="db_value" placeholder="http://..."></div>
+        </div>
+        <div class="toolbar">
+          <button onclick="dbSetConfig()">Sauver en DB</button>
+          <button class="secondary" onclick="reloadCurrentServiceFromDb()">Recharger le service</button>
+        </div>
+      </div>
+
+      <div id="db_cfg_mode_text" style="${state.dbConfigMode === 'text' ? '' : 'display:none'}">
+        <label>Entrées (namespace.key=valeur)</label>
+        <textarea id="db_entries_text" style="min-height:180px">${esc(entriesText)}</textarea>
+        <div class="toolbar">
+          <button onclick="dbSaveTextEntries()">Sauver tout en DB</button>
+          <button class="secondary" onclick="reloadCurrentServiceFromDb()">Recharger le service</button>
+        </div>
       </div>
 
       <h4>Config actuelle</h4>
@@ -562,6 +584,11 @@ async function showDbLab(){
   } catch (e) {
     setGlobalStatus(e.message || String(e), 'err');
   }
+}
+
+function setDbConfigMode(mode){
+  state.dbConfigMode = mode === 'text' ? 'text' : 'grid';
+  showDbLab();
 }
 
 async function dbPickPath(){
@@ -650,6 +677,28 @@ async function dbSetConfig(){
     if (!service || !key) throw new Error('Service et clé obligatoires.');
     await api('db_set_config', { profile, service, key, value });
     setGlobalStatus('Config DB sauvée.', 'ok');
+    await showDbLab();
+  } catch (e) {
+    setGlobalStatus(e.message || String(e), 'err');
+  }
+}
+
+async function dbSaveTextEntries(){
+  try {
+    const profile = document.getElementById('db_profile').value.trim() || 'default';
+    const defaultService = document.getElementById('db_service').value.trim();
+    const raw = document.getElementById('db_entries_text')?.value || '';
+    const entries = parseConfigEntriesText(raw, defaultService);
+    if (!entries.length) throw new Error('Aucune entrée à sauvegarder.');
+    for (const entry of entries) {
+      await api('db_set_config', {
+        profile,
+        service: entry.namespace,
+        key: entry.key,
+        value: entry.value
+      });
+    }
+    setGlobalStatus(`Config DB sauvée (${entries.length} entrées).`, 'ok');
     await showDbLab();
   } catch (e) {
     setGlobalStatus(e.message || String(e), 'err');

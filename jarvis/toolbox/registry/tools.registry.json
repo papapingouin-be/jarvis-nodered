@@ -205,6 +205,20 @@
       "analysis"
     ],
     "entrypoint": "tool.py",
+    "config_requirements": [
+      {
+        "namespace": "proxmox_ct",
+        "key": "JARVIS_INFRA_DB",
+        "label": "Chemin DB infrastructure SQLite",
+        "required": true
+      },
+      {
+        "namespace": "proxmox_ct",
+        "key": "JARVIS_INFRA_DB_DIR",
+        "label": "Dossier DB (fallback si JARVIS_INFRA_DB vide)",
+        "required": false
+      }
+    ],
     "input_schema": {
       "type": "object",
       "properties": {
