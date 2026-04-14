@@ -343,10 +343,13 @@ function showTest(){
       <button class="secondary" onclick="fillPayload('required')">Requis mini</button>
       <button class="secondary" onclick="fillPayload('trace')">Mode trace</button>
       <button onclick="runTest()">Exécuter</button>
+      <button class="warn" onclick="runDbDebug()">Diagnostic DB</button>
     </div>
 
     <h4>Résultat</h4>
     <pre id="testResult">Aucune exécution.</pre>
+    <h4>Diagnostic guidé</h4>
+    <pre id="testHints">Lance un test pour obtenir des pistes automatiques.</pre>
   `;
 
   fillPayload('sample');
@@ -382,9 +385,67 @@ async function runTest(){
     });
 
     document.getElementById('testResult').textContent = JSON.stringify(result, null, 2);
+    renderTestHints(result);
     setGlobalStatus('Test terminé.', 'ok');
   } catch (e) {
     document.getElementById('testResult').textContent = String(e.message || e);
+    const hints = document.getElementById('testHints');
+    if (hints) hints.textContent = 'Le test a échoué avant le retour JSON. Vérifie api.php et le JSON payload.';
+    setGlobalStatus(e.message || String(e), 'err');
+  }
+}
+
+function renderTestHints(result){
+  const hints = [];
+  const errorText = String(result?.output?.error || '');
+  const cfg = result?.config_values || {};
+  const configuredDb = cfg.JARVIS_INFRA_DB || '';
+  if (errorText.toLowerCase().includes('unable to open database file')) {
+    hints.push("Erreur SQLite détectée: le process Python n'arrive pas à ouvrir la base.");
+    if (configuredDb) hints.push(`JARVIS_INFRA_DB configuré: ${configuredDb}`);
+    if (configuredDb && configuredDb !== state.activeDbPath) {
+      hints.push(`La DB DevLab active est différente: ${state.activeDbPath}`);
+    }
+    hints.push('Action rapide: clique sur "Diagnostic DB" pour vérifier existence + permissions + test Python.');
+  } else if (result?.status === 'ok') {
+    hints.push('Pas d’erreur bloquante détectée côté moteur.');
+  } else {
+    hints.push('Aucune règle de diagnostic automatique pour cette erreur.');
+  }
+
+  const el = document.getElementById('testHints');
+  if (el) el.textContent = hints.join('\n');
+}
+
+async function runDbDebug(){
+  if (!ensureCurrent()) return;
+  try {
+    const profile = document.getElementById('test_profile')?.value || state.current.profile || 'default';
+    const refreshed = await api('get_service', { service: state.current.name, profile });
+    const cfg = refreshed?.service?.config_values || {};
+    const candidates = [
+      cfg.JARVIS_INFRA_DB,
+      state.activeDbPath
+    ].filter(Boolean);
+    const report = await api('debug_db_access', { paths: candidates });
+    const lines = [];
+    lines.push('Diagnostic DB terminé.');
+    (report.inspections || []).forEach((item, idx) => {
+      lines.push(`\n[${idx + 1}] ${item.path || 'path inconnu'}`);
+      if (item.error) {
+        lines.push(`- erreur: ${item.error}`);
+        return;
+      }
+      lines.push(`- exists=${item.exists} is_file=${item.is_file} readable=${item.readable} writable=${item.writable}`);
+      lines.push(`- dir_exists=${item.dir_exists} dir_writable=${item.dir_writable} allowed_root=${item.allowed_root}`);
+      lines.push(`- pdo_open_ok=${item.pdo_open_ok} python_sqlite_ok=${item.python_sqlite_ok}`);
+      if (item.pdo_error) lines.push(`- pdo_error=${item.pdo_error}`);
+      if (item.python_sqlite_output) lines.push(`- python_output=${item.python_sqlite_output}`);
+    });
+    const hints = document.getElementById('testHints');
+    if (hints) hints.textContent = lines.join('\n');
+    setGlobalStatus('Diagnostic DB terminé.', 'ok');
+  } catch (e) {
     setGlobalStatus(e.message || String(e), 'err');
   }
 }
