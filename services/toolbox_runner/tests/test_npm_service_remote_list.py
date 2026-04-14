@@ -101,6 +101,36 @@ def test_list_services_uses_legacy_npm_namespace_fallback(tmp_path, monkeypatch)
     assert output["instance_source"] == "config_web_fallback"
     assert output["remote_services"][0]["id"] == 42
 
+
+def test_list_services_uses_environment_fallback_values(tmp_path, monkeypatch) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    os.environ["NPM_URL"] = "http://npm.env:81"
+    os.environ["NPM_IDENTITY"] = "env-admin@example.local"
+    os.environ["NPM_SECRET"] = "envsecret"
+
+    def fake_remote(base_url: str, login: str, password: str):
+        assert base_url == "http://npm.env:81"
+        assert login == "env-admin@example.local"
+        assert password == "envsecret"
+        return [{"id": 99, "domain": "env.example.local"}]
+
+    monkeypatch.setattr(npm_tool, "_fetch_remote_services", fake_remote)
+
+    try:
+        with npm_tool._connect() as conn:
+            output = npm_tool._list_services(conn, {"instance_name": "default"})
+    finally:
+        os.environ.pop("NPM_URL", None)
+        os.environ.pop("NPM_IDENTITY", None)
+        os.environ.pop("NPM_SECRET", None)
+
+    assert output["instance_name"] == "default"
+    assert output["remote_count"] == 1
+    assert output["instance_configured"] is True
+    assert output["instance_source"] == "config_web_fallback"
+    assert output["remote_services"][0]["id"] == 99
+
+
 def test_list_services_without_instance_returns_empty_remote_list(tmp_path) -> None:
     os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
 
