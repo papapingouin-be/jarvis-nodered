@@ -21,10 +21,6 @@ def _db_path() -> Path:
     if env_db:
         return Path(env_db)
 
-    env_db_dir = os.getenv("JARVIS_INFRA_DB_DIR")
-    if env_db_dir:
-        return Path(env_db_dir) / "jarvis.db"
-
     opt_db = Path("/opt/jarvis/database/jarvis.db")
     if opt_db.exists() or opt_db.parent.exists():
         return opt_db
@@ -217,6 +213,28 @@ def _list_targets(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"targets": [dict(row) for row in rows]}
 
 
+
+
+def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
+    targets = [dict(row) for row in conn.execute("SELECT name, ip, node FROM proxmox_targets ORDER BY name").fetchall()]
+    services = [dict(row) for row in conn.execute("SELECT name, target_name, ctid FROM ct_services ORDER BY name").fetchall()]
+    return {
+        "tool": "proxmox_ct",
+        "db_path": str(_db_path()),
+        "operations": [
+            "register_target",
+            "register_service",
+            "resolve_service",
+            "plan_ct_action",
+            "list_targets",
+            "list_services",
+        ],
+        "required_config": ["JARVIS_INFRA_DB"],
+        "known_targets": targets,
+        "known_services": services,
+    }
+
+
 def _list_services(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT name, target_name, ctid, path FROM ct_services ORDER BY name"
@@ -245,6 +263,8 @@ def main() -> int:
                 result = _list_targets(conn)
             elif operation == "list_services":
                 result = _list_services(conn)
+            elif operation == "describe":
+                result = _describe(conn)
             else:
                 raise ValueError(f"unsupported operation: {operation}")
     except Exception as exc:

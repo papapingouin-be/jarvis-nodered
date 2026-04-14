@@ -48,7 +48,8 @@
             "register_instance",
             "register_service",
             "list_services",
-            "plan_service_action"
+            "plan_service_action",
+            "describe"
           ]
         },
         "instance": {
@@ -195,6 +196,32 @@
         "result"
       ]
     },
+    "config_requirements": [
+      {
+        "namespace": "npm_service",
+        "key": "JARVIS_INFRA_DB",
+        "label": "Chemin complet DB SQLite (path+nomfichier)",
+        "required": true
+      },
+      {
+        "namespace": "npm_service",
+        "key": "NPM_URL",
+        "label": "URL Nginx Proxy Manager",
+        "required": false
+      },
+      {
+        "namespace": "npm_service",
+        "key": "NPM_IDENTITY",
+        "label": "Login NPM",
+        "required": false
+      },
+      {
+        "namespace": "npm_service",
+        "key": "NPM_SECRET",
+        "label": "Mot de passe NPM",
+        "required": false
+      }
+    ],
     "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/npm_service"
   },
   "proxmox_ct": {
@@ -209,13 +236,13 @@
       {
         "namespace": "proxmox_ct",
         "key": "JARVIS_INFRA_DB",
-        "label": "Chemin DB infrastructure SQLite",
+        "label": "Chemin complet DB SQLite (path+nomfichier)",
         "required": true
       },
       {
         "namespace": "proxmox_ct",
-        "key": "JARVIS_INFRA_DB_DIR",
-        "label": "Dossier DB (fallback si JARVIS_INFRA_DB vide)",
+        "key": "PROXMOX_SECRET_NAMESPACE",
+        "label": "Namespace secrets Proxmox",
         "required": false
       }
     ],
@@ -230,7 +257,8 @@
             "resolve_service",
             "plan_ct_action",
             "list_targets",
-            "list_services"
+            "list_services",
+            "describe"
           ]
         },
         "target": {
@@ -395,7 +423,8 @@
             "set",
             "get",
             "list",
-            "delete"
+            "delete",
+            "describe"
           ]
         },
         "namespace": {
@@ -473,6 +502,14 @@
         "result"
       ]
     },
+    "config_requirements": [
+      {
+        "namespace": "sensitive_store",
+        "key": "JARVIS_INFRA_DB",
+        "label": "Chemin complet DB SQLite (path+nomfichier)",
+        "required": true
+      }
+    ],
     "tool_root": "/workspace/jarvis-nodered/jarvis/toolbox/tools/sensitive_store"
   }
 }

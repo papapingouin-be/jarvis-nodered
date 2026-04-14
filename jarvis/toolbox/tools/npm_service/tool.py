@@ -17,10 +17,6 @@ def _db_path() -> Path:
     if env_db:
         return Path(env_db)
 
-    env_db_dir = os.getenv("JARVIS_INFRA_DB_DIR")
-    if env_db_dir:
-        return Path(env_db_dir) / "jarvis.db"
-
     opt_db = Path("/opt/jarvis/database/jarvis.db")
     if opt_db.exists() or opt_db.parent.exists():
         return opt_db
@@ -384,6 +380,23 @@ def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
     return plan
 
 
+
+
+def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
+    instances = [dict(row) for row in conn.execute("SELECT name, base_url, login FROM npm_instances ORDER BY name").fetchall()]
+    services = [dict(row) for row in conn.execute("SELECT domain, instance_name, forward_host, forward_port, scheme FROM npm_services ORDER BY domain").fetchall()]
+    return {
+        "tool": "npm_service",
+        "db_path": str(_db_path()),
+        "operations": ["register_instance", "register_service", "list_services", "plan_service_action"],
+        "required_config": ["JARVIS_INFRA_DB"],
+        "fallback_config_namespace": "npm_service",
+        "fallback_config_keys": ["NPM_URL", "NPM_IDENTITY", "NPM_SECRET"],
+        "known_instances": instances,
+        "known_services": services,
+    }
+
+
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
@@ -397,6 +410,8 @@ def main() -> int:
                 result = _list_services(conn, payload)
             elif operation == "plan_service_action":
                 result = _plan_service_action(conn, payload)
+            elif operation == "describe":
+                result = _describe(conn)
             else:
                 raise ValueError(f"unsupported operation: {operation}")
     except Exception as exc:

@@ -1,5 +1,5 @@
 const DB_KEY = 'jarvis_active_db_path';
-const DEFAULT_DB = '/var/www/jarvis/database/jarvis_infra.db';
+const DEFAULT_DB = '/var/www/jarvis/database/jarvis.db';
 
 const state = {
   services: [],
@@ -281,12 +281,14 @@ async function saveConfig(){
 
 function buildSamplePayload(kind){
   const sample = state.current?.sample_input || {};
+  const operations = Array.isArray(state.current?.operations) ? state.current.operations : [];
+  const defaultOperation = operations.includes('describe') ? 'describe' : operations[0];
   if (kind === 'empty') return {};
-  if (kind === 'sample') return sample;
+  if (kind === 'sample') return defaultOperation && !sample.operation ? { operation: defaultOperation, ...sample } : sample;
   if (kind === 'required') {
     const out = {};
     const required = state.current?.required_fields || [];
-    required.forEach(k => { out[k] = sample[k] ?? ""; });
+    required.forEach(k => { out[k] = sample[k] ?? (k === 'operation' ? (defaultOperation || '') : ''); });
     return out;
   }
   if (kind === 'trace') {
@@ -306,9 +308,14 @@ function showTest(){
   if (!ensureCurrent()) return;
 
   const engine = state.current.engine_default || 'plan_only';
+  const ops = Array.isArray(state.current.operations) ? state.current.operations : [];
+  const allTools = (state.services || []).map(s => s.name).join(', ');
+  const opsBadges = ops.length ? ops.map(op => `<span class="badge" style="margin-right:6px">${esc(op)}</span>`).join('') : '<span class="small">Aucune opération détectée.</span>';
   document.getElementById('view').innerHTML = `
     <h3 style="margin-top:0">Test du service</h3>
     <div class="small">Choix moteur + JSON vide/exemple + sortie et logs.</div>
+    <div class="small" style="margin-top:8px"><strong>Outils disponibles:</strong> ${esc(allTools || 'n/a')}</div>
+    <div class="small" style="margin-top:6px"><strong>Opérations du service:</strong> ${opsBadges}</div>
     <div class="row">
       <div>
         <label>Moteur</label>
@@ -621,7 +628,7 @@ async function dbPickPath(){
 
 async function dbCreateFromPrompt(){
   try {
-    const path = prompt('Chemin complet du nouveau fichier DB (.db)', `${state.dbBrowserPath.replace(/\/+$/, '')}/jarvis_infra.db`);
+    const path = prompt('Chemin complet du nouveau fichier DB (.db, format path+nomfichier)', `${state.dbBrowserPath.replace(/\/+$/, '')}/jarvis.db`);
     if (!path) return;
     const data = await api('create_db', { path: path.trim() });
     setActiveDbPath(data.path);
