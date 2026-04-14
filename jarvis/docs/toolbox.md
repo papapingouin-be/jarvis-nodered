@@ -25,6 +25,24 @@
   - `instance.password_secret_key` (clé vers `sensitive_values` namespace `npm`).
   - Si les deux sont absents (ou vides) ou si les deux sont fournis, l'outil renvoie une erreur de validation.
 
+### Cas fréquent de confusion: `npm_service.*` vs `instance.password*`
+
+Tu peux utiliser `npm_service` de deux façons différentes:
+
+1. **Mode fallback config-web (sans `register_instance`)**
+   - L'outil lit dans `sensitive_values`:
+     - `namespace='npm_service', key='NPM_URL'`
+     - `namespace='npm_service', key='NPM_IDENTITY'`
+     - `namespace='npm_service', key='NPM_SECRET'`
+   - (compatibilité legacy: namespace `npm` aussi accepté pour ces 3 clés).
+   - Dans ce mode, il est normal de **ne pas voir** `instance.password` ni `instance.password_secret_key`.
+
+2. **Mode instance enregistrée (`register_instance`)**
+   - Tu enregistres une entrée `npm_instances` avec:
+     - soit `instance.password` (secret stocké en clair dans `npm_instances.password`),
+     - soit `instance.password_secret_key` (référence vers `sensitive_values(namespace='npm', key=<ta_clé>)`).
+   - Ici, `password_secret_key` ne pointe **pas** vers `NPM_SECRET`, mais vers une clé libre que tu choisis dans le namespace `npm` (ex: `npm-admin-pass`).
+
 Ce modèle prépare l'étape suivante: exposer une interface web d'édition des valeurs DB sans changer les contrats outillés.
 
 ## Flux didactique: payload JSON et lecture DB
