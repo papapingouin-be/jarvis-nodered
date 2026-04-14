@@ -95,6 +95,9 @@ function resolve_db_path(array $payload): string {
     $candidate = $payload['db_path'] ?? null;
     if (!is_string($candidate) || trim($candidate) === '') return db_path();
     $normalized = normalize_db_candidate($candidate);
+    if (is_dir($normalized) || str_ends_with(trim($candidate), '/')) {
+        $normalized = rtrim($normalized, '/') . '/jarvis.db';
+    }
     if (!path_in_allowed_roots($normalized)) throw new RuntimeException('db_path hors des dossiers autorisés.');
     $ext = strtolower(pathinfo($normalized, PATHINFO_EXTENSION));
     if (!in_array($ext, ['db', 'sqlite', 'sqlite3'], true)) throw new RuntimeException('Extension DB invalide.');
