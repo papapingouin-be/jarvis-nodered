@@ -60,6 +60,47 @@ function db_path(): string {
     throw new RuntimeException('Aucun dossier inscriptible pour la DB SQLite.');
 }
 
+
+function normalize_db_candidate(string $path): string {
+    $clean = trim($path);
+    if ($clean === '') throw new RuntimeException('Chemin DB vide.');
+    if (!str_starts_with($clean, '/')) throw new RuntimeException('Le chemin DB doit être absolu.');
+    $parts = array_values(array_filter(explode('/', $clean), static fn(string $p): bool => $p !== '' && $p !== '.'));
+    $out = [];
+    foreach ($parts as $part) {
+        if ($part === '..') {
+            array_pop($out);
+            continue;
+        }
+        $out[] = $part;
+    }
+    return '/' . implode('/', $out);
+}
+
+function allowed_db_roots(): array {
+    $roots = candidate_db_dirs();
+    $roots[] = '/var/www/jarvis/database';
+    return array_values(array_unique(array_map(static fn(string $d): string => rtrim($d, '/'), $roots)));
+}
+
+function path_in_allowed_roots(string $path): bool {
+    $normalized = normalize_db_candidate($path);
+    foreach (allowed_db_roots() as $root) {
+        if ($normalized === $root || str_starts_with($normalized, $root . '/')) return true;
+    }
+    return false;
+}
+
+function resolve_db_path(array $payload): string {
+    $candidate = $payload['db_path'] ?? null;
+    if (!is_string($candidate) || trim($candidate) === '') return db_path();
+    $normalized = normalize_db_candidate($candidate);
+    if (!path_in_allowed_roots($normalized)) throw new RuntimeException('db_path hors des dossiers autorisés.');
+    $ext = strtolower(pathinfo($normalized, PATHINFO_EXTENSION));
+    if (!in_array($ext, ['db', 'sqlite', 'sqlite3'], true)) throw new RuntimeException('Extension DB invalide.');
+    return $normalized;
+}
+
 function repo_root(): string {
     $candidates = [realpath(__DIR__), realpath(dirname(__DIR__))];
     foreach ($candidates as $candidate) {
@@ -72,15 +113,17 @@ function repo_root(): string {
 
 function tools_root(): string { return repo_root() . '/jarvis/toolbox/tools'; }
 
-function pdo(): PDO {
-    static $pdo = null;
-    if ($pdo instanceof PDO) return $pdo;
-    $pdo = new PDO('sqlite:' . db_path());
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-    $pdo->exec('PRAGMA foreign_keys = ON');
-    ensure_schema($pdo);
-    return $pdo;
+function pdo(?string $path = null): PDO {
+    static $pool = [];
+    $dbPath = $path ?? db_path();
+    if (isset($pool[$dbPath]) && $pool[$dbPath] instanceof PDO) return $pool[$dbPath];
+    $conn = new PDO('sqlite:' . $dbPath);
+    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $conn->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $conn->exec('PRAGMA foreign_keys = ON');
+    ensure_schema($conn);
+    $pool[$dbPath] = $conn;
+    return $conn;
 }
 
 function ensure_schema(PDO $pdo): void {
@@ -116,15 +159,40 @@ function ensure_schema(PDO $pdo): void {
 }
 
 function parse_payload(): array {
-    $raw = file_get_contents('php://input') ?: '{}';
+    $raw = file_get_contents('php://input');
+    if (!is_string($raw) || trim($raw) === '') return [];
     $decoded = json_decode($raw, true);
     if (!is_array($decoded)) json_response(['error' => 'invalid_json'], 400);
     return $decoded;
 }
 
-function safe_db_probe(): array {
+function browse_db_paths(string $path): array {
+    $target = normalize_db_candidate($path);
+    if (!path_in_allowed_roots($target)) throw new RuntimeException('Chemin non autorisé.');
+    if (!is_dir($target)) throw new RuntimeException('Le dossier demandé est introuvable.');
+    $items = [];
+    foreach (scandir($target) ?: [] as $name) {
+        if ($name === '.' || $name === '..') continue;
+        $full = $target . '/' . $name;
+        if (is_dir($full)) {
+            $items[] = ['name' => $name, 'path' => $full, 'type' => 'dir'];
+            continue;
+        }
+        $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+        if (is_file($full) && in_array($ext, ['db', 'sqlite', 'sqlite3'], true)) {
+            $items[] = ['name' => $name, 'path' => $full, 'type' => 'file'];
+        }
+    }
+    usort($items, static function(array $a, array $b): int {
+        if ($a['type'] !== $b['type']) return $a['type'] === 'dir' ? -1 : 1;
+        return strcmp($a['name'], $b['name']);
+    });
+    return ['current_path' => $target, 'items' => $items];
+}
+
+function safe_db_probe(?string $path = null): array {
     try {
-        $path = db_path();
+        $path = $path ?? db_path();
         $dir = dirname($path);
         return [
             'ok' => true,
@@ -416,7 +484,10 @@ function run_python_direct(array $service, array $payload, int $timeout, array $
 }
 
 $payload = parse_payload();
+if (isset($_GET['action']) && !isset($payload['action'])) $payload['action'] = (string)$_GET['action'];
+if (isset($_GET['db_path']) && !isset($payload['db_path'])) $payload['db_path'] = (string)$_GET['db_path'];
 $action = (string)($payload['action'] ?? '');
+$activeDbPath = resolve_db_path($payload);
 
 switch ($action) {
     case 'ping':
@@ -431,9 +502,10 @@ switch ($action) {
             'tools_root' => tools_root(),
             'tools_root_exists' => is_dir(tools_root()),
             'service_count' => count(list_services_full()),
-            'db_probe' => safe_db_probe(),
+            'db_probe' => safe_db_probe($activeDbPath),
             'pdo_sqlite_loaded' => extension_loaded('pdo_sqlite'),
             'sqlite3_loaded' => extension_loaded('sqlite3'),
+            'preferred_db_path' => $activeDbPath,
         ]);
 
     case 'list_services':
@@ -449,7 +521,7 @@ switch ($action) {
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
         $service['profile'] = $profile;
-        $service['config_values'] = load_service_config_values(pdo(), $serviceName, $profile);
+        $service['config_values'] = load_service_config_values(pdo($activeDbPath), $serviceName, $profile);
         json_response(['ok' => true, 'service' => $service]);
 
     case 'save_service_config':
@@ -459,7 +531,7 @@ switch ($action) {
         if (!is_array($config)) json_response(['error' => 'invalid_config'], 400);
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
-        save_service_config_values(pdo(), $serviceName, $profile, $config);
+        save_service_config_values(pdo($activeDbPath), $serviceName, $profile, $config);
         json_response(['ok' => true, 'service' => $serviceName, 'profile' => $profile]);
 
     case 'run_service_test':
@@ -472,7 +544,7 @@ switch ($action) {
         $service = find_service($serviceName);
         if (!$service) json_response(['error' => 'service_not_found', 'service' => $serviceName], 404);
 
-        $configValues = load_service_config_values(pdo(), $serviceName, $profile);
+        $configValues = load_service_config_values(pdo($activeDbPath), $serviceName, $profile);
         $configValues['JARVIS_CONFIG_PROFILE'] = $profile;
 
         $startedAt = gmdate('c');
@@ -497,7 +569,7 @@ switch ($action) {
         $durationMs = (int)round((microtime(true) - $t0) * 1000);
         $endedAt = gmdate('c');
 
-        $stmt = pdo()->prepare("
+        $stmt = pdo($activeDbPath)->prepare("
             INSERT INTO devlab_runs(service_name, engine, profile, status, started_at, ended_at, duration_ms, summary, payload_json, output_json, stdout_text, stderr_text)
             VALUES(:service_name, :engine, :profile, :status, :started_at, :ended_at, :duration_ms, :summary, :payload_json, :output_json, :stdout_text, :stderr_text)
         ");
@@ -515,7 +587,7 @@ switch ($action) {
             ':stdout_text' => $exec['stdout'],
             ':stderr_text' => $exec['stderr'],
         ]);
-        $runId = (int)pdo()->lastInsertId();
+        $runId = (int)pdo($activeDbPath)->lastInsertId();
 
         json_response([
             'ok' => true,
@@ -538,10 +610,10 @@ switch ($action) {
     case 'list_runs':
         $serviceName = (string)($payload['service'] ?? '');
         if ($serviceName !== '') {
-            $stmt = pdo()->prepare('SELECT * FROM devlab_runs WHERE service_name = :service_name ORDER BY run_id DESC LIMIT 50');
+            $stmt = pdo($activeDbPath)->prepare('SELECT * FROM devlab_runs WHERE service_name = :service_name ORDER BY run_id DESC LIMIT 50');
             $stmt->execute([':service_name' => $serviceName]);
         } else {
-            $stmt = pdo()->query('SELECT * FROM devlab_runs ORDER BY run_id DESC LIMIT 50');
+            $stmt = pdo($activeDbPath)->query('SELECT * FROM devlab_runs ORDER BY run_id DESC LIMIT 50');
         }
         json_response(['ok' => true, 'runs' => $stmt->fetchAll()]);
 
@@ -589,16 +661,47 @@ switch ($action) {
 
         json_response(['ok' => true, 'valid' => true, 'language' => $ext ?: 'text', 'message' => 'Validation non spécifique, considérée comme OK.']);
 
+
+    case 'browse_paths':
+        $path = (string)($payload['path'] ?? dirname($activeDbPath));
+        json_response(['ok' => true] + browse_db_paths($path));
+
+    case 'create_db':
+        $path = normalize_db_candidate((string)($payload['path'] ?? ''));
+        if (!path_in_allowed_roots($path)) json_response(['error' => 'path_not_allowed'], 403);
+        $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['db', 'sqlite', 'sqlite3'], true)) json_response(['error' => 'invalid_extension'], 400);
+        $dir = dirname($path);
+        if (!ensure_dir($dir)) json_response(['error' => 'dir_not_writable'], 400);
+        pdo($path);
+        json_response(['ok' => true, 'path' => $path, 'created' => file_exists($path)]);
+
+    case 'delete_db':
+        $path = normalize_db_candidate((string)($payload['path'] ?? ''));
+        if (!path_in_allowed_roots($path)) json_response(['error' => 'path_not_allowed'], 403);
+        if (!is_file($path)) json_response(['error' => 'db_not_found'], 404);
+        if (!@unlink($path)) json_response(['error' => 'delete_failed'], 500);
+        json_response(['ok' => true, 'deleted' => true, 'path' => $path]);
+
+    case 'download_db':
+        $path = $activeDbPath;
+        if (!is_file($path)) json_response(['error' => 'db_not_found', 'path' => $path], 404);
+        header_remove('Content-Type');
+        header('Content-Type: application/octet-stream');
+        header('Content-Disposition: attachment; filename="' . basename($path) . '"');
+        readfile($path);
+        exit;
+
     case 'db_list_tables':
-        json_response(['ok' => true, 'tables' => list_table_names(pdo())]);
+        json_response(['ok' => true, 'tables' => list_table_names(pdo($activeDbPath))]);
 
     case 'db_get_table':
         $table = (string)($payload['table'] ?? 'service_config_values');
         $limit = max(1, min(500, (int)($payload['limit'] ?? 100)));
-        json_response(['ok' => true] + get_table_rows(pdo(), $table, $limit));
+        json_response(['ok' => true] + get_table_rows(pdo($activeDbPath), $table, $limit));
 
     case 'db_list_config':
-        json_response(['ok' => true, 'rows' => list_all_config_rows(pdo())]);
+        json_response(['ok' => true, 'rows' => list_all_config_rows(pdo($activeDbPath))]);
 
     case 'db_set_config':
         $profile = trim((string)($payload['profile'] ?? 'default'));
@@ -606,7 +709,7 @@ switch ($action) {
         $key = trim((string)($payload['key'] ?? ''));
         $value = (string)($payload['value'] ?? '');
         if ($service === '' || $key === '') json_response(['error' => 'service_and_key_required'], 400);
-        save_service_config_values(pdo(), $service, $profile, [$key => $value]);
+        save_service_config_values(pdo($activeDbPath), $service, $profile, [$key => $value]);
         json_response(['ok' => true, 'profile' => $profile, 'service' => $service, 'key' => $key]);
 
     case 'db_delete_config':
@@ -614,7 +717,7 @@ switch ($action) {
         $service = trim((string)($payload['service'] ?? ''));
         $key = trim((string)($payload['key'] ?? ''));
         if ($service === '' || $key === '') json_response(['error' => 'service_and_key_required'], 400);
-        $deleted = delete_service_config_value(pdo(), $profile, $service, $key);
+        $deleted = delete_service_config_value(pdo($activeDbPath), $profile, $service, $key);
         json_response(['ok' => true, 'deleted' => $deleted]);
 
     default:

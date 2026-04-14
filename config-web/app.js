@@ -1,9 +1,16 @@
+const DB_KEY = 'jarvis_active_db_path';
+const DEFAULT_DB = '/var/www/jarvis/database/jarvis_infra.db';
+
 const state = {
   services: [],
   current: null,
   editor: null,
   currentCodePath: null,
-  dbTable: 'service_config_values'
+  dbTable: 'service_config_values',
+  activeDbPath: localStorage.getItem(DB_KEY) || DEFAULT_DB,
+  dbBrowserPath: '/var/www/jarvis/database',
+  dbSelectedPath: null,
+  dbAction: null
 };
 
 function esc(v){
@@ -25,11 +32,20 @@ function setApiStatus(text, ok=false){
   el.style.background = ok ? 'rgba(16,185,129,.12)' : 'rgba(239,68,68,.12)';
 }
 
+function setActiveDbPath(path){
+  state.activeDbPath = path || DEFAULT_DB;
+  localStorage.setItem(DB_KEY, state.activeDbPath);
+}
+
+function dbLink(path){
+  return `api.php?action=download_db&db_path=${encodeURIComponent(path || state.activeDbPath)}`;
+}
+
 async function api(action, data = {}) {
   const response = await fetch('api.php', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action, ...data })
+    body: JSON.stringify({ action, db_path: state.activeDbPath, ...data })
   });
 
   const text = await response.text();
@@ -53,6 +69,7 @@ async function api(action, data = {}) {
 async function bootstrap(){
   try {
     const health = await api('healthcheck');
+    if (health.preferred_db_path) setActiveDbPath(health.preferred_db_path);
     setApiStatus('API OK', true);
     const probe = health.db_probe || {};
     document.getElementById('apiMeta').textContent =
@@ -410,14 +427,26 @@ async function showRuns(){
 
 async function showDbLab(){
   try {
+    const health = await api('healthcheck');
     const tablesData = await api('db_list_tables');
     const rowsData = await api('db_list_config');
+    const probe = health.db_probe || {};
     const tables = tablesData.tables || [];
     const rows = rowsData.rows || [];
 
     let html = `
       <h3 style="margin-top:0">DB Lab</h3>
-      <div class="small">Édition directe de la configuration DB. Là, on parle au moteur, pas au décor.</div>
+      <div class="small">Gestion du fichier DB + édition directe de la configuration.</div>
+
+      <h4>Fichier DB actif</h4>
+      <div class="small">Chemin courant: <code>${esc(state.activeDbPath)}</code></div>
+      <div class="toolbar" style="margin-top:10px">
+        <button class="secondary" onclick="dbPickPath()">Sélectionner</button>
+        <button onclick="dbCreateFromPrompt()">Créer</button>
+        <button class="danger" onclick="dbDeleteSelected()">Effacer</button>
+        <button class="secondary" onclick="dbDownloadActive()">Télécharger</button>
+      </div>
+      <pre>${esc(JSON.stringify(probe, null, 2))}</pre>
 
       <div class="row">
         <div>
@@ -460,6 +489,53 @@ async function showDbLab(){
   } catch (e) {
     setGlobalStatus(e.message || String(e), 'err');
   }
+}
+
+async function dbPickPath(){
+  try {
+    const data = await api('browse_paths', { path: state.dbBrowserPath });
+    const items = (data.items || []).filter(i => i.type === 'file');
+    state.dbBrowserPath = data.current_path || state.dbBrowserPath;
+    const choices = items.map(i => i.path).join('\n');
+    const next = prompt(`Fichiers DB détectés sous ${state.dbBrowserPath}\n\n${choices || 'Aucun fichier DB'}\n\nColle le chemin complet à activer:`, state.activeDbPath);
+    if (!next) return;
+    setActiveDbPath(next.trim());
+    await showDbLab();
+    setGlobalStatus('DB active mise à jour.', 'ok');
+  } catch (e) {
+    setGlobalStatus(e.message || String(e), 'err');
+  }
+}
+
+async function dbCreateFromPrompt(){
+  try {
+    const path = prompt('Chemin complet du nouveau fichier DB (.db)', `${state.dbBrowserPath.replace(/\/+$/, '')}/jarvis_infra.db`);
+    if (!path) return;
+    const data = await api('create_db', { path: path.trim() });
+    setActiveDbPath(data.path);
+    await showDbLab();
+    setGlobalStatus('DB créée et activée.', 'ok');
+  } catch (e) {
+    setGlobalStatus(e.message || String(e), 'err');
+  }
+}
+
+async function dbDeleteSelected(){
+  try {
+    const path = prompt('Chemin complet du fichier DB à supprimer', state.activeDbPath);
+    if (!path) return;
+    if (!confirm(`Supprimer ${path} ?`)) return;
+    await api('delete_db', { path: path.trim() });
+    if (state.activeDbPath === path.trim()) setActiveDbPath(DEFAULT_DB);
+    await showDbLab();
+    setGlobalStatus('DB supprimée.', 'ok');
+  } catch (e) {
+    setGlobalStatus(e.message || String(e), 'err');
+  }
+}
+
+function dbDownloadActive(){
+  window.location.href = dbLink(state.activeDbPath);
 }
 
 function renderDbConfigRows(rows){
