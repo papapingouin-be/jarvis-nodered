@@ -37,6 +37,7 @@ function candidate_db_dirs(): array {
     $dirs = [];
     $env = getenv('JARVIS_DEVLAB_DB_DIR');
     if (is_string($env) && trim($env) !== '') $dirs[] = rtrim($env, '/');
+    $dirs[] = '/opt/jarvis/database';
     $dirs[] = __DIR__ . '/data';
     $dirs[] = sys_get_temp_dir() . '/jarvis-devlab';
     return array_values(array_unique($dirs));
@@ -54,7 +55,7 @@ function db_path(): string {
         if (ensure_dir($parent)) return $envFile;
     }
     foreach (candidate_db_dirs() as $dir) {
-        if (ensure_dir($dir)) return rtrim($dir, '/') . '/devlab.db';
+        if (ensure_dir($dir)) return rtrim($dir, '/') . '/jarvis.db';
     }
     throw new RuntimeException('Aucun dossier inscriptible pour la DB SQLite.');
 }

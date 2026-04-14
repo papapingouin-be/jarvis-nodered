@@ -28,8 +28,9 @@ Contenu:
 Ordre:
 1. `JARVIS_DEVLAB_DB`
 2. `JARVIS_DEVLAB_DB_DIR`
-3. `config-web/data/devlab.db`
-4. `/tmp/jarvis-devlab/devlab.db`
+3. `/opt/jarvis/database/jarvis.db`
+4. `config-web/data/jarvis.db`
+5. `/tmp/jarvis-devlab/jarvis.db`
 
 ## Limites honnêtes
 

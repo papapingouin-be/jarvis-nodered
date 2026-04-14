@@ -20,12 +20,14 @@ services:
     working_dir: /app
     volumes:
       - ${JARVIS_HOST_ROOT:-.}:/app
+      - /opt/jarvis/database:/opt/jarvis/database
     env_file:
       - .env
     environment:
       PYTHONPATH: /app
       TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
       LLM_ADAPTER_URL: http://llm_adapter:8010
+      JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
     command: bash -lc "REQ=/app/services/devlab_backend/requirements.txt; [ -f "$REQ" ] || REQ=services/devlab_backend/requirements.txt; if [ -f "$REQ" ]; then pip install --no-cache-dir -r "$REQ"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic jsonschema ruff; fi && uvicorn services.devlab_backend.app:app --host 0.0.0.0 --port 8090"
     ports:
       - "8090:8090"
@@ -66,11 +68,13 @@ services:
     working_dir: /app
     volumes:
       - ${JARVIS_HOST_ROOT:-.}:/app
+      - /opt/jarvis/database:/opt/jarvis/database
     env_file:
       - .env
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: 30
+      JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
