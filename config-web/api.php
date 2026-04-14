@@ -278,6 +278,7 @@ function inferred_config_requirements(string $serviceName): array {
         ],
         'proxmox_ct' => [
             ['namespace' => 'proxmox_ct', 'key' => 'JARVIS_INFRA_DB', 'label' => 'Chemin DB infra', 'required' => false],
+            ['namespace' => 'proxmox_ct', 'key' => 'JARVIS_INFRA_DB_DIR', 'label' => 'Dossier DB infra', 'required' => false],
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_HOST', 'label' => 'Proxmox host', 'required' => false],
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_USER', 'label' => 'Proxmox user', 'required' => false],
             ['namespace' => 'proxmox', 'key' => 'PROXMOX_PASSWORD', 'label' => 'Proxmox password', 'required' => false],
@@ -291,6 +292,36 @@ function inferred_config_requirements(string $serviceName): array {
         ],
     ];
     return $map[$serviceName] ?? [];
+}
+
+function canonical_config_namespace(string $serviceName, string $namespace, string $key): string {
+    $serviceName = trim($serviceName);
+    $namespace = trim($namespace);
+    $key = trim($key);
+
+    if ($serviceName === 'proxmox_ct') {
+        if (str_starts_with($key, 'PROXMOX_')) return 'proxmox';
+        if ($key === 'JARVIS_INFRA_DB' || $key === 'JARVIS_INFRA_DB_DIR') return 'proxmox_ct';
+    }
+
+    return $namespace !== '' ? $namespace : $serviceName;
+}
+
+function normalize_runtime_config_values(array $configValues): array {
+    $dbPath = trim((string)($configValues['JARVIS_INFRA_DB'] ?? ''));
+    $dbDir = trim((string)($configValues['JARVIS_INFRA_DB_DIR'] ?? ''));
+
+    if ($dbPath !== '') {
+        unset($configValues['JARVIS_INFRA_DB_DIR']);
+        return $configValues;
+    }
+
+    if ($dbDir !== '') {
+        $configValues['JARVIS_INFRA_DB'] = rtrim($dbDir, '/\\') . DIRECTORY_SEPARATOR . 'jarvis.db';
+        unset($configValues['JARVIS_INFRA_DB_DIR']);
+    }
+
+    return $configValues;
 }
 
 function env_keys_from_python_file(string $path): array {
@@ -439,7 +470,8 @@ function resolve_service_config(array $service, PDO $pdo, string $profile): arra
     $byNamespace = [];
     $allValues = [];
     foreach ($rows as $row) {
-        $ns = (string)$row['service_name'];
+        $key = (string)$row['config_key'];
+        $ns = canonical_config_namespace($serviceName, (string)$row['service_name'], $key);
         $key = (string)$row['config_key'];
         $val = $row['config_value'];
         if (!isset($byNamespace[$ns])) $byNamespace[$ns] = [];
@@ -460,7 +492,7 @@ function resolve_service_config(array $service, PDO $pdo, string $profile): arra
 
     foreach ($rows as $row) {
         $entries[] = [
-            'namespace' => (string)$row['service_name'],
+            'namespace' => canonical_config_namespace($serviceName, (string)$row['service_name'], (string)$row['config_key']),
             'key' => (string)$row['config_key'],
             'value' => $row['config_value'],
         ];
@@ -666,9 +698,11 @@ switch ($action) {
         if (is_array($entries)) {
             foreach ($entries as $entry) {
                 if (!is_array($entry)) continue;
-                $namespace = trim((string)($entry['namespace'] ?? $serviceName));
+                $rawNamespace = trim((string)($entry['namespace'] ?? $serviceName));
                 $key = trim((string)($entry['key'] ?? ''));
-                if ($namespace === '' || $key === '') continue;
+                if ($key === '') continue;
+                $namespace = canonical_config_namespace($serviceName, $rawNamespace, $key);
+                if ($namespace === '') continue;
                 save_service_config_values($pdoConn, $namespace, $profile, [$key => (string)($entry['value'] ?? '')]);
             }
         }
@@ -692,6 +726,7 @@ switch ($action) {
             $v = $entry['value'] ?? '';
             if ($k !== '' && !array_key_exists($k, $configValues)) $configValues[$k] = $v;
         }
+        $configValues = normalize_runtime_config_values($configValues);
         $configValues['JARVIS_CONFIG_PROFILE'] = $profile;
 
         $startedAt = gmdate('c');
