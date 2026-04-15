@@ -259,6 +259,15 @@ def _ssh_options(*, batch_mode: bool) -> list[str]:
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
     proxmox_password = (os.getenv("PROXMOX_PASSWORD") or "").strip()
     sshpass_bin = shutil.which("sshpass") if proxmox_password else None
+    redacted_token = "********"
+
+    def _sanitize_command(command: list[str]) -> list[str]:
+        """Redact sensitive tokens before exposing command traces."""
+        sanitized = list(command)
+        for index, token in enumerate(sanitized[:-1]):
+            if token == "-p" and sanitized[index + 1]:
+                sanitized[index + 1] = redacted_token
+        return sanitized
 
     def _exec(target: str | None, *, allow_password: bool) -> tuple[list[str], subprocess.CompletedProcess[str], str]:
         auth_method = "local"
@@ -301,7 +310,7 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
                 {
                     "ssh_target": target,
                     "auth_method": auth_method,
-                    "command": command,
+                    "command": _sanitize_command(command),
                     "returncode": run.returncode,
                     "stderr": stderr,
                 }
@@ -335,7 +344,7 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
             f"(astuce:{password_hint} configurer une clé SSH valide, installer sshpass, ou utiliser PROXMOX_USER=root si seule la clé root est autorisée)"
         )
     return {
-        "command": command,
+        "command": _sanitize_command(command),
         "returncode": run.returncode,
         "stdout": run.stdout.strip(),
         "stderr": stderr,
