@@ -265,3 +265,25 @@ def test_run_proxmox_ct_adds_hint_for_pct_no_command_error(tmp_path) -> None:
     with patch.object(proxmox_tool.subprocess, "run", return_value=fake_result):
         result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="jarvis@192.168.11.248")
     assert "ForceCommand" in result["stderr"]
+
+
+def test_run_proxmox_ct_retries_simple_remote_command_without_bash_wrapper(tmp_path) -> None:
+    first = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=255,
+        stdout="",
+        stderr="ERROR: no command specified\nUSAGE: pct <COMMAND>",
+    )
+    second = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=0,
+        stdout="VMID       Status     Lock         Name\n101        running                 dns-prod",
+        stderr="",
+    )
+    with patch.object(proxmox_tool.subprocess, "run", side_effect=[first, second]):
+        result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="root@192.168.11.248")
+
+    assert result["ok"] is True
+    assert result["auth_method"].endswith("_simplified")
+    assert any("bash" in attempt["command"] for attempt in result["attempts"])
+    assert any(attempt["command"][-2:] == ["pct", "list"] for attempt in result["attempts"])
