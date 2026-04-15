@@ -14,6 +14,48 @@
       "required": true
     },
     {
+      "namespace": "proxmox",
+      "key": "PROXMOX_HOST",
+      "label": "Adresse IP / host Proxmox",
+      "required": true
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_WEB",
+      "label": "URL web Proxmox (https://host:8006)",
+      "required": false
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_USER",
+      "label": "Utilisateur API/SSH Proxmox",
+      "required": true
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_PASSWORD",
+      "label": "Mot de passe utilisateur Proxmox",
+      "required": false
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_SSH_PORT",
+      "label": "Port SSH Proxmox",
+      "required": false
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_API_TOKEN_ID",
+      "label": "Identifiant de token API Proxmox",
+      "required": false
+    },
+    {
+      "namespace": "proxmox",
+      "key": "PROXMOX_API_TOKEN_SECRET",
+      "label": "Secret du token API Proxmox",
+      "required": false
+    },
+    {
       "namespace": "proxmox_ct",
       "key": "PROXMOX_SECRET_NAMESPACE",
       "label": "Namespace secrets Proxmox",
