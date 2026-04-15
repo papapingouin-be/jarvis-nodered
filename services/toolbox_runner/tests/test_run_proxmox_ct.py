@@ -114,3 +114,23 @@ def test_run_proxmox_ct_list_ct_alias(tmp_path) -> None:
     assert "collected" in out["data"]["result"]
     assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
     assert "containers" in out["data"]["result"]
+
+
+def test_run_proxmox_ct_list_ct_hyphen_alias(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out = run_tool(manifest, {"operation": "list-ct"})
+    assert out["data"]["operation"] == "list_ct"
+    assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
+
+
+def test_run_proxmox_ct_list_ct_french_alias(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out = run_tool(manifest, {"operation": "liste"})
+    assert out["data"]["operation"] == "list_ct"
+    assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
