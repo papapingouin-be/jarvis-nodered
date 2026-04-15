@@ -17,7 +17,8 @@
           "list_services",
           "plan_service_action",
           "describe"
-        ]
+        ],
+        "description": "Legacy alias of intent. Prefer intent."
       },
       "instance": {
         "type": "object",
@@ -83,17 +84,37 @@
           "add",
           "delete"
         ]
+      },
+      "intent": {
+        "type": "string",
+        "enum": [
+          "registry.register_instance",
+          "registry.register_service",
+          "list.services",
+          "plan.service_action",
+          "inspect.describe",
+          "register_instance",
+          "register_service",
+          "list_services",
+          "list_proxy_services",
+          "plan_service_action",
+          "describe",
+          "lister les services npm"
+        ]
       }
     },
     "required": [
-      "operation"
+      "intent"
     ],
     "allOf": [
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "register_instance"
+            "intent": {
+              "enum": [
+                "registry.register_instance",
+                "register_instance"
+              ]
             }
           }
         },
@@ -106,8 +127,11 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "register_service"
+            "intent": {
+              "enum": [
+                "registry.register_service",
+                "register_service"
+              ]
             }
           }
         },
@@ -120,8 +144,13 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "list_services"
+            "intent": {
+              "enum": [
+                "list.services",
+                "list_services",
+                "list_proxy_services",
+                "lister les services npm"
+              ]
             }
           }
         },
@@ -134,8 +163,11 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "plan_service_action"
+            "intent": {
+              "enum": [
+                "plan.service_action",
+                "plan_service_action"
+              ]
             }
           }
         },
@@ -151,6 +183,9 @@
   "output_schema": {
     "type": "object",
     "properties": {
+      "intent": {
+        "type": "string"
+      },
       "operation": {
         "type": "string"
       },
@@ -159,7 +194,7 @@
       }
     },
     "required": [
-      "operation",
+      "intent",
       "result"
     ]
   },

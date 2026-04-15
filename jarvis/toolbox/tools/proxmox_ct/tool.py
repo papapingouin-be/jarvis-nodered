@@ -158,17 +158,63 @@ MODE_OPERATIONS = {
     "ensure-ct",
 }
 
-MODE_ALIASES = {
+INTENT_ALIASES = {
+    "self-doc": "self-doc",
+    "inspect.self_doc": "self-doc",
+    "diagnose": "diagnose",
+    "inspect.diagnose": "diagnose",
+    "collect": "collect",
+    "list.infrastructure": "collect",
+    "list_ct": "list_ct",
     "list-ct": "list_ct",
     "list": "list_ct",
     "liste": "list_ct",
+    "list_containers": "list_ct",
+    "list.containers": "list_ct",
+    "lister les ct de proxmox": "list_ct",
+    "lister les ct de proxmod": "list_ct",
+    "preflight-create": "preflight-create",
+    "ct.preflight_create": "preflight-create",
+    "create-ct": "create-ct",
+    "ct.create": "create-ct",
+    "get-ct-info": "get-ct-info",
+    "ct.get_info": "get-ct-info",
+    "stop-ct": "stop-ct",
+    "ct.stop": "stop-ct",
+    "destroy-ct": "destroy-ct",
+    "ct.destroy": "destroy-ct",
+    "ensure-ct": "ensure-ct",
+    "ct.ensure": "ensure-ct",
+    "register_target": "register_target",
+    "registry.register_target": "register_target",
+    "register_service": "register_service",
+    "registry.register_service": "register_service",
+    "resolve_service": "resolve_service",
+    "registry.resolve_service": "resolve_service",
+    "plan_ct_action": "plan_ct_action",
+    "plan.ct_action": "plan_ct_action",
+    "list_targets": "list_targets",
+    "list.targets": "list_targets",
+    "list_services": "list_services",
+    "list.services": "list_services",
+    "describe": "describe",
+    "inspect.describe": "describe",
+    "registry-doc": "registry-doc",
+    "registry.doc": "registry-doc",
+    "list-services": "list-services",
+    "describe-service": "describe-service",
+    "validate-service-input": "validate-service-input",
 }
 
 
-def _normalize_mode(value: Any) -> str:
-    if not isinstance(value, str):
-        raise ValueError("mode must be a string")
-    return MODE_ALIASES.get(value, value)
+def _resolve_intent(value: Any) -> tuple[str, str]:
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("intent must be a non-empty string")
+    normalized_intent = value.strip().lower()
+    operation = INTENT_ALIASES.get(normalized_intent)
+    if operation is None:
+        raise ValueError(f"unsupported intent: {value}")
+    return normalized_intent, operation
 
 
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
@@ -186,9 +232,10 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
 def _mode_doc() -> dict[str, Any]:
     return {
         "tool": "proxmox_ct",
-        "interface": "mode",
+        "interface": "intent",
         "modes": {
             "self-doc": "retourne uniquement la documentation machine-readable",
+            "list.containers": "liste les conteneurs Proxmox (alias de list_ct)",
             "diagnose": "vérifie SSH, sudo, présence des commandes Proxmox",
             "collect": "collecte templates, storages, bridges, CT/VM existants",
             "list_ct": "alias de collect pour la liste des conteneurs",
@@ -232,7 +279,7 @@ def _parse_pct_list(stdout: str) -> list[dict[str, Any]]:
 
 
 def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
-    mode = _normalize_mode(payload["mode"])
+    mode = payload["mode"]
     ssh_target = payload.get("ssh_target")
     if mode == "self-doc":
         return _mode_doc()
@@ -624,14 +671,8 @@ def _validate_service_input(payload: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-        if "mode" in payload:
-            mode = _normalize_mode(payload["mode"])
-            if mode not in MODE_OPERATIONS:
-                raise ValueError(f"unsupported mode: {mode}")
-            result = _run_mode({**payload, "mode": mode})
-            print(json.dumps({"operation": mode, "result": result}))
-            return 0
-        operation = _normalize_mode(payload.get("operation"))
+        raw_intent = payload.get("intent", payload.get("operation", payload.get("mode")))
+        normalized_intent, operation = _resolve_intent(raw_intent)
         with _connect() as conn:
             if operation in MODE_OPERATIONS:
                 result = _run_mode({**payload, "mode": operation})
@@ -667,7 +708,7 @@ def main() -> int:
         print(json.dumps({"error": str(exc)}))
         return 1
 
-    print(json.dumps({"operation": operation, "result": result}))
+    print(json.dumps({"intent": operation, "operation": operation, "requested_intent": normalized_intent, "result": result}))
     return 0
 
 

@@ -45,6 +45,36 @@ Tu peux utiliser `npm_service` de deux façons différentes:
 
 Ce modèle prépare l'étape suivante: exposer une interface web d'édition des valeurs DB sans changer les contrats outillés.
 
+## Contrat harmonisé pour exposition LLM
+
+- Tous les outils d'infra exposent désormais **un seul champ de routage**: `intent`.
+- Les anciennes clés `operation`/`mode` restent tolérées en compatibilité interne, mais ne doivent plus être proposées.
+- Intents normalisés utiles pour l'orchestration LLM:
+  - Proxmox CT: `list.containers`
+  - NPM: `list.services`
+
+Exemples:
+
+```json
+{
+  "tool": "proxmox_ct",
+  "input": {
+    "intent": "list.containers",
+    "ssh_target": "root@proxmox-host"
+  }
+}
+```
+
+```json
+{
+  "tool": "npm_service",
+  "input": {
+    "intent": "list.services",
+    "instance_name": "prod"
+  }
+}
+```
+
 ## Flux didactique: payload JSON et lecture DB
 
 ### 1) Ce que reçoit `toolbox_runner`
@@ -55,7 +85,7 @@ Le endpoint `POST /v1/run` reçoit un payload de ce type:
 {
   "tool": "npm_service",
   "input": {
-    "action": "list",
+    "intent": "list.services",
     "instance_name": "prod"
   },
   "context": {}

@@ -23,7 +23,7 @@ def test_run_proxmox_ct_flow(tmp_path) -> None:
     out_target = run_tool(
         manifest,
         {
-            "operation": "register_target",
+            "intent": "registry.register_target",
             "target": {
                 "name": "pve-home",
                 "ip": "10.0.0.2",
@@ -39,7 +39,7 @@ def test_run_proxmox_ct_flow(tmp_path) -> None:
     out_service = run_tool(
         manifest,
         {
-            "operation": "register_service",
+            "intent": "registry.register_service",
             "service": {
                 "name": "dns-prod",
                 "target_name": "pve-home",
@@ -53,7 +53,7 @@ def test_run_proxmox_ct_flow(tmp_path) -> None:
     out_plan = run_tool(
         manifest,
         {
-            "operation": "plan_ct_action",
+            "intent": "plan.ct_action",
             "service_name": "dns-prod",
             "action": "restart",
         },
@@ -67,24 +67,24 @@ def test_run_proxmox_ct_metadata_operations(tmp_path) -> None:
     registry = build_registry()
     manifest = registry["proxmox_ct"]
 
-    out_registry_doc = run_tool(manifest, {"operation": "registry-doc"})
+    out_registry_doc = run_tool(manifest, {"intent": "registry.doc"})
     services = out_registry_doc["data"]["result"]["services"]
     assert any(service["name"] == "register_target" for service in services)
 
-    out_list_services = run_tool(manifest, {"operation": "list-services"})
+    out_list_services = run_tool(manifest, {"intent": "list-services"})
     assert "plan_ct_action" in out_list_services["data"]["result"]["services"]
     assert "collect" in out_list_services["data"]["result"]["services"]
 
     out_describe_service = run_tool(
         manifest,
-        {"operation": "describe-service", "meta_service": "plan_ct_action"},
+        {"intent": "describe-service", "meta_service": "plan_ct_action"},
     )
     assert out_describe_service["data"]["result"]["phase"] == "execute"
 
     out_validate = run_tool(
         manifest,
         {
-            "operation": "validate-service-input",
+            "intent": "validate-service-input",
             "meta_service": "plan_ct_action",
             "params": {"service_name": "dns-prod"},
         },
@@ -98,8 +98,8 @@ def test_run_proxmox_ct_collect_operation(tmp_path) -> None:
     registry = build_registry()
     manifest = registry["proxmox_ct"]
 
-    out = run_tool(manifest, {"operation": "collect"})
-    assert out["data"]["operation"] == "collect"
+    out = run_tool(manifest, {"intent": "list.infrastructure"})
+    assert out["data"]["intent"] == "collect"
     assert "collected" in out["data"]["result"]
     assert "containers" in out["data"]["result"]
 
@@ -109,8 +109,8 @@ def test_run_proxmox_ct_list_ct_alias(tmp_path) -> None:
     registry = build_registry()
     manifest = registry["proxmox_ct"]
 
-    out = run_tool(manifest, {"operation": "list_ct"})
-    assert out["data"]["operation"] == "list_ct"
+    out = run_tool(manifest, {"intent": "list.containers"})
+    assert out["data"]["intent"] == "list_ct"
     assert "collected" in out["data"]["result"]
     assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
     assert "containers" in out["data"]["result"]
@@ -121,8 +121,8 @@ def test_run_proxmox_ct_list_ct_hyphen_alias(tmp_path) -> None:
     registry = build_registry()
     manifest = registry["proxmox_ct"]
 
-    out = run_tool(manifest, {"operation": "list-ct"})
-    assert out["data"]["operation"] == "list_ct"
+    out = run_tool(manifest, {"intent": "list-ct"})
+    assert out["data"]["intent"] == "list_ct"
     assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
 
 
@@ -131,6 +131,6 @@ def test_run_proxmox_ct_list_ct_french_alias(tmp_path) -> None:
     registry = build_registry()
     manifest = registry["proxmox_ct"]
 
-    out = run_tool(manifest, {"operation": "liste"})
-    assert out["data"]["operation"] == "list_ct"
+    out = run_tool(manifest, {"intent": "liste"})
+    assert out["data"]["intent"] == "list_ct"
     assert list(out["data"]["result"]["collected"].keys()) == ["containers"]

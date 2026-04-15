@@ -22,7 +22,7 @@ def test_run_npm_service_flow(tmp_path) -> None:
     run_tool(
         npm_manifest,
         {
-            "operation": "register_instance",
+            "intent": "registry.register_instance",
             "instance": {
                 "name": "npm-home",
                 "base_url": "http://npm.local:81",
@@ -35,7 +35,7 @@ def test_run_npm_service_flow(tmp_path) -> None:
     run_tool(
         npm_manifest,
         {
-            "operation": "register_service",
+            "intent": "registry.register_service",
             "service": {
                 "domain": "app.example.local",
                 "instance_name": "npm-home",
@@ -48,7 +48,7 @@ def test_run_npm_service_flow(tmp_path) -> None:
     out_plan = run_tool(
         npm_manifest,
         {
-            "operation": "plan_service_action",
+            "intent": "plan.service_action",
             "instance_name": "npm-home",
             "domain": "app.example.local",
             "action": "add",
