@@ -15,6 +15,65 @@ ACTION_SUFFIX = {
     "restart": "status/reboot",
 }
 
+SERVICE_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "register_target": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Add or update a Proxmox target in the local SQLite registry.",
+        "required_params": ["target"],
+        "optional_params": [],
+    },
+    "register_service": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Add or update a CT service mapping to a target and CTID.",
+        "required_params": ["service"],
+        "optional_params": [],
+    },
+    "resolve_service": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Resolve a service to target + CT details with optional secret expansion.",
+        "required_params": ["service_name"],
+        "optional_params": ["include_secret"],
+    },
+    "plan_ct_action": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Prepare API request details for CT status/start/stop/restart actions.",
+        "required_params": ["service_name", "action"],
+        "optional_params": [],
+    },
+    "list_targets": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "List registered Proxmox targets.",
+        "required_params": [],
+        "optional_params": [],
+    },
+    "list_services": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "List registered CT services.",
+        "required_params": [],
+        "optional_params": [],
+    },
+    "describe": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Describe current tool state and known targets/services.",
+        "required_params": [],
+        "optional_params": [],
+    },
+}
+
+METADATA_OPERATIONS = {
+    "registry-doc",
+    "list-services",
+    "describe-service",
+    "validate-service-input",
+}
+
 
 def _db_path() -> Path:
     env_db = os.getenv("JARVIS_INFRA_DB")
@@ -213,22 +272,13 @@ def _list_targets(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"targets": [dict(row) for row in rows]}
 
 
-
-
 def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
     targets = [dict(row) for row in conn.execute("SELECT name, ip, node FROM proxmox_targets ORDER BY name").fetchall()]
     services = [dict(row) for row in conn.execute("SELECT name, target_name, ctid FROM ct_services ORDER BY name").fetchall()]
     return {
         "tool": "proxmox_ct",
         "db_path": str(_db_path()),
-        "operations": [
-            "register_target",
-            "register_service",
-            "resolve_service",
-            "plan_ct_action",
-            "list_targets",
-            "list_services",
-        ],
+        "operations": [*SERVICE_DEFINITIONS.keys(), *sorted(METADATA_OPERATIONS)],
         "required_config": ["JARVIS_INFRA_DB"],
         "known_targets": targets,
         "known_services": services,
@@ -240,6 +290,58 @@ def _list_services(conn: sqlite3.Connection) -> dict[str, Any]:
         "SELECT name, target_name, ctid, path FROM ct_services ORDER BY name"
     ).fetchall()
     return {"services": [dict(row) for row in rows]}
+
+
+def _registry_doc() -> dict[str, Any]:
+    return {
+        "tool": "proxmox_ct",
+        "supports_registry": True,
+        "capabilities": list(SERVICE_DEFINITIONS.keys()),
+        "metadata": sorted(METADATA_OPERATIONS),
+        "services": [
+            {
+                "name": name,
+                "phase": conf["phase"],
+                "confirmed_required": conf["confirmed_required"],
+                "description": conf["description"],
+            }
+            for name, conf in SERVICE_DEFINITIONS.items()
+        ],
+    }
+
+
+def _describe_service(service_name: str) -> dict[str, Any]:
+    service = SERVICE_DEFINITIONS.get(service_name)
+    if service is None:
+        raise ValueError(f"unknown service: {service_name}")
+    return {
+        "name": service_name,
+        **service,
+    }
+
+
+def _validate_service_input(payload: dict[str, Any]) -> dict[str, Any]:
+    service_name = payload.get("meta_service")
+    params = payload.get("params", {})
+    if service_name is None:
+        raise ValueError("missing field: service")
+    if not isinstance(params, dict):
+        raise ValueError("params must be an object")
+
+    spec = _describe_service(service_name)
+    missing_required = [key for key in spec["required_params"] if key not in params]
+    optional_missing = [key for key in spec["optional_params"] if key not in params]
+
+    return {
+        "service": service_name,
+        "phase": spec["phase"],
+        "confirmed_required": spec["confirmed_required"],
+        "known": params,
+        "missing_required": missing_required,
+        "optional_missing": optional_missing,
+        "ready": len(missing_required) == 0,
+        "summary": "Service input is complete." if len(missing_required) == 0 else "Service input is missing required fields.",
+    }
 
 
 def main() -> int:
@@ -265,6 +367,14 @@ def main() -> int:
                 result = _list_services(conn)
             elif operation == "describe":
                 result = _describe(conn)
+            elif operation == "registry-doc":
+                result = _registry_doc()
+            elif operation == "list-services":
+                result = {"services": sorted(SERVICE_DEFINITIONS.keys())}
+            elif operation == "describe-service":
+                result = _describe_service(payload["meta_service"])
+            elif operation == "validate-service-input":
+                result = _validate_service_input(payload)
             else:
                 raise ValueError(f"unsupported operation: {operation}")
     except Exception as exc:

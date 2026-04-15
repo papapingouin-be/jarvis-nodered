@@ -60,3 +60,33 @@ def test_run_proxmox_ct_flow(tmp_path) -> None:
     )
     assert out_plan["data"]["result"]["request"]["url"].endswith("/nodes/pve/lxc/101/status/reboot")
     assert out_plan["data"]["result"]["request"]["auth"]["password"] == "secret"
+
+
+def test_run_proxmox_ct_metadata_operations(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out_registry_doc = run_tool(manifest, {"operation": "registry-doc"})
+    services = out_registry_doc["data"]["result"]["services"]
+    assert any(service["name"] == "register_target" for service in services)
+
+    out_list_services = run_tool(manifest, {"operation": "list-services"})
+    assert "plan_ct_action" in out_list_services["data"]["result"]["services"]
+
+    out_describe_service = run_tool(
+        manifest,
+        {"operation": "describe-service", "meta_service": "plan_ct_action"},
+    )
+    assert out_describe_service["data"]["result"]["phase"] == "execute"
+
+    out_validate = run_tool(
+        manifest,
+        {
+            "operation": "validate-service-input",
+            "meta_service": "plan_ct_action",
+            "params": {"service_name": "dns-prod"},
+        },
+    )
+    assert out_validate["data"]["result"]["ready"] is False
+    assert "action" in out_validate["data"]["result"]["missing_required"]
