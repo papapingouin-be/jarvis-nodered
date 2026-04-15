@@ -101,6 +101,7 @@ def test_run_proxmox_ct_collect_operation(tmp_path) -> None:
     out = run_tool(manifest, {"operation": "collect"})
     assert out["data"]["operation"] == "collect"
     assert "collected" in out["data"]["result"]
+    assert "containers" in out["data"]["result"]
 
 
 def test_run_proxmox_ct_list_ct_alias(tmp_path) -> None:
@@ -111,3 +112,5 @@ def test_run_proxmox_ct_list_ct_alias(tmp_path) -> None:
     out = run_tool(manifest, {"operation": "list_ct"})
     assert out["data"]["operation"] == "list_ct"
     assert "collected" in out["data"]["result"]
+    assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
+    assert "containers" in out["data"]["result"]

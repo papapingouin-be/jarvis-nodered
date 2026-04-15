@@ -194,6 +194,31 @@ def _mode_doc() -> dict[str, Any]:
     }
 
 
+def _parse_pct_list(stdout: str) -> list[dict[str, Any]]:
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    if not lines:
+        return []
+
+    data_lines = lines[1:] if lines[0].upper().startswith("VMID") else lines
+    containers: list[dict[str, Any]] = []
+    for line in data_lines:
+        parts = line.split()
+        if len(parts) < 6:
+            continue
+        ctid_raw, status, *_middle, name = parts[0], parts[1], parts[2:-1], parts[-1]
+        if not ctid_raw.isdigit():
+            continue
+        containers.append(
+            {
+                "ctid": int(ctid_raw),
+                "status": status,
+                "name": name,
+                "raw": line,
+            }
+        )
+    return containers
+
+
 def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
     mode = payload["mode"]
     ssh_target = payload.get("ssh_target")
@@ -220,8 +245,12 @@ def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
             "containers": ["bash", "-lc", "pct list"],
             "vms": ["bash", "-lc", "qm list"],
         }
+        if mode == "list_ct":
+            probes = {"containers": probes["containers"]}
         collected = {name: _run_cmd(cmd, ssh_target=ssh_target) for name, cmd in probes.items()}
-        return {"mode": mode, "ssh_target": ssh_target, "collected": collected}
+        containers_probe = collected.get("containers", {})
+        containers = _parse_pct_list(containers_probe.get("stdout", "")) if containers_probe.get("ok") else []
+        return {"mode": mode, "ssh_target": ssh_target, "collected": collected, "containers": containers}
 
     if mode == "preflight-create":
         required = ["ctid", "hostname", "template", "storage", "bridge"]
