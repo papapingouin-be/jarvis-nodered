@@ -7,6 +7,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -241,13 +242,53 @@ def _ssh_options() -> list[str]:
 
 
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
-    command = parts if ssh_target is None else ["ssh", *_ssh_options(), ssh_target, "--", *parts]
-    run = subprocess.run(command, text=True, capture_output=True, check=False)
+    def _exec(target: str | None) -> tuple[list[str], subprocess.CompletedProcess[str]]:
+        command = parts if target is None else ["ssh", *_ssh_options(), target, "--", *parts]
+        run = subprocess.run(command, text=True, capture_output=True, check=False)
+        return command, run
+
+    command, run = _exec(ssh_target)
     stderr = run.stderr.strip()
+    attempts: list[dict[str, Any]] = [
+        {
+            "ssh_target": ssh_target,
+            "command": command,
+            "returncode": run.returncode,
+            "stderr": stderr,
+        }
+    ]
+
+    fallback_used = False
+    if (
+        ssh_target
+        and run.returncode != 0
+        and "Permission denied" in stderr
+        and "@" in ssh_target
+    ):
+        ssh_user, ssh_host = ssh_target.split("@", 1)
+        if ssh_user != "root":
+            fallback_target = f"root@{ssh_host}"
+            command, run = _exec(fallback_target)
+            stderr = run.stderr.strip()
+            attempts.append(
+                {
+                    "ssh_target": fallback_target,
+                    "command": command,
+                    "returncode": run.returncode,
+                    "stderr": stderr,
+                }
+            )
+            fallback_used = True
+
     if "Host key verification failed." in stderr:
         stderr = (
             f"{stderr} "
             "(astuce: vérifier ~/.ssh/known_hosts ou relancer après nettoyage de l'empreinte côté runner)"
+        )
+    if "Permission denied" in stderr:
+        stderr = (
+            f"{stderr} "
+            "(astuce: configurer une clé SSH valide ou utiliser PROXMOX_USER=root si seule la clé root est autorisée)"
         )
     return {
         "command": command,
@@ -255,6 +296,31 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
         "stdout": run.stdout.strip(),
         "stderr": stderr,
         "ok": run.returncode == 0,
+        "attempts": attempts,
+        "fallback_used": fallback_used,
+    }
+
+
+def _debug_enabled(payload: dict[str, Any]) -> bool:
+    debug_flag = payload.get("debug")
+    if isinstance(debug_flag, bool):
+        return debug_flag
+    return (os.getenv("PROXMOX_CT_DEBUG") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _debug_context(payload: dict[str, Any], ssh_target: str | None) -> dict[str, Any]:
+    return {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "requested_intent": payload.get("intent"),
+        "mode": payload.get("mode"),
+        "ssh_target_resolved": ssh_target,
+        "ssh_options": _ssh_options(),
+        "env": {
+            "PROXMOX_HOST": (os.getenv("PROXMOX_HOST") or "").strip(),
+            "PROXMOX_USER": (os.getenv("PROXMOX_USER") or "").strip(),
+            "PROXMOX_SSH_PORT": (os.getenv("PROXMOX_SSH_PORT") or "").strip(),
+            "JARVIS_INFRA_DB": (os.getenv("JARVIS_INFRA_DB") or "").strip(),
+        },
     }
 
 
@@ -326,6 +392,7 @@ def _resolve_ssh_target(payload: dict[str, Any]) -> str | None:
 def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
     mode = payload["mode"]
     ssh_target = _resolve_ssh_target(payload)
+    debug_enabled = _debug_enabled(payload)
     if mode == "self-doc":
         return _mode_doc()
 
@@ -354,7 +421,16 @@ def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
         collected = {name: _run_cmd(cmd, ssh_target=ssh_target) for name, cmd in probes.items()}
         containers_probe = collected.get("containers", {})
         containers = _parse_pct_list(containers_probe.get("stdout", "")) if containers_probe.get("ok") else []
-        return {"mode": mode, "ssh_target": ssh_target, "collected": collected, "containers": containers}
+        result = {
+            "mode": mode,
+            "ssh_target": ssh_target,
+            "collected": collected,
+            "containers": containers,
+            "ok": all(item.get("ok") for item in collected.values()),
+        }
+        if debug_enabled:
+            result["debug"] = _debug_context(payload, ssh_target)
+        return result
 
     if mode == "preflight-create":
         required = ["ctid", "hostname", "template", "storage", "bridge"]
