@@ -267,7 +267,12 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
         else:
             use_password_auth = bool(allow_password and proxmox_password and sshpass_bin)
             auth_method = "ssh_password" if use_password_auth else "ssh_key"
-            ssh_command = ["ssh", *_ssh_options(batch_mode=not use_password_auth), target, "--", *parts]
+            # NOTE:
+            # `ssh` does not need (and can mis-handle) a `--` separator before
+            # the remote command. Keeping `--` here can end up forwarding it to
+            # restrictive remote shells/forced commands, which breaks probes like
+            # `pct list` with "no command specified".
+            ssh_command = ["ssh", *_ssh_options(batch_mode=not use_password_auth), target, *parts]
             command = [sshpass_bin, "-p", proxmox_password, *ssh_command] if use_password_auth else ssh_command
         run = subprocess.run(command, text=True, capture_output=True, check=False)
         return command, run, auth_method
