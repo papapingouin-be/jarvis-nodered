@@ -1,5 +1,7 @@
 import os
+from unittest.mock import patch
 
+from jarvis.toolbox.tools.proxmox_ct import tool as proxmox_tool
 from services.toolbox_runner.registry import build_registry
 from services.toolbox_runner.runner import run_tool
 
@@ -204,3 +206,24 @@ def test_run_proxmox_ct_command_attempts_are_exposed(tmp_path) -> None:
     containers_probe = out["data"]["result"]["collected"]["containers"]
     assert isinstance(containers_probe["attempts"], list)
     assert len(containers_probe["attempts"]) >= 1
+
+
+def test_run_proxmox_ct_redacts_password_in_debug_commands(tmp_path) -> None:
+    os.environ["PROXMOX_PASSWORD"] = "super-secret"
+    fake_result = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=255,
+        stdout="",
+        stderr="Permission denied",
+    )
+
+    with patch("jarvis.toolbox.tools.proxmox_ct.tool.shutil.which", return_value="/usr/bin/sshpass"), patch.object(
+        proxmox_tool.subprocess,
+        "run",
+        return_value=fake_result,
+    ):
+        result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="jarvis@192.168.11.248")
+
+    assert "super-secret" not in " ".join(result["command"])
+    for attempt in result["attempts"]:
+        assert "super-secret" not in " ".join(attempt["command"])
