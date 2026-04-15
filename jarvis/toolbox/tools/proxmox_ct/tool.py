@@ -38,6 +38,13 @@ SERVICE_DEFINITIONS: dict[str, dict[str, Any]] = {
         "required_params": [],
         "optional_params": ["ssh_target"],
     },
+    "list_ct": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Alias of collect focused on CT listing.",
+        "required_params": [],
+        "optional_params": ["ssh_target"],
+    },
     "preflight-create": {
         "phase": "collect",
         "confirmed_required": False,
@@ -585,6 +592,8 @@ def main() -> int:
         with _connect() as conn:
             if operation in MODE_OPERATIONS:
                 result = _run_mode({**payload, "mode": operation})
+            elif operation == "list_ct":
+                result = _run_mode({**payload, "mode": "collect"})
             elif operation == "register_target":
                 result = _register_target(conn, payload)
             elif operation == "register_service":
