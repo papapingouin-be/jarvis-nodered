@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import sqlite3
 import shutil
 import subprocess
@@ -256,6 +257,21 @@ def _ssh_options(*, batch_mode: bool) -> list[str]:
     return options
 
 
+def _extract_simple_shell_command(parts: list[str]) -> list[str] | None:
+    if len(parts) != 3 or parts[0] != "bash" or parts[1] != "-lc":
+        return None
+    script = parts[2].strip()
+    if not script:
+        return None
+    if re.search(r"[|&;<>()$`{}\\\n]", script):
+        return None
+    try:
+        parsed = shlex.split(script)
+    except ValueError:
+        return None
+    return parsed or None
+
+
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
     proxmox_password = (os.getenv("PROXMOX_ROOT_PASSWORD") or os.getenv("PROXMOX_PASSWORD") or "").strip()
     sshpass_bin = shutil.which("sshpass") if proxmox_password else None
@@ -271,10 +287,15 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
                 sanitized[index + 1] = redacted_token
         return sanitized
 
-    def _exec(target: str | None, *, allow_password: bool) -> tuple[list[str], subprocess.CompletedProcess[str], str]:
+    def _exec(
+        command_parts: list[str],
+        target: str | None,
+        *,
+        allow_password: bool,
+    ) -> tuple[list[str], subprocess.CompletedProcess[str], str]:
         auth_method = "local"
         if target is None:
-            command = parts
+            command = command_parts
         else:
             use_password_auth = bool(allow_password and proxmox_password and sshpass_bin)
             auth_method = "ssh_password" if use_password_auth else "ssh_key"
@@ -283,7 +304,7 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
             # the remote command. Keeping `--` here can end up forwarding it to
             # restrictive remote shells/forced commands, which breaks probes like
             # `pct list` with "no command specified".
-            ssh_command = ["ssh", *_ssh_options(batch_mode=not use_password_auth), target, *parts]
+            ssh_command = ["ssh", *_ssh_options(batch_mode=not use_password_auth), target, *command_parts]
             command = [sshpass_bin, "-p", proxmox_password, *ssh_command] if use_password_auth else ssh_command
         run = subprocess.run(command, text=True, capture_output=True, check=False)
         return command, run, auth_method
@@ -302,11 +323,13 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
     run: subprocess.CompletedProcess[str] | None = None
     command: list[str] = parts
     auth_method = "local"
+    simplified_parts = _extract_simple_shell_command(parts) if ssh_target else None
+    simplified_used = False
     target_attempts = _attempt_targets(ssh_target)
     auth_attempts = [False, True] if proxmox_password else [False]
     for target in target_attempts:
         for allow_password in auth_attempts:
-            command, run, auth_method = _exec(target, allow_password=allow_password)
+            command, run, auth_method = _exec(parts, target, allow_password=allow_password)
             stderr = run.stderr.strip()
             attempts.append(
                 {
@@ -319,6 +342,34 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
             )
             if run.returncode == 0:
                 break
+            if (
+                target
+                and simplified_parts
+                and not simplified_used
+                and "Permission denied" not in stderr
+            ):
+                simplified_command, simplified_run, simplified_auth_method = _exec(
+                    simplified_parts,
+                    target,
+                    allow_password=allow_password,
+                )
+                simplified_stderr = simplified_run.stderr.strip()
+                attempts.append(
+                    {
+                        "ssh_target": target,
+                        "auth_method": f"{simplified_auth_method}_simplified",
+                        "command": _sanitize_command(simplified_command),
+                        "returncode": simplified_run.returncode,
+                        "stderr": simplified_stderr,
+                    }
+                )
+                simplified_used = True
+                command = simplified_command
+                run = simplified_run
+                auth_method = f"{simplified_auth_method}_simplified"
+                stderr = simplified_stderr
+                if run.returncode == 0:
+                    break
             if not (target and "Permission denied" in stderr):
                 break
         if run and run.returncode == 0:
