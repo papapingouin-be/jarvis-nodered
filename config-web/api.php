@@ -648,8 +648,12 @@ function run_python_direct(array $service, array $payload, int $timeout, array $
     stream_set_blocking($pipes[2], false);
 
     $stdout = ''; $stderr = ''; $start = microtime(true); $timedOut = false;
+    $lastStatus = null;
     do {
         $status = proc_get_status($process);
+        if (is_array($status)) {
+            $lastStatus = $status;
+        }
         $stdout .= stream_get_contents($pipes[1]);
         $stderr .= stream_get_contents($pipes[2]);
         if (!$status['running']) break;
@@ -665,6 +669,9 @@ function run_python_direct(array $service, array $payload, int $timeout, array $
     $stderr .= stream_get_contents($pipes[2]);
     fclose($pipes[1]); fclose($pipes[2]);
     $exitCode = proc_close($process);
+    if ($exitCode === -1 && is_array($lastStatus) && isset($lastStatus['exitcode']) && is_int($lastStatus['exitcode']) && $lastStatus['exitcode'] >= 0) {
+        $exitCode = $lastStatus['exitcode'];
+    }
 
     $decoded = null;
     $trimmed = trim($stdout);
