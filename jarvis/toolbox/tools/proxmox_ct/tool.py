@@ -257,7 +257,7 @@ def _ssh_options(*, batch_mode: bool) -> list[str]:
 
 
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
-    proxmox_password = (os.getenv("PROXMOX_PASSWORD") or "").strip()
+    proxmox_password = (os.getenv("PROXMOX_ROOT_PASSWORD") or os.getenv("PROXMOX_PASSWORD") or "").strip()
     sshpass_bin = shutil.which("sshpass") if proxmox_password else None
     redacted_token = "********"
 
