@@ -73,6 +73,7 @@ def test_run_proxmox_ct_metadata_operations(tmp_path) -> None:
 
     out_list_services = run_tool(manifest, {"operation": "list-services"})
     assert "plan_ct_action" in out_list_services["data"]["result"]["services"]
+    assert "collect" in out_list_services["data"]["result"]["services"]
 
     out_describe_service = run_tool(
         manifest,
@@ -90,3 +91,27 @@ def test_run_proxmox_ct_metadata_operations(tmp_path) -> None:
     )
     assert out_validate["data"]["result"]["ready"] is False
     assert "action" in out_validate["data"]["result"]["missing_required"]
+
+
+def test_run_proxmox_ct_collect_operation(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out = run_tool(manifest, {"operation": "collect"})
+    assert out["data"]["operation"] == "collect"
+    assert "collected" in out["data"]["result"]
+
+
+def test_run_proxmox_ct_list_operations(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out_ct = run_tool(manifest, {"operation": "list-ct"})
+    assert out_ct["data"]["operation"] == "list-ct"
+    assert "containers" in out_ct["data"]["result"]
+
+    out_templates = run_tool(manifest, {"operation": "list-templates"})
+    assert out_templates["data"]["operation"] == "list-templates"
+    assert "templates" in out_templates["data"]["result"]

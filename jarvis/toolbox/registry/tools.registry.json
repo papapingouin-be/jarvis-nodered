@@ -294,6 +294,17 @@
         "operation": {
           "type": "string",
           "enum": [
+            "self-doc",
+            "diagnose",
+            "collect",
+            "list-ct",
+            "list-templates",
+            "preflight-create",
+            "create-ct",
+            "get-ct-info",
+            "stop-ct",
+            "destroy-ct",
+            "ensure-ct",
             "register_target",
             "register_service",
             "resolve_service",
@@ -305,6 +316,22 @@
             "list-services",
             "describe-service",
             "validate-service-input"
+          ]
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "self-doc",
+            "diagnose",
+            "collect",
+            "list-ct",
+            "list-templates",
+            "preflight-create",
+            "create-ct",
+            "get-ct-info",
+            "stop-ct",
+            "destroy-ct",
+            "ensure-ct"
           ]
         },
         "target": {
@@ -359,10 +386,37 @@
         },
         "meta_service": {
           "type": "string"
+        },
+        "ctid": {
+          "type": "integer"
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "template": {
+          "type": "string"
+        },
+        "storage": {
+          "type": "string"
+        },
+        "bridge": {
+          "type": "string"
+        },
+        "ssh_target": {
+          "type": "string"
         }
       },
-      "required": [
-        "operation"
+      "anyOf": [
+        {
+          "required": [
+            "operation"
+          ]
+        },
+        {
+          "required": [
+            "mode"
+          ]
+        }
       ],
       "allOf": [
         {
