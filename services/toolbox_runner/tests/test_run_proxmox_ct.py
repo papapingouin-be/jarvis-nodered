@@ -189,7 +189,7 @@ def test_run_proxmox_ct_list_ct_includes_debug_context_when_requested(tmp_path) 
     out = run_tool(manifest, {"intent": "list.containers", "debug": True})
     debug = out["data"]["result"]["debug"]
     assert debug["ssh_target_resolved"] == "root@192.168.11.248"
-    assert "StrictHostKeyChecking=accept-new" in debug["ssh_options"]
+    assert "StrictHostKeyChecking=accept-new" in debug["ssh_options_key_auth"]
 
 
 def test_run_proxmox_ct_command_attempts_are_exposed(tmp_path) -> None:

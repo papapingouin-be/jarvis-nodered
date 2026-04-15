@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sqlite3
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -233,52 +234,87 @@ def _resolve_intent(value: Any) -> tuple[str, str]:
     return normalized_intent, operation
 
 
-def _ssh_options() -> list[str]:
-    options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new"]
+def _ssh_options(*, batch_mode: bool) -> list[str]:
+    options = [
+        "-o",
+        f"BatchMode={'yes' if batch_mode else 'no'}",
+        "-o",
+        "ConnectTimeout=6",
+        "-o",
+        "StrictHostKeyChecking=accept-new",
+    ]
+    if batch_mode:
+        options.extend(["-o", "NumberOfPasswordPrompts=0"])
+    else:
+        options.extend(["-o", "NumberOfPasswordPrompts=1"])
     ssh_port = (os.getenv("PROXMOX_SSH_PORT") or "").strip()
     if ssh_port:
         options.extend(["-p", ssh_port])
+    identity_file = (os.getenv("PROXMOX_IDENTITY_FILE") or "").strip()
+    if identity_file:
+        options.extend(["-i", identity_file])
     return options
 
 
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
-    def _exec(target: str | None) -> tuple[list[str], subprocess.CompletedProcess[str]]:
-        command = parts if target is None else ["ssh", *_ssh_options(), target, "--", *parts]
+    proxmox_password = (os.getenv("PROXMOX_PASSWORD") or "").strip()
+    sshpass_bin = shutil.which("sshpass") if proxmox_password else None
+
+    def _exec(target: str | None, *, allow_password: bool) -> tuple[list[str], subprocess.CompletedProcess[str], str]:
+        auth_method = "local"
+        if target is None:
+            command = parts
+        else:
+            use_password_auth = bool(allow_password and proxmox_password and sshpass_bin)
+            auth_method = "ssh_password" if use_password_auth else "ssh_key"
+            ssh_command = ["ssh", *_ssh_options(batch_mode=not use_password_auth), target, "--", *parts]
+            command = [sshpass_bin, "-p", proxmox_password, *ssh_command] if use_password_auth else ssh_command
         run = subprocess.run(command, text=True, capture_output=True, check=False)
-        return command, run
+        return command, run, auth_method
 
-    command, run = _exec(ssh_target)
-    stderr = run.stderr.strip()
-    attempts: list[dict[str, Any]] = [
-        {
-            "ssh_target": ssh_target,
-            "command": command,
-            "returncode": run.returncode,
-            "stderr": stderr,
-        }
-    ]
+    def _attempt_targets(target: str | None) -> list[str | None]:
+        if target is None:
+            return [None]
+        if "@" in target:
+            ssh_user, ssh_host = target.split("@", 1)
+            if ssh_user != "root":
+                return [target, f"root@{ssh_host}"]
+            return [target]
+        return [target, f"root@{target}"]
 
-    fallback_used = False
-    if (
-        ssh_target
-        and run.returncode != 0
-        and "Permission denied" in stderr
-        and "@" in ssh_target
-    ):
-        ssh_user, ssh_host = ssh_target.split("@", 1)
-        if ssh_user != "root":
-            fallback_target = f"root@{ssh_host}"
-            command, run = _exec(fallback_target)
+    attempts: list[dict[str, Any]] = []
+    run: subprocess.CompletedProcess[str] | None = None
+    command: list[str] = parts
+    auth_method = "local"
+    target_attempts = _attempt_targets(ssh_target)
+    auth_attempts = [False, True] if proxmox_password else [False]
+    for target in target_attempts:
+        for allow_password in auth_attempts:
+            command, run, auth_method = _exec(target, allow_password=allow_password)
             stderr = run.stderr.strip()
             attempts.append(
                 {
-                    "ssh_target": fallback_target,
+                    "ssh_target": target,
+                    "auth_method": auth_method,
                     "command": command,
                     "returncode": run.returncode,
                     "stderr": stderr,
                 }
             )
-            fallback_used = True
+            if run.returncode == 0:
+                break
+            if not (target and "Permission denied" in stderr):
+                break
+        if run and run.returncode == 0:
+            break
+
+    if run is None:
+        run = subprocess.CompletedProcess(args=parts, returncode=1, stdout="", stderr="unreachable")
+        stderr = run.stderr
+    else:
+        stderr = run.stderr.strip()
+
+    fallback_used = len(attempts) > 1
 
     if "Host key verification failed." in stderr:
         stderr = (
@@ -286,9 +322,12 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
             "(astuce: vérifier ~/.ssh/known_hosts ou relancer après nettoyage de l'empreinte côté runner)"
         )
     if "Permission denied" in stderr:
+        password_hint = ""
+        if proxmox_password and not sshpass_bin:
+            password_hint = " mot de passe fourni mais sshpass absent sur le runner ;"
         stderr = (
             f"{stderr} "
-            "(astuce: configurer une clé SSH valide ou utiliser PROXMOX_USER=root si seule la clé root est autorisée)"
+            f"(astuce:{password_hint} configurer une clé SSH valide, installer sshpass, ou utiliser PROXMOX_USER=root si seule la clé root est autorisée)"
         )
     return {
         "command": command,
@@ -296,6 +335,7 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
         "stdout": run.stdout.strip(),
         "stderr": stderr,
         "ok": run.returncode == 0,
+        "auth_method": auth_method,
         "attempts": attempts,
         "fallback_used": fallback_used,
     }
@@ -314,7 +354,8 @@ def _debug_context(payload: dict[str, Any], ssh_target: str | None) -> dict[str,
         "requested_intent": payload.get("intent"),
         "mode": payload.get("mode"),
         "ssh_target_resolved": ssh_target,
-        "ssh_options": _ssh_options(),
+        "ssh_options_key_auth": _ssh_options(batch_mode=True),
+        "ssh_options_password_auth": _ssh_options(batch_mode=False),
         "env": {
             "PROXMOX_HOST": (os.getenv("PROXMOX_HOST") or "").strip(),
             "PROXMOX_USER": (os.getenv("PROXMOX_USER") or "").strip(),
