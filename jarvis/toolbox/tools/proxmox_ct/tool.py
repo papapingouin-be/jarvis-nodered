@@ -686,7 +686,11 @@ def _validate_service_input(payload: dict[str, Any]) -> dict[str, Any]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-        raw_intent = payload.get("intent", payload.get("operation", payload.get("mode")))
+        raw_intent = payload.get("intent")
+        if not isinstance(raw_intent, str) or not raw_intent.strip():
+            raw_intent = payload.get("operation")
+        if not isinstance(raw_intent, str) or not raw_intent.strip():
+            raw_intent = payload.get("mode")
         normalized_intent, operation = _resolve_intent(raw_intent)
         with _connect() as conn:
             if operation in MODE_OPERATIONS:
