@@ -472,15 +472,27 @@ def _parse_pct_list(stdout: str) -> list[dict[str, Any]]:
     containers: list[dict[str, Any]] = []
     for line in data_lines:
         parts = line.split()
-        if len(parts) < 6:
+        if len(parts) < 3:
             continue
-        ctid_raw, status, *_middle, name = parts[0], parts[1], parts[2:-1], parts[-1]
+
+        ctid_raw, status = parts[0], parts[1]
         if not ctid_raw.isdigit():
             continue
+
+        lock = ""
+        name_tokens = parts[2:]
+        if len(parts) >= 4:
+            lock = parts[2]
+            name_tokens = parts[3:]
+        name = " ".join(name_tokens).strip()
+        if not name:
+            continue
+
         containers.append(
             {
                 "ctid": int(ctid_raw),
                 "status": status,
+                "lock": lock,
                 "name": name,
                 "raw": line,
             }

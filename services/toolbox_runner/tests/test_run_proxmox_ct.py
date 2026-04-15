@@ -208,6 +208,20 @@ def test_run_proxmox_ct_command_attempts_are_exposed(tmp_path) -> None:
     assert len(containers_probe["attempts"]) >= 1
 
 
+
+
+def test_parse_pct_list_supports_empty_lock_column() -> None:
+    stdout = """VMID       Status     Lock         Name                
+100        stopped                 dev                 
+101        running    snapshot     ctdev"""
+
+    parsed = proxmox_tool._parse_pct_list(stdout)
+
+    assert parsed == [
+        {"ctid": 100, "status": "stopped", "lock": "", "name": "dev", "raw": "100        stopped                 dev"},
+        {"ctid": 101, "status": "running", "lock": "snapshot", "name": "ctdev", "raw": "101        running    snapshot     ctdev"},
+    ]
+
 def test_run_proxmox_ct_redacts_password_in_debug_commands(tmp_path) -> None:
     os.environ["PROXMOX_PASSWORD"] = "super-secret"
     os.environ["PROXMOX_SSH_PORT"] = "22"
