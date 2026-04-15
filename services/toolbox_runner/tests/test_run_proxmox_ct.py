@@ -165,3 +165,15 @@ def test_run_proxmox_ct_uses_env_defaults_for_ssh_target(tmp_path) -> None:
 
     out = run_tool(manifest, {"intent": "list.containers", "ssh_target": ""})
     assert out["data"]["result"]["ssh_target"] == "root@192.168.11.248"
+
+
+def test_run_proxmox_ct_ssh_command_uses_accept_new_host_key_checking(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    os.environ["PROXMOX_HOST"] = "192.168.11.248"
+    os.environ["PROXMOX_USER"] = "root"
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out = run_tool(manifest, {"intent": "list.containers"})
+    cmd = out["data"]["result"]["collected"]["containers"]["command"]
+    assert "StrictHostKeyChecking=accept-new" in cmd

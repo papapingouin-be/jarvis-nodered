@@ -232,14 +232,28 @@ def _resolve_intent(value: Any) -> tuple[str, str]:
     return normalized_intent, operation
 
 
+def _ssh_options() -> list[str]:
+    options = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new"]
+    ssh_port = (os.getenv("PROXMOX_SSH_PORT") or "").strip()
+    if ssh_port:
+        options.extend(["-p", ssh_port])
+    return options
+
+
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
-    command = parts if ssh_target is None else ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", ssh_target, "--", *parts]
+    command = parts if ssh_target is None else ["ssh", *_ssh_options(), ssh_target, "--", *parts]
     run = subprocess.run(command, text=True, capture_output=True, check=False)
+    stderr = run.stderr.strip()
+    if "Host key verification failed." in stderr:
+        stderr = (
+            f"{stderr} "
+            "(astuce: vérifier ~/.ssh/known_hosts ou relancer après nettoyage de l'empreinte côté runner)"
+        )
     return {
         "command": command,
         "returncode": run.returncode,
         "stdout": run.stdout.strip(),
-        "stderr": run.stderr.strip(),
+        "stderr": stderr,
         "ok": run.returncode == 0,
     }
 
