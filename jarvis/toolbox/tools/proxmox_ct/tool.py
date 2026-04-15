@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -212,6 +213,20 @@ def _resolve_intent(value: Any) -> tuple[str, str]:
         raise ValueError("intent must be a non-empty string")
     normalized_intent = value.strip().lower()
     operation = INTENT_ALIASES.get(normalized_intent)
+    if operation is None:
+        collapsed_intent = re.sub(r"[^a-z0-9._-]+", "", normalized_intent)
+        operation = INTENT_ALIASES.get(collapsed_intent)
+    if operation is None:
+        for alias in sorted(INTENT_ALIASES.keys(), key=len, reverse=True):
+            if alias and alias in normalized_intent:
+                operation = INTENT_ALIASES[alias]
+                break
+    if operation is None:
+        for alias in sorted(INTENT_ALIASES.keys(), key=len, reverse=True):
+            collapsed_alias = re.sub(r"[^a-z0-9._-]+", "", alias)
+            if collapsed_alias and collapsed_alias in re.sub(r"[^a-z0-9._-]+", "", normalized_intent):
+                operation = INTENT_ALIASES[alias]
+                break
     if operation is None:
         raise ValueError(f"unsupported intent: {value}")
     return normalized_intent, operation
