@@ -158,6 +158,18 @@ MODE_OPERATIONS = {
     "ensure-ct",
 }
 
+MODE_ALIASES = {
+    "list-ct": "list_ct",
+    "list": "list_ct",
+    "liste": "list_ct",
+}
+
+
+def _normalize_mode(value: Any) -> str:
+    if not isinstance(value, str):
+        raise ValueError("mode must be a string")
+    return MODE_ALIASES.get(value, value)
+
 
 def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, Any]:
     command = parts if ssh_target is None else ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", ssh_target, "--", *parts]
@@ -220,7 +232,7 @@ def _parse_pct_list(stdout: str) -> list[dict[str, Any]]:
 
 
 def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
-    mode = payload["mode"]
+    mode = _normalize_mode(payload["mode"])
     ssh_target = payload.get("ssh_target")
     if mode == "self-doc":
         return _mode_doc()
@@ -613,18 +625,16 @@ def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
         if "mode" in payload:
-            mode = payload["mode"]
+            mode = _normalize_mode(payload["mode"])
             if mode not in MODE_OPERATIONS:
                 raise ValueError(f"unsupported mode: {mode}")
-            result = _run_mode(payload)
+            result = _run_mode({**payload, "mode": mode})
             print(json.dumps({"operation": mode, "result": result}))
             return 0
-        operation = payload.get("operation")
+        operation = _normalize_mode(payload.get("operation"))
         with _connect() as conn:
             if operation in MODE_OPERATIONS:
                 result = _run_mode({**payload, "mode": operation})
-            elif operation == "list_ct":
-                result = _run_mode({**payload, "mode": "list_ct"})
             elif operation == "register_target":
                 result = _register_target(conn, payload)
             elif operation == "register_service":
