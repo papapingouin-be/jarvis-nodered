@@ -287,14 +287,19 @@ async function saveConfig(){
 
 function buildSamplePayload(kind){
   const sample = state.current?.sample_input || {};
-  const operations = Array.isArray(state.current?.operations) ? state.current.operations : [];
-  const defaultOperation = operations.includes('describe') ? 'describe' : operations[0];
+  const actions = Array.isArray(state.current?.operations) ? state.current.operations : [];
+  const routingField = state.current?.routing_field || 'operation';
+  const preferredAction = actions.includes('inspect.describe') ? 'inspect.describe' : (actions.includes('describe') ? 'describe' : actions[0]);
   if (kind === 'empty') return {};
-  if (kind === 'sample') return defaultOperation && !sample.operation ? { operation: defaultOperation, ...sample } : sample;
+  if (kind === 'sample') return preferredAction && !sample[routingField] ? { [routingField]: preferredAction, ...sample } : sample;
   if (kind === 'required') {
     const out = {};
     const required = state.current?.required_fields || [];
-    required.forEach(k => { out[k] = sample[k] ?? (k === 'operation' ? (defaultOperation || '') : ''); });
+    required.forEach(k => {
+      if (k === routingField) out[k] = sample[k] ?? (preferredAction || '');
+      else out[k] = sample[k] ?? '';
+    });
+    if (!Object.prototype.hasOwnProperty.call(out, routingField) && preferredAction) out[routingField] = preferredAction;
     return out;
   }
   if (kind === 'trace') {
@@ -315,15 +320,25 @@ function showTest(){
 
   const engine = state.current.engine_default || 'plan_only';
   const ops = Array.isArray(state.current.operations) ? state.current.operations : [];
+  const actionDefs = Array.isArray(state.current.actions) ? state.current.actions : [];
+  const routingField = state.current?.routing_field || 'operation';
   const allTools = (state.services || []).map(s => s.name).join(', ');
   const opsBadges = ops.length
-    ? ops.map(op => `<button class="badge op-badge" style="margin-right:6px;cursor:pointer" data-operation="${encodeURIComponent(String(op))}" title="Appliquer cette opération au JSON">${esc(op)}</button>`).join('')
-    : '<span class="small">Aucune opération détectée.</span>';
+    ? ops.map(op => `<button class="badge op-badge" style="margin-right:6px;cursor:pointer" data-action="${encodeURIComponent(String(op))}" title="Appliquer cette action au JSON">${esc(op)}</button>`).join('')
+    : '<span class="small">Aucune action détectée.</span>';
+  const actionHints = actionDefs.length
+    ? actionDefs
+      .filter(a => Array.isArray(a?.required_fields) && a.required_fields.length > 0)
+      .slice(0, 6)
+      .map(a => `${a.name} → requis: ${a.required_fields.join(', ')}`)
+      .join('\n')
+    : 'Aucun raccourci requis trouvé dans le manifest.';
   document.getElementById('view').innerHTML = `
     <h3 style="margin-top:0">Test du service</h3>
     <div class="small">Choix moteur + JSON vide/exemple + sortie et logs.</div>
     <div class="small" style="margin-top:8px"><strong>Outils disponibles:</strong> ${esc(allTools || 'n/a')}</div>
-    <div class="small" style="margin-top:6px"><strong>Opérations du service:</strong> ${opsBadges}</div>
+    <div class="small" style="margin-top:6px"><strong>Champ de routage:</strong> <code>${esc(routingField)}</code></div>
+    <div class="small" style="margin-top:6px"><strong>Actions possibles:</strong> ${opsBadges}</div>
     <div class="row">
       <div>
         <label>Moteur</label>
@@ -357,13 +372,15 @@ function showTest(){
     <pre id="testResult">Aucune exécution.</pre>
     <h4>Diagnostic guidé</h4>
     <pre id="testHints">Lance un test pour obtenir des pistes automatiques.</pre>
+    <h4>Raccourcis manifest</h4>
+    <pre id="actionHints">${esc(actionHints)}</pre>
   `;
 
   document.querySelectorAll('.op-badge').forEach(btn => {
     btn.addEventListener('click', () => {
-      const encoded = btn.getAttribute('data-operation') || '';
-      const operation = decodeURIComponent(encoded);
-      setPayloadOperation(operation);
+      const encoded = btn.getAttribute('data-action') || '';
+      const action = decodeURIComponent(encoded);
+      setPayloadAction(action);
     });
   });
 
@@ -376,19 +393,23 @@ function fillPayload(kind){
   if (el) el.value = JSON.stringify(payload, null, 2);
 }
 
-function setPayloadOperation(operation){
+function setPayloadAction(action){
   const el = document.getElementById('jsonInput');
   if (!el) return;
+  const routingField = state.current?.routing_field || 'operation';
 
   try {
     const raw = (el.value || '').trim();
     const base = raw ? JSON.parse(raw) : {};
     const next = (base && typeof base === 'object' && !Array.isArray(base)) ? { ...base } : {};
-    next.operation = operation;
+    next[routingField] = action;
+    if (routingField !== 'operation') delete next.operation;
+    if (routingField !== 'intent') delete next.intent;
+    if (routingField !== 'mode') delete next.mode;
     el.value = JSON.stringify(next, null, 2);
-    setGlobalStatus(`Opération appliquée: ${operation}`, 'ok');
+    setGlobalStatus(`Action appliquée (${routingField}): ${action}`, 'ok');
   } catch {
-    setGlobalStatus("Le JSON est invalide. Corrige-le avant d'appliquer une opération.", 'err');
+    setGlobalStatus("Le JSON est invalide. Corrige-le avant d'appliquer une action.", 'err');
   }
 }
 
