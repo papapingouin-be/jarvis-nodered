@@ -265,7 +265,9 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
         """Redact sensitive tokens before exposing command traces."""
         sanitized = list(command)
         for index, token in enumerate(sanitized[:-1]):
-            if token == "-p" and sanitized[index + 1]:
+            # Only redact sshpass password flag to avoid masking unrelated
+            # flags like `ssh -p 22`.
+            if index > 0 and sanitized[index - 1].endswith("sshpass") and token == "-p" and sanitized[index + 1]:
                 sanitized[index + 1] = redacted_token
         return sanitized
 
@@ -342,6 +344,13 @@ def _run_cmd(parts: list[str], *, ssh_target: str | None = None) -> dict[str, An
         stderr = (
             f"{stderr} "
             f"(astuce:{password_hint} configurer une clé SSH valide, installer sshpass, ou utiliser PROXMOX_USER=root si seule la clé root est autorisée)"
+        )
+    if "ERROR: no command specified" in stderr and "USAGE: pct <COMMAND>" in stderr:
+        stderr = (
+            f"{stderr} "
+            "(astuce: le shell distant semble forcer la commande `pct`; "
+            "tester avec PROXMOX_USER=root, désactiver un ForceCommand côté SSH, "
+            "ou vérifier les scripts de login du compte distant)"
         )
     return {
         "command": _sanitize_command(command),
