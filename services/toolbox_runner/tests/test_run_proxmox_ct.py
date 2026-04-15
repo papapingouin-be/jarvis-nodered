@@ -1,5 +1,7 @@
 import os
+from unittest.mock import patch
 
+from jarvis.toolbox.tools.proxmox_ct import tool as proxmox_tool
 from services.toolbox_runner.registry import build_registry
 from services.toolbox_runner.runner import run_tool
 
@@ -204,3 +206,40 @@ def test_run_proxmox_ct_command_attempts_are_exposed(tmp_path) -> None:
     containers_probe = out["data"]["result"]["collected"]["containers"]
     assert isinstance(containers_probe["attempts"], list)
     assert len(containers_probe["attempts"]) >= 1
+
+
+def test_run_proxmox_ct_redacts_password_in_debug_commands(tmp_path) -> None:
+    os.environ["PROXMOX_PASSWORD"] = "super-secret"
+    os.environ["PROXMOX_SSH_PORT"] = "22"
+    fake_result = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=255,
+        stdout="",
+        stderr="Permission denied",
+    )
+
+    with patch("jarvis.toolbox.tools.proxmox_ct.tool.shutil.which", return_value="/usr/bin/sshpass"), patch.object(
+        proxmox_tool.subprocess,
+        "run",
+        return_value=fake_result,
+    ):
+        result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="jarvis@192.168.11.248")
+
+    assert "super-secret" not in " ".join(result["command"])
+    assert "22" in result["command"]
+    for attempt in result["attempts"]:
+        assert "super-secret" not in " ".join(attempt["command"])
+        assert "22" in attempt["command"]
+
+
+def test_run_proxmox_ct_adds_hint_for_pct_no_command_error(tmp_path) -> None:
+    usage_error = "ERROR: no command specified\nUSAGE: pct <COMMAND>"
+    fake_result = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=255,
+        stdout="",
+        stderr=usage_error,
+    )
+    with patch.object(proxmox_tool.subprocess, "run", return_value=fake_result):
+        result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="jarvis@192.168.11.248")
+    assert "ForceCommand" in result["stderr"]
