@@ -149,6 +149,7 @@ MODE_OPERATIONS = {
     "self-doc",
     "diagnose",
     "collect",
+    "list_ct",
     "preflight-create",
     "create-ct",
     "get-ct-info",
@@ -178,6 +179,7 @@ def _mode_doc() -> dict[str, Any]:
             "self-doc": "retourne uniquement la documentation machine-readable",
             "diagnose": "vérifie SSH, sudo, présence des commandes Proxmox",
             "collect": "collecte templates, storages, bridges, CT/VM existants",
+            "list_ct": "alias de collect pour la liste des conteneurs",
             "preflight-create": "vérifie qu'une création future est faisable",
             "create-ct": "crée un CT, le démarre, post-install réseau, SSH",
             "get-ct-info": "remonte état, nom, config, IP d'un CT",
@@ -210,7 +212,7 @@ def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
             "ok": all(item["ok"] for item in checks.values()),
         }
 
-    if mode == "collect":
+    if mode in {"collect", "list_ct"}:
         probes = {
             "templates": ["bash", "-lc", "pveam available --section system | sed -n '1,80p'"],
             "storages": ["bash", "-lc", "pvesm status"],
@@ -593,7 +595,7 @@ def main() -> int:
             if operation in MODE_OPERATIONS:
                 result = _run_mode({**payload, "mode": operation})
             elif operation == "list_ct":
-                result = _run_mode({**payload, "mode": "collect"})
+                result = _run_mode({**payload, "mode": "list_ct"})
             elif operation == "register_target":
                 result = _register_target(conn, payload)
             elif operation == "register_service":

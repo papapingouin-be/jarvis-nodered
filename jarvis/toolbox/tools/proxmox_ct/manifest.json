@@ -97,6 +97,7 @@
           "self-doc",
           "diagnose",
           "collect",
+          "list_ct",
           "preflight-create",
           "create-ct",
           "get-ct-info",
