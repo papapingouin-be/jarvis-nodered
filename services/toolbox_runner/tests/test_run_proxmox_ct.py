@@ -232,6 +232,28 @@ def test_run_proxmox_ct_redacts_password_in_debug_commands(tmp_path) -> None:
         assert "22" in attempt["command"]
 
 
+def test_run_proxmox_ct_uses_root_password_env_when_available(tmp_path) -> None:
+    os.environ["PROXMOX_ROOT_PASSWORD"] = "root-secret"
+    os.environ["PROXMOX_PASSWORD"] = "legacy-secret"
+    fake_result = proxmox_tool.subprocess.CompletedProcess(
+        args=["dummy"],
+        returncode=255,
+        stdout="",
+        stderr="Permission denied",
+    )
+
+    with patch("jarvis.toolbox.tools.proxmox_ct.tool.shutil.which", return_value="/usr/bin/sshpass"), patch.object(
+        proxmox_tool.subprocess,
+        "run",
+        return_value=fake_result,
+    ):
+        result = proxmox_tool._run_cmd(["bash", "-lc", "pct list"], ssh_target="root@192.168.11.248")
+
+    serialized_commands = " ".join(result["command"]) + " " + " ".join(" ".join(a["command"]) for a in result["attempts"])
+    assert "legacy-secret" not in serialized_commands
+    assert "root-secret" not in serialized_commands
+
+
 def test_run_proxmox_ct_adds_hint_for_pct_no_command_error(tmp_path) -> None:
     usage_error = "ERROR: no command specified\nUSAGE: pct <COMMAND>"
     fake_result = proxmox_tool.subprocess.CompletedProcess(

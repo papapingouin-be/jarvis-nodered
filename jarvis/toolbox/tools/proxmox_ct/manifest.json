@@ -39,6 +39,12 @@
     },
     {
       "namespace": "proxmox",
+      "key": "PROXMOX_ROOT_PASSWORD",
+      "label": "Mot de passe root Proxmox (prioritaire pour SSH)",
+      "required": false
+    },
+    {
+      "namespace": "proxmox",
       "key": "PROXMOX_SSH_PORT",
       "label": "Port SSH Proxmox",
       "required": false
