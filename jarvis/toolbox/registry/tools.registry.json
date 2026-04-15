@@ -294,6 +294,15 @@
         "operation": {
           "type": "string",
           "enum": [
+            "self-doc",
+            "diagnose",
+            "collect",
+            "preflight-create",
+            "create-ct",
+            "get-ct-info",
+            "stop-ct",
+            "destroy-ct",
+            "ensure-ct",
             "register_target",
             "register_service",
             "resolve_service",

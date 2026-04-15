@@ -17,6 +17,69 @@ ACTION_SUFFIX = {
 }
 
 SERVICE_DEFINITIONS: dict[str, dict[str, Any]] = {
+    "self-doc": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Return machine-readable documentation for mode-based Proxmox workflows.",
+        "required_params": [],
+        "optional_params": [],
+    },
+    "diagnose": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Check SSH/sudo/Proxmox command availability on local or remote target.",
+        "required_params": [],
+        "optional_params": ["ssh_target"],
+    },
+    "collect": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Collect templates, storages, bridges, CT and VM inventory.",
+        "required_params": [],
+        "optional_params": ["ssh_target"],
+    },
+    "preflight-create": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Validate whether a future container creation can succeed.",
+        "required_params": ["ctid", "hostname", "template", "storage", "bridge"],
+        "optional_params": ["ssh_target"],
+    },
+    "create-ct": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Create and start a Proxmox CT.",
+        "required_params": ["ctid", "hostname", "template", "storage", "bridge"],
+        "optional_params": ["ssh_target", "cores", "memory", "rootfs", "net0"],
+    },
+    "get-ct-info": {
+        "phase": "collect",
+        "confirmed_required": False,
+        "description": "Get CT status, config and IP addresses.",
+        "required_params": ["ctid"],
+        "optional_params": ["ssh_target"],
+    },
+    "stop-ct": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Stop a CT.",
+        "required_params": ["ctid"],
+        "optional_params": ["ssh_target"],
+    },
+    "destroy-ct": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Destroy a CT.",
+        "required_params": ["ctid"],
+        "optional_params": ["ssh_target"],
+    },
+    "ensure-ct": {
+        "phase": "execute",
+        "confirmed_required": True,
+        "description": "Ensure a CT exists and is running (create/start if needed).",
+        "required_params": ["ctid"],
+        "optional_params": ["ssh_target", "hostname", "template", "storage", "bridge", "cores", "memory", "rootfs", "net0"],
+    },
     "register_target": {
         "phase": "execute",
         "confirmed_required": True,
@@ -520,7 +583,9 @@ def main() -> int:
             return 0
         operation = payload.get("operation")
         with _connect() as conn:
-            if operation == "register_target":
+            if operation in MODE_OPERATIONS:
+                result = _run_mode({**payload, "mode": operation})
+            elif operation == "register_target":
                 result = _register_target(conn, payload)
             elif operation == "register_service":
                 result = _register_service(conn, payload)
