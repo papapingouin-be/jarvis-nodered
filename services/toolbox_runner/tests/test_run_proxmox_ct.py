@@ -177,6 +177,7 @@ def test_run_proxmox_ct_ssh_command_uses_accept_new_host_key_checking(tmp_path) 
     out = run_tool(manifest, {"intent": "list.containers"})
     cmd = out["data"]["result"]["collected"]["containers"]["command"]
     assert "StrictHostKeyChecking=accept-new" in cmd
+    assert "--" not in cmd
 
 
 def test_run_proxmox_ct_list_ct_includes_debug_context_when_requested(tmp_path) -> None:
