@@ -293,9 +293,25 @@ def _parse_pct_list(stdout: str) -> list[dict[str, Any]]:
     return containers
 
 
+def _resolve_ssh_target(payload: dict[str, Any]) -> str | None:
+    provided = payload.get("ssh_target")
+    if isinstance(provided, str):
+        provided = provided.strip()
+        if provided:
+            return provided
+
+    host = (os.getenv("PROXMOX_HOST") or "").strip()
+    if not host:
+        return None
+
+    user = (os.getenv("PROXMOX_USER") or "").strip()
+    target = f"{user}@{host}" if user else host
+    return target
+
+
 def _run_mode(payload: dict[str, Any]) -> dict[str, Any]:
     mode = payload["mode"]
-    ssh_target = payload.get("ssh_target")
+    ssh_target = _resolve_ssh_target(payload)
     if mode == "self-doc":
         return _mode_doc()
 

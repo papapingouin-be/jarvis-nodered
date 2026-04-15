@@ -154,3 +154,14 @@ def test_run_proxmox_ct_operation_used_when_intent_is_blank(tmp_path) -> None:
     out = run_tool(manifest, {"intent": "", "operation": "liste des ct sur proxmox"})
     assert out["data"]["intent"] == "list_ct"
     assert list(out["data"]["result"]["collected"].keys()) == ["containers"]
+
+
+def test_run_proxmox_ct_uses_env_defaults_for_ssh_target(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    os.environ["PROXMOX_HOST"] = "192.168.11.248"
+    os.environ["PROXMOX_USER"] = "root"
+    registry = build_registry()
+    manifest = registry["proxmox_ct"]
+
+    out = run_tool(manifest, {"intent": "list.containers", "ssh_target": ""})
+    assert out["data"]["result"]["ssh_target"] == "root@192.168.11.248"
