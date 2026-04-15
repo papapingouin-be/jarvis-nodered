@@ -307,6 +307,9 @@ function default_demo_service(): array {
             ['namespace' => 'example_service', 'key' => 'TOKEN', 'label' => 'Token', 'required' => false],
         ],
         'code_files' => [],
+        'routing_field' => 'operation',
+        'actions' => [],
+        'operations' => [],
     ];
 }
 
@@ -396,17 +399,105 @@ function config_namespaces_for_service(array $service): array {
 
 
 
-function service_operations_from_manifest(array $manifest): array {
-    $ops = [];
-    $properties = $manifest['input_schema']['properties'] ?? [];
-    if (is_array($properties) && isset($properties['operation']['enum']) && is_array($properties['operation']['enum'])) {
-        foreach ($properties['operation']['enum'] as $op) {
-            if (is_string($op) && trim($op) !== '') $ops[] = trim($op);
+function schema_string_values(array $schema): array {
+    $values = [];
+    if (isset($schema['enum']) && is_array($schema['enum'])) {
+        foreach ($schema['enum'] as $value) {
+            if (is_string($value) && trim($value) !== '') $values[] = trim($value);
         }
     }
-    $ops = array_values(array_unique($ops));
-    sort($ops);
-    return $ops;
+    if (isset($schema['const']) && is_string($schema['const']) && trim($schema['const']) !== '') {
+        $values[] = trim($schema['const']);
+    }
+    return array_values(array_unique($values));
+}
+
+function semantic_action_key(string $value): string {
+    $norm = strtolower(trim($value));
+    $norm = str_replace([' ', '-', '_'], '.', $norm);
+    $norm = preg_replace('/\.+/', '.', $norm ?? '') ?? '';
+    return trim($norm, '.');
+}
+
+function action_name_rank(string $value): int {
+    if (str_contains($value, '.')) return 0; // format canonical recommandé: domain.action
+    if (str_contains($value, '_')) return 1;
+    if (str_contains($value, '-')) return 2;
+    return 3;
+}
+
+function normalize_action_names(array $names): array {
+    $bestBySemantic = [];
+    foreach ($names as $name) {
+        if (!is_string($name) || trim($name) === '') continue;
+        $clean = trim($name);
+        $semantic = semantic_action_key($clean);
+        if ($semantic === '') continue;
+        if (!isset($bestBySemantic[$semantic])) {
+            $bestBySemantic[$semantic] = $clean;
+            continue;
+        }
+        $current = (string)$bestBySemantic[$semantic];
+        $replace = action_name_rank($clean) < action_name_rank($current)
+            || (action_name_rank($clean) === action_name_rank($current) && strcmp($clean, $current) < 0);
+        if ($replace) $bestBySemantic[$semantic] = $clean;
+    }
+    $out = array_values($bestBySemantic);
+    sort($out);
+    return $out;
+}
+
+function extract_action_requirements(array $inputSchema, string $routingField): array {
+    $requirements = [];
+    $allOf = $inputSchema['allOf'] ?? [];
+    if (!is_array($allOf)) return $requirements;
+    foreach ($allOf as $rule) {
+        if (!is_array($rule)) continue;
+        $ifEnum = $rule['if']['properties'][$routingField]['enum'] ?? null;
+        $ifConst = $rule['if']['properties'][$routingField]['const'] ?? null;
+        $required = $rule['then']['required'] ?? [];
+        if (!is_array($required)) $required = [];
+        $targets = [];
+        if (is_array($ifEnum)) $targets = array_merge($targets, $ifEnum);
+        if (is_string($ifConst) && trim($ifConst) !== '') $targets[] = trim($ifConst);
+        foreach ($targets as $value) {
+            if (!is_string($value) || trim($value) === '') continue;
+            $name = trim($value);
+            if (!isset($requirements[$name])) $requirements[$name] = [];
+            foreach ($required as $field) {
+                if (is_string($field) && trim($field) !== '' && !in_array($field, $requirements[$name], true)) {
+                    $requirements[$name][] = trim($field);
+                }
+            }
+            sort($requirements[$name]);
+        }
+    }
+    return $requirements;
+}
+
+function service_actions_from_manifest(array $manifest): array {
+    $inputSchema = $manifest['input_schema'] ?? [];
+    $properties = $inputSchema['properties'] ?? [];
+    if (!is_array($properties)) $properties = [];
+
+    $intentValues = is_array($properties['intent'] ?? null) ? schema_string_values($properties['intent']) : [];
+    $operationValues = is_array($properties['operation'] ?? null) ? schema_string_values($properties['operation']) : [];
+    $modeValues = is_array($properties['mode'] ?? null) ? schema_string_values($properties['mode']) : [];
+    $routingField = $intentValues !== [] ? 'intent' : (array_key_exists('operation', $properties) ? 'operation' : 'mode');
+    $rawNames = $routingField === 'intent' ? $intentValues : ($routingField === 'operation' ? $operationValues : $modeValues);
+    $names = normalize_action_names($rawNames);
+    $requirementsByRawName = is_array($inputSchema) ? extract_action_requirements($inputSchema, $routingField) : [];
+
+    $actions = [];
+    foreach ($names as $name) {
+        $requirements = $requirementsByRawName[$name] ?? [];
+        $actions[] = ['name' => $name, 'required_fields' => $requirements];
+    }
+    return [
+        'routing_field' => $routingField,
+        'action_names' => $names,
+        'actions' => $actions,
+    ];
 }
 
 function list_services_full(): array {
@@ -453,6 +544,7 @@ function list_services_full(): array {
             $configRequirements = inferred_config_requirements($nameFallback, $runtimeEnvKeys);
         }
 
+        $actionData = service_actions_from_manifest($manifest);
         $services[] = [
             'name' => (string)($manifest['name'] ?? basename($toolDir)),
             'description' => (string)($manifest['description'] ?? ''),
@@ -465,7 +557,9 @@ function list_services_full(): array {
             'config_requirements' => $configRequirements,
             'code_files' => $codeFiles,
             'runtime_env_keys' => $runtimeEnvKeys,
-            'operations' => service_operations_from_manifest($manifest),
+            'routing_field' => $actionData['routing_field'],
+            'actions' => $actionData['actions'],
+            'operations' => $actionData['action_names'], // compat UI legacy
         ];
     }
 
@@ -730,6 +824,8 @@ switch ($action) {
                 'engine_default' => $service['engine_default'],
                 'config_requirements' => $service['config_requirements'] ?? [],
                 'runtime_env_keys' => $service['runtime_env_keys'] ?? [],
+                'routing_field' => $service['routing_field'] ?? 'operation',
+                'actions' => $service['actions'] ?? [],
                 'operations' => $service['operations'] ?? [],
             ];
         }
