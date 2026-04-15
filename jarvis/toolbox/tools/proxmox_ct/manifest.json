@@ -74,7 +74,11 @@
           "plan_ct_action",
           "list_targets",
           "list_services",
-          "describe"
+          "describe",
+          "registry-doc",
+          "list-services",
+          "describe-service",
+          "validate-service-input"
         ]
       },
       "target": {
@@ -109,23 +113,6 @@
           "node"
         ]
       },
-      "service": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "target_name": {
-            "type": "string"
-          },
-          "ctid": {
-            "type": "integer"
-          },
-          "path": {
-            "type": "string"
-          }
-        }
-      },
       "service_name": {
         "type": "string"
       },
@@ -140,6 +127,12 @@
           "stop",
           "restart"
         ]
+      },
+      "params": {
+        "type": "object"
+      },
+      "meta_service": {
+        "type": "string"
       }
     },
     "required": [
@@ -200,6 +193,35 @@
           "required": [
             "service_name",
             "action"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "describe-service"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "meta_service"
+          ]
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "operation": {
+              "const": "validate-service-input"
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "meta_service",
+            "params"
           ]
         }
       }
