@@ -92,7 +92,8 @@
           "list-services",
           "describe-service",
           "validate-service-input"
-        ]
+        ],
+        "description": "Legacy alias of intent. Prefer intent."
       },
       "mode": {
         "type": "string",
@@ -110,7 +111,8 @@
           "stop-ct",
           "destroy-ct",
           "ensure-ct"
-        ]
+        ],
+        "description": "Legacy alias of intent. Prefer intent."
       },
       "target": {
         "type": "object",
@@ -182,26 +184,67 @@
       },
       "ssh_target": {
         "type": "string"
+      },
+      "intent": {
+        "type": "string",
+        "enum": [
+          "inspect.self_doc",
+          "inspect.diagnose",
+          "list.infrastructure",
+          "list.containers",
+          "ct.preflight_create",
+          "ct.create",
+          "ct.get_info",
+          "ct.stop",
+          "ct.destroy",
+          "ct.ensure",
+          "registry.register_target",
+          "registry.register_service",
+          "registry.resolve_service",
+          "plan.ct_action",
+          "list.targets",
+          "list.services",
+          "inspect.describe",
+          "registry.doc",
+          "self-doc",
+          "diagnose",
+          "collect",
+          "list_ct",
+          "list-ct",
+          "list",
+          "liste",
+          "list_containers",
+          "preflight-create",
+          "create-ct",
+          "get-ct-info",
+          "stop-ct",
+          "destroy-ct",
+          "ensure-ct",
+          "register_target",
+          "register_service",
+          "resolve_service",
+          "plan_ct_action",
+          "list_targets",
+          "list_services",
+          "describe",
+          "registry-doc",
+          "list-services",
+          "describe-service",
+          "validate-service-input",
+          "lister les ct de proxmox",
+          "lister les ct de proxmod"
+        ]
       }
     },
-    "anyOf": [
-      {
-        "required": [
-          "operation"
-        ]
-      },
-      {
-        "required": [
-          "mode"
-        ]
-      }
-    ],
     "allOf": [
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "register_target"
+            "intent": {
+              "enum": [
+                "register_target",
+                "registry.register_target"
+              ]
             }
           }
         },
@@ -214,8 +257,11 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "register_service"
+            "intent": {
+              "enum": [
+                "register_service",
+                "registry.register_service"
+              ]
             }
           }
         },
@@ -228,8 +274,11 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "resolve_service"
+            "intent": {
+              "enum": [
+                "resolve_service",
+                "registry.resolve_service"
+              ]
             }
           }
         },
@@ -242,8 +291,11 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "plan_ct_action"
+            "intent": {
+              "enum": [
+                "plan_ct_action",
+                "plan.ct_action"
+              ]
             }
           }
         },
@@ -257,8 +309,10 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "describe-service"
+            "intent": {
+              "enum": [
+                "describe-service"
+              ]
             }
           }
         },
@@ -271,8 +325,10 @@
       {
         "if": {
           "properties": {
-            "operation": {
-              "const": "validate-service-input"
+            "intent": {
+              "enum": [
+                "validate-service-input"
+              ]
             }
           }
         },
@@ -283,11 +339,17 @@
           ]
         }
       }
+    ],
+    "required": [
+      "intent"
     ]
   },
   "output_schema": {
     "type": "object",
     "properties": {
+      "intent": {
+        "type": "string"
+      },
       "operation": {
         "type": "string"
       },
@@ -296,7 +358,7 @@
       }
     },
     "required": [
-      "operation",
+      "intent",
       "result"
     ]
   }

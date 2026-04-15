@@ -25,7 +25,7 @@ def test_run_refreshes_registry_before_missing_tool_response(monkeypatch) -> Non
     )
 
     client = TestClient(toolbox_app.app)
-    response = client.post("/v1/run", json={"tool": "npm_service", "input": {"operation": "list_services"}})
+    response = client.post("/v1/run", json={"tool": "npm_service", "input": {"intent": "list.services"}})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
@@ -37,7 +37,7 @@ def test_missing_tool_lists_available_tools(monkeypatch) -> None:
     monkeypatch.setattr(toolbox_app, "build_registry", lambda: {"example_echo": {"name": "example_echo"}})
 
     client = TestClient(toolbox_app.app)
-    response = client.post("/v1/run", json={"tool": "npm_service", "input": {"operation": "list_services"}})
+    response = client.post("/v1/run", json={"tool": "npm_service", "input": {"intent": "list.services"}})
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is False

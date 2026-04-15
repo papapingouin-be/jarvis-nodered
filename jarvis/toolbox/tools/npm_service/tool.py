@@ -12,6 +12,21 @@ from urllib import error, request
 
 ACTIONS = {"list", "add", "delete"}
 
+INTENT_ALIASES = {
+    "register_instance": "register_instance",
+    "registry.register_instance": "register_instance",
+    "register_service": "register_service",
+    "registry.register_service": "register_service",
+    "list_services": "list_services",
+    "list_proxy_services": "list_services",
+    "list.services": "list_services",
+    "lister les services npm": "list_services",
+    "plan_service_action": "plan_service_action",
+    "plan.service_action": "plan_service_action",
+    "describe": "describe",
+    "inspect.describe": "describe",
+}
+
 
 def _db_path() -> Path:
     env_db = os.getenv("JARVIS_INFRA_DB")
@@ -459,12 +474,25 @@ def _plan_service_action(conn: sqlite3.Connection, payload: dict[str, Any]) -> d
 
 
 
+
+
+def _resolve_intent(raw_intent: Any) -> tuple[str, str]:
+    if not isinstance(raw_intent, str) or not raw_intent.strip():
+        raise ValueError("intent must be a non-empty string")
+    normalized_intent = raw_intent.strip().lower()
+    operation = INTENT_ALIASES.get(normalized_intent)
+    if operation is None:
+        raise ValueError(f"unsupported intent: {raw_intent}")
+    return normalized_intent, operation
+
+
 def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
     instances = [dict(row) for row in conn.execute("SELECT name, base_url, login FROM npm_instances ORDER BY name").fetchall()]
     services = [dict(row) for row in conn.execute("SELECT domain, instance_name, forward_host, forward_port, scheme FROM npm_services ORDER BY domain").fetchall()]
     return {
         "tool": "npm_service",
         "db_path": str(_db_path()),
+        "intents": ["registry.register_instance", "registry.register_service", "list.services", "plan.service_action", "inspect.describe"],
         "operations": ["register_instance", "register_service", "list_services", "plan_service_action"],
         "required_config": ["JARVIS_INFRA_DB"],
         "fallback_config_namespace": "npm_service",
@@ -477,7 +505,8 @@ def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-        operation = payload.get("operation")
+        raw_intent = payload.get("intent", payload.get("operation"))
+        normalized_intent, operation = _resolve_intent(raw_intent)
         with _connect() as conn:
             if operation == "register_instance":
                 result = _register_instance(conn, payload)
@@ -495,7 +524,7 @@ def main() -> int:
         print(json.dumps({"error": str(exc)}))
         return 1
 
-    print(json.dumps({"operation": operation, "result": result}))
+    print(json.dumps({"intent": operation, "operation": operation, "requested_intent": normalized_intent, "result": result}))
     return 0
 
 
