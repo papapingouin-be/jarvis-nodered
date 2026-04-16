@@ -20,6 +20,10 @@
         ],
         "description": "Legacy alias of intent. Prefer intent."
       },
+      "mode": {
+        "type": "string",
+        "description": "Legacy alias of intent. Prefer intent."
+      },
       "instance": {
         "type": "object",
         "properties": {
@@ -88,6 +92,7 @@
       "intent": {
         "type": "string",
         "enum": [
+          "",
           "registry.register_instance",
           "registry.register_service",
           "list.services",

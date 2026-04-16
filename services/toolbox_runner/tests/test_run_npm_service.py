@@ -56,3 +56,31 @@ def test_run_npm_service_flow(tmp_path) -> None:
     )
     assert out_plan["data"]["result"]["request"]["url"].endswith("/api/nginx/proxy-hosts")
     assert out_plan["data"]["result"]["auth"]["password"] == "topsecret"
+
+
+def test_run_npm_service_uses_operation_when_intent_is_blank(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    npm_manifest = build_registry()["npm_service"]
+
+    out = run_tool(
+        npm_manifest,
+        {
+            "intent": "",
+            "operation": "describe",
+        },
+    )
+    assert out["data"]["intent"] == "describe"
+
+
+def test_run_npm_service_uses_mode_when_intent_and_operation_are_blank(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    npm_manifest = build_registry()["npm_service"]
+
+    out = run_tool(
+        npm_manifest,
+        {
+            "intent": "",
+            "mode": "inspect.describe",
+        },
+    )
+    assert out["data"]["intent"] == "describe"
