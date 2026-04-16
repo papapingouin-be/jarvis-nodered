@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 from pathlib import Path
@@ -482,6 +483,21 @@ def _resolve_intent(raw_intent: Any) -> tuple[str, str]:
     normalized_intent = raw_intent.strip().lower()
     operation = INTENT_ALIASES.get(normalized_intent)
     if operation is None:
+        collapsed_intent = re.sub(r"[^a-z0-9._-]+", "", normalized_intent)
+        operation = INTENT_ALIASES.get(collapsed_intent)
+    if operation is None:
+        for alias in sorted(INTENT_ALIASES.keys(), key=len, reverse=True):
+            if alias and alias in normalized_intent:
+                operation = INTENT_ALIASES[alias]
+                break
+    if operation is None:
+        normalized_collapsed = re.sub(r"[^a-z0-9._-]+", "", normalized_intent)
+        for alias in sorted(INTENT_ALIASES.keys(), key=len, reverse=True):
+            collapsed_alias = re.sub(r"[^a-z0-9._-]+", "", alias)
+            if collapsed_alias and collapsed_alias in normalized_collapsed:
+                operation = INTENT_ALIASES[alias]
+                break
+    if operation is None:
         raise ValueError(f"unsupported intent: {raw_intent}")
     return normalized_intent, operation
 
@@ -505,7 +521,11 @@ def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
 def main() -> int:
     try:
         payload = json.loads(sys.stdin.read() or "{}")
-        raw_intent = payload.get("intent", payload.get("operation"))
+        raw_intent = payload.get("intent")
+        if not isinstance(raw_intent, str) or not raw_intent.strip():
+            raw_intent = payload.get("operation")
+        if not isinstance(raw_intent, str) or not raw_intent.strip():
+            raw_intent = payload.get("mode")
         normalized_intent, operation = _resolve_intent(raw_intent)
         with _connect() as conn:
             if operation == "register_instance":
