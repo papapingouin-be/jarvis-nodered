@@ -84,3 +84,21 @@ def test_run_npm_service_uses_mode_when_intent_and_operation_are_blank(tmp_path)
         },
     )
     assert out["data"]["intent"] == "describe"
+
+
+def test_run_npm_service_list_services_requires_only_instance_name(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    npm_manifest = build_registry()["npm_service"]
+
+    out = run_tool(
+        npm_manifest,
+        {
+            "intent": "list.services",
+            "instance_name": "default",
+        },
+    )
+
+    result = out["data"]["result"]
+    assert out["data"]["intent"] == "list_services"
+    assert result["instance_name"] == "default"
+    assert result["instance_configured"] is False

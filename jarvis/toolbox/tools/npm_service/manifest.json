@@ -114,6 +114,9 @@
     "allOf": [
       {
         "if": {
+          "required": [
+            "intent"
+          ],
           "properties": {
             "intent": {
               "enum": [
@@ -131,6 +134,9 @@
       },
       {
         "if": {
+          "required": [
+            "intent"
+          ],
           "properties": {
             "intent": {
               "enum": [
@@ -148,6 +154,9 @@
       },
       {
         "if": {
+          "required": [
+            "intent"
+          ],
           "properties": {
             "intent": {
               "enum": [
@@ -167,6 +176,9 @@
       },
       {
         "if": {
+          "required": [
+            "intent"
+          ],
           "properties": {
             "intent": {
               "enum": [
