@@ -4,6 +4,8 @@ from time import perf_counter
 
 from fastapi import FastAPI
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from services.common.logging_utils import configure_logging, log_event
 from services.common.jarvis_types import ToolRunRequest
@@ -47,10 +49,58 @@ def _refresh_registry() -> dict:
     return REGISTRY
 
 
+def _available_tool_names() -> list[str]:
+    if not REGISTRY:
+        _refresh_registry()
+    return sorted(REGISTRY.keys())
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path != "/v1/run":
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+    missing_tool = any(
+        err.get("type") == "missing" and err.get("loc", [None])[-1] == "tool"
+        for err in exc.errors()
+    )
+    if not missing_tool:
+        return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+    tools = _available_tool_names()
+    log_event(
+        logger,
+        service="toolbox_runner",
+        event="run_validation_error",
+        path=request.url.path,
+        reason="missing_tool",
+        available_tools=tools,
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "ok": False,
+            "error_code": "MISSING_REQUIRED_FIELD",
+            "message": "missing required field: tool",
+            "data": {
+                "required": ["tool"],
+                "available_tools": tools,
+                "example": {"tool": tools[0] if tools else "example_echo", "input": {}, "context": {}},
+            },
+        },
+    )
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     log_event(logger, service="toolbox_runner", event="healthcheck")
     return {"status": "ok"}
+
+
+@app.get("/v1/tools")
+def list_tools() -> dict[str, list[str]]:
+    tools = _available_tool_names()
+    return {"tools": tools}
 
 
 @app.post("/v1/run")
