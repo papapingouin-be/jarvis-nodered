@@ -77,6 +77,24 @@ Exemples:
 
 ## Flux didactique: payload JSON et lecture DB
 
+## OpenWebUI: commandes texte reconnues (Node-RED V1)
+
+Pour déclencher l'outil `npm_service` depuis OpenWebUI avec le flow actuel, utilise une phrase qui matche la détection d'intention, par exemple:
+
+- `liste les services de nginx proxy manager`
+- `liste les services de npm`
+- `liste les proxy de npm`
+
+Ensuite le flow:
+- détecte l'intention `npm_list_services`,
+- route vers l'outil `npm_service`,
+- envoie au runner un payload avec `input.operation = "list_services"` et `input.instance_name = <NPM_INSTANCE_NAME|default>`.
+
+Si OpenWebUI répond avec une intention inconnue, commence par tester:
+
+- `ping jarvis` (healthcheck sans outil),
+- puis `liste les services de nginx proxy manager`.
+
 ### 1) Ce que reçoit `toolbox_runner`
 
 Le endpoint `POST /v1/run` reçoit un payload de ce type:
