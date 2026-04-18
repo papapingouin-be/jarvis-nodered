@@ -19,6 +19,8 @@ INTENT_ALIASES = {
     "list_endpoints": "list_endpoints",
     "check.endpoint": "check_endpoint",
     "check_endpoint": "check_endpoint",
+    "check.all": "check_all",
+    "check_all": "check_all",
     "inspect.describe": "describe",
     "describe": "describe",
 }
@@ -183,6 +185,43 @@ def _check_endpoint(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[s
     }
 
 
+
+def _check_all(conn: sqlite3.Connection) -> dict[str, Any]:
+    rows = conn.execute(
+        """
+        SELECT name, url, expected_status, timeout_s
+        FROM http_probe_endpoints
+        ORDER BY name
+        """
+    ).fetchall()
+
+    checks: list[dict[str, Any]] = []
+    ok_count = 0
+    for row in rows:
+        endpoint = dict(row)
+        status, error_message, elapsed_ms = _run_probe(endpoint["url"], float(endpoint["timeout_s"]))
+        ok = status == int(endpoint["expected_status"])
+        if ok:
+            ok_count += 1
+        checks.append(
+            {
+                "endpoint": endpoint,
+                "probe": {
+                    "ok": ok,
+                    "status": status,
+                    "error": error_message,
+                    "elapsed_ms": elapsed_ms,
+                },
+            }
+        )
+
+    return {
+        "count": len(checks),
+        "ok_count": ok_count,
+        "failed_count": len(checks) - ok_count,
+        "checks": checks,
+    }
+
 def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
     rows = conn.execute(
         "SELECT name, url, expected_status, timeout_s, updated_at FROM http_probe_endpoints ORDER BY name"
@@ -194,12 +233,14 @@ def _describe(conn: sqlite3.Connection) -> dict[str, Any]:
             "registry.register_endpoint",
             "list.endpoints",
             "check.endpoint",
+            "check.all",
             "inspect.describe",
         ],
         "operations": [
             "register_endpoint",
             "list_endpoints",
             "check_endpoint",
+            "check_all",
             "describe",
         ],
         "known_endpoints": [dict(row) for row in rows],
@@ -224,6 +265,8 @@ def main() -> int:
                 result = _list_endpoints(conn)
             elif operation == "check_endpoint":
                 result = _check_endpoint(conn, payload)
+            elif operation == "check_all":
+                result = _check_all(conn)
             elif operation == "describe":
                 result = _describe(conn)
             else:

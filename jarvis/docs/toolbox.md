@@ -48,7 +48,13 @@ Exemples de payloads à coller dans le testeur:
 }
 ```
 
-Ordre recommandé en test: `describe` -> `register_endpoint` -> `list.endpoints` -> `check.endpoint`.
+```json
+{
+  "intent": "check.all"
+}
+```
+
+Ordre recommandé en test: `describe` -> `register_endpoint` -> `list.endpoints` -> `check.endpoint` -> `check.all`.
 
 ## Proxmox/NPM et stockage des accès
 

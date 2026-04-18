@@ -125,3 +125,42 @@ def test_run_http_probe_failed_check_returns_result_not_crash(tmp_path) -> None:
     finally:
         server.shutdown()
         thread.join(timeout=2)
+
+
+def test_run_http_probe_check_all_summary(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    manifest = build_registry()["http_probe"]
+
+    ok_server, ok_thread, ok_url = _start_server(200)
+    bad_server, bad_thread, bad_url = _start_server(503)
+    try:
+        run_tool(
+            manifest,
+            {
+                "intent": "registry.register_endpoint",
+                "name": "ok-endpoint",
+                "url": ok_url,
+                "expected_status": 200,
+            },
+        )
+        run_tool(
+            manifest,
+            {
+                "intent": "registry.register_endpoint",
+                "name": "bad-endpoint",
+                "url": bad_url,
+                "expected_status": 200,
+            },
+        )
+
+        out = run_tool(manifest, {"intent": "check.all"})
+        result = out["data"]["result"]
+        assert out["data"]["intent"] == "check_all"
+        assert result["count"] == 2
+        assert result["ok_count"] == 1
+        assert result["failed_count"] == 1
+    finally:
+        ok_server.shutdown()
+        bad_server.shutdown()
+        ok_thread.join(timeout=2)
+        bad_thread.join(timeout=2)

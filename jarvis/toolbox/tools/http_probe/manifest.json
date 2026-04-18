@@ -19,6 +19,8 @@
           "list_endpoints",
           "check.endpoint",
           "check_endpoint",
+          "check.all",
+          "check_all",
           "inspect.describe",
           "describe"
         ]

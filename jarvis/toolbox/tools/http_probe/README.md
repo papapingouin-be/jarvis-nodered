@@ -13,6 +13,7 @@ Outil d'inventaire + vérification HTTP.
 - `registry.register_endpoint`
 - `list.endpoints`
 - `check.endpoint`
+- `check.all`
 - `inspect.describe`
 
 ## Exemples
@@ -54,8 +55,17 @@ Outil d'inventaire + vérification HTTP.
 }
 ```
 
+### 5) Vérifier tous les endpoints
+
+```json
+{
+  "intent": "check.all"
+}
+```
+
 ## Notes
 
 - `expected_status` et `timeout_s` sont utiles au `register`.
 - `check.endpoint` récupère URL/statut attendu depuis la DB; il faut donc avoir fait un `register` avant.
+- `check.all` fait la même chose pour tous les endpoints enregistrés et renvoie un résumé `ok_count/failed_count`.
 - DB utilisée: `JARVIS_INFRA_DB` si défini, sinon fallback `jarvis.db`.
