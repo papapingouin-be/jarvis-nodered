@@ -14,10 +14,9 @@ from services.toolbox_runner.runner import ToolRunError, run_tool
 
 app = FastAPI(
     title="toolbox_runner",
-    version="1.0"
+    version="1.0",
+    docs_url="/docs",
 )
-
-app.openapi_version = "3.0.3"
 logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
 
