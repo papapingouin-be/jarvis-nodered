@@ -1,0 +1,135 @@
+{
+  "name": "http_probe",
+  "description": "Registre SQLite de endpoints HTTP et vérification de disponibilité",
+  "action_types": [
+    "run_tool",
+    "analysis"
+  ],
+  "entrypoint": "tool.py",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "string",
+        "enum": [
+          "",
+          "registry.register_endpoint",
+          "register_endpoint",
+          "list.endpoints",
+          "list_endpoints",
+          "check.endpoint",
+          "check_endpoint",
+          "inspect.describe",
+          "describe"
+        ]
+      },
+      "operation": {
+        "type": "string",
+        "description": "Legacy alias of intent. Prefer intent."
+      },
+      "mode": {
+        "type": "string",
+        "description": "Legacy alias of intent. Prefer intent."
+      },
+      "name": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      },
+      "expected_status": {
+        "type": "integer",
+        "minimum": 100,
+        "maximum": 599
+      },
+      "timeout_s": {
+        "type": "number",
+        "minimum": 1,
+        "maximum": 60
+      }
+    },
+    "required": [
+      "intent"
+    ],
+    "allOf": [
+      {
+        "if": {
+          "required": [
+            "intent"
+          ],
+          "properties": {
+            "intent": {
+              "enum": [
+                "registry.register_endpoint",
+                "register_endpoint"
+              ]
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "name",
+            "url"
+          ]
+        }
+      },
+      {
+        "if": {
+          "required": [
+            "intent"
+          ],
+          "properties": {
+            "intent": {
+              "enum": [
+                "check.endpoint",
+                "check_endpoint"
+              ]
+            }
+          }
+        },
+        "then": {
+          "required": [
+            "name"
+          ]
+        }
+      }
+    ]
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "intent": {
+        "type": "string"
+      },
+      "operation": {
+        "type": "string"
+      },
+      "requested_intent": {
+        "type": "string"
+      },
+      "result": {
+        "type": "object"
+      }
+    },
+    "required": [
+      "intent",
+      "operation",
+      "requested_intent",
+      "result"
+    ]
+  },
+  "config_requirements": [
+    {
+      "namespace": "http_probe",
+      "key": "JARVIS_INFRA_DB",
+      "label": "Chemin complet DB SQLite (path+nomfichier)",
+      "required": true
+    },
+    {
+      "namespace": "http_probe",
+      "key": "HTTP_PROBE_TIMEOUT_S",
+      "label": "Timeout par défaut des probes HTTP (secondes)",
+      "required": false
+    }
+  ]
+}

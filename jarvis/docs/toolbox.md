@@ -10,6 +10,7 @@
 - `proxmox_ct`: registre SQLite pour cibles Proxmox + mapping `service -> CT` + génération de requête API (`status/start/stop/restart`).
 - `npm_service`: registre SQLite pour instances Nginx Proxy Manager et services reverse proxy, avec génération des requêtes API (`list/add/delete`).
 - `sensitive_store`: mini coffre SQLite pour stocker les valeurs sensibles (`namespace/key/value`) et les référencer depuis les autres outils.
+- `http_probe`: registre SQLite d'endpoints HTTP (`name -> url`) avec vérification active (`check.endpoint`).
 
 ## Proxmox/NPM et stockage des accès
 
