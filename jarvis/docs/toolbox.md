@@ -10,6 +10,45 @@
 - `proxmox_ct`: registre SQLite pour cibles Proxmox + mapping `service -> CT` + génération de requête API (`status/start/stop/restart`).
 - `npm_service`: registre SQLite pour instances Nginx Proxy Manager et services reverse proxy, avec génération des requêtes API (`list/add/delete`).
 - `sensitive_store`: mini coffre SQLite pour stocker les valeurs sensibles (`namespace/key/value`) et les référencer depuis les autres outils.
+- `http_probe`: registre SQLite d'endpoints HTTP (`name -> url`) avec vérification active (`check.endpoint`).
+
+
+## Utiliser `http_probe` (config-web / devlab)
+
+`http_probe` est utile pour suivre des endpoints HTTP de santé et vérifier qu'ils répondent avec le code attendu.
+
+Exemples de payloads à coller dans le testeur:
+
+```json
+{
+  "intent": "inspect.describe"
+}
+```
+
+```json
+{
+  "intent": "registry.register_endpoint",
+  "name": "nodered-local",
+  "url": "http://localhost:1880",
+  "expected_status": 200,
+  "timeout_s": 5
+}
+```
+
+```json
+{
+  "intent": "list.endpoints"
+}
+```
+
+```json
+{
+  "intent": "check.endpoint",
+  "name": "nodered-local"
+}
+```
+
+Ordre recommandé en test: `describe` -> `register_endpoint` -> `list.endpoints` -> `check.endpoint`.
 
 ## Proxmox/NPM et stockage des accès
 
