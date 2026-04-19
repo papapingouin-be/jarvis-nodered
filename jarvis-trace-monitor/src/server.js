@@ -67,13 +67,13 @@ app.post('/api/events', (req, res) => {
   });
 });
 
-app.post('/v1/traces', (req, res) => {
-  logStep('POST /v1/traces received', {
+function ingestOtlpHttpJson(req, res, routeLabel) {
+  logStep(`${routeLabel} received`, {
     resource_spans: Array.isArray(req.body?.resourceSpans) ? req.body.resourceSpans.length : 0
   });
   const events = otlpJsonToEvents(req.body);
   if (!events.length) {
-    logStep('POST /v1/traces ignored', { reason: 'no spans found' });
+    logStep(`${routeLabel} ignored`, { reason: 'no spans found' });
     return res.status(202).json({ ok: true, ingested: 0 });
   }
 
@@ -87,11 +87,31 @@ app.post('/v1/traces', (req, res) => {
     accepted += 1;
   }
 
-  logStep('POST /v1/traces ingested', { accepted, total: events.length });
+  logStep(`${routeLabel} ingested`, { accepted, total: events.length });
   if (accepted > 0) {
     broadcast('event_ingested', { source: 'otlp', accepted });
   }
   return res.status(202).json({ ok: true, ingested: accepted, generated: events.length });
+}
+
+app.post('/v1/traces', (req, res) => {
+  return ingestOtlpHttpJson(req, res, 'POST /v1/traces');
+});
+
+app.post('/v1/traces/', (req, res) => {
+  return ingestOtlpHttpJson(req, res, 'POST /v1/traces/');
+});
+
+app.post('/', (req, res) => {
+  return ingestOtlpHttpJson(req, res, 'POST / (otlp fallback)');
+});
+
+app.post('*', (req, res) => {
+  logStep('POST route not found', {
+    path: req.path,
+    contentType: req.headers['content-type']
+  });
+  res.status(404).json({ ok: false, error: 'Route POST inconnue' });
 });
 
 app.get('/api/flows', (req, res) => {

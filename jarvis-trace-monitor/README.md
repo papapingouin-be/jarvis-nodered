@@ -10,6 +10,7 @@ Monitor web orienté **trace métier corrélée** pour la chaîne MCP de Jarvis 
 
 - Ingestion d'événements structurés via `POST /api/events`.
 - Compatibilité OTLP/HTTP JSON basique via `POST /v1/traces` (conversion automatique en événements monitorables).
+- Fallback OTLP tolérant pour intégrations mal configurées: `POST /v1/traces/` et `POST /`.
 - Corrélation par `trace_id` et reconstruction de flux.
 - Vue **Live** des flux récents/en cours avec filtres (statut/service/tool/texte).
 - Vue **Trace détaillée** cliquable (style run n8n simplifié).
@@ -102,6 +103,8 @@ Types d'événements V1 pris en charge (extensible):
 
 - `POST /api/events`
 - `POST /v1/traces` (OTLP/HTTP JSON minimal)
+- `POST /v1/traces/` (alias tolérant)
+- `POST /` (fallback OTLP)
 - `GET /api/flows`
 - `GET /api/flows/:traceId`
 - `GET /api/flows/:traceId/timeline`
@@ -198,7 +201,11 @@ curl -X POST http://localhost:4318/api/events \
 ```
 
 Checklist rapide:
-- vérifier que le monitor est joignable (`GET /api/health`);
+- vérifier que le monitor est joignable (`GET /healthz`);
 - vérifier que votre bridge envoie bien vers `POST /api/events` (et non uniquement vers stdout);
 - vérifier que `trace_id` est stable pour toute la conversation;
 - vérifier que les timestamps (`ts`) sont en ISO-8601 UTC.
+
+Si vous utilisez OTLP/HTTP JSON:
+- endpoint recommandé: `http://<host>:4318/v1/traces`;
+- endpoints aussi acceptés: `http://<host>:4318/v1/traces/` et `http://<host>:4318/` (fallback).
