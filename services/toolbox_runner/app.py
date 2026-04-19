@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 from time import perf_counter
 
 from fastapi import FastAPI
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from services.common.logging_utils import configure_logging, log_event
@@ -20,6 +22,21 @@ app = FastAPI(
 app.openapi_version = "3.0.3"
 logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
+
+
+def _cors_allowed_origins() -> list[str]:
+    origins_env = os.getenv("TOOLBOX_CORS_ALLOW_ORIGINS", "*")
+    origins = [origin.strip() for origin in origins_env.split(",") if origin.strip()]
+    return origins or ["*"]
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_allowed_origins(),
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.middleware("http")
