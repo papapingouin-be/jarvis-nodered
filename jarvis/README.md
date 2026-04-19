@@ -101,6 +101,10 @@ curl -s http://localhost:3011/api/health
 
 Si `log_bridge` écrit bien dans `events.jsonl`, les logs remontent ensuite dans Grafana (datasource Loki à créer via l’UI Grafana si nécessaire).
 
+## Documentation utile
+
+- Wiki dev (problèmes fréquents): `jarvis/docs/dev-wiki.md`
+
 ## Node-RED flows
 
 - Import UI: `jarvis/flows/nodered/exports/jarvis-v1.flows.json`
