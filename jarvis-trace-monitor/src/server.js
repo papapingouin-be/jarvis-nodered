@@ -96,6 +96,38 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true, service: 'jarvis-trace-monitor' });
 });
 
-app.listen(port, () => {
+const server = app.listen(port, () => {
   console.log(`[jarvis-trace-monitor] listening on http://localhost:${port}`);
 });
+
+let shuttingDown = false;
+
+function shutdown(signal) {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+  console.log(`[jarvis-trace-monitor] received ${signal}, shutting down gracefully`);
+
+  for (const res of sseClients) {
+    res.end();
+  }
+  sseClients.clear();
+
+  server.close((err) => {
+    if (err) {
+      console.error('[jarvis-trace-monitor] shutdown error:', err);
+      process.exit(1);
+      return;
+    }
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    console.error('[jarvis-trace-monitor] force exit after shutdown timeout');
+    process.exit(1);
+  }, 5000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
