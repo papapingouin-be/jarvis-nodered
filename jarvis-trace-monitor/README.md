@@ -111,6 +111,7 @@ Types d'événements V1 pris en charge (extensible):
 - `GET /api/flows/:traceId/waterfall`
 - `GET /api/services`
 - `GET /api/events/recent`
+- `GET /api/status` (état du moteur: uptime, compteurs, clients SSE)
 - `GET /api/stream` (SSE)
 
 ## Lancement local

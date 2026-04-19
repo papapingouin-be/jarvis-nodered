@@ -11,11 +11,13 @@ const {
   getWaterfall,
   getServices,
   recentEvents,
-  summarizeFlow
+  summarizeFlow,
+  getMonitorStatus
 } = require('./traceService');
 
 const app = express();
 const port = Number(process.env.PORT || 4318);
+const startedAt = Date.now();
 
 function logStep(step, details) {
   const ts = new Date().toISOString();
@@ -165,6 +167,19 @@ app.get('/api/events/recent', (req, res) => {
   const limit = Math.min(Number(req.query.limit || 100), 500);
   logStep('GET /api/events/recent response', { limit });
   res.json({ items: recentEvents(limit), total: limit });
+});
+
+app.get('/api/status', (req, res) => {
+  const status = getMonitorStatus({
+    startedAt,
+    sseClients: sseClients.size
+  });
+  logStep('GET /api/status response', {
+    totalEvents: status.events.total,
+    traces: status.events.traces_total,
+    sseClients: status.stream.sse_clients
+  });
+  res.json(status);
 });
 
 app.get('/api/stream', (req, res) => {

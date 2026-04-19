@@ -258,6 +258,35 @@ function recentEvents(limit = 100) {
   return db.prepare('SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT ?').all(limit).map(normalizeRow);
 }
 
+function getMonitorStatus(meta = {}) {
+  const startedAt = meta.startedAt || Date.now();
+  const now = Date.now();
+  const totalEvents = db.prepare('SELECT COUNT(*) AS total FROM events').get().total;
+  const totalTraces = db.prepare('SELECT COUNT(DISTINCT trace_id) AS total FROM events').get().total;
+  const runningFlows = listFlows({ status: 'running' }).length;
+  const lastRow = db.prepare('SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT 1').get();
+  const lastEvent = lastRow ? normalizeRow(lastRow) : null;
+  const sinceLastMs = lastEvent ? Math.max(0, now - new Date(lastEvent.ts).getTime()) : null;
+
+  return {
+    engine: {
+      running: true,
+      started_at: new Date(startedAt).toISOString(),
+      uptime_ms: Math.max(0, now - startedAt)
+    },
+    stream: {
+      sse_clients: Number(meta.sseClients || 0)
+    },
+    events: {
+      total: totalEvents,
+      traces_total: totalTraces,
+      running_flows: runningFlows,
+      last_event_ts: lastEvent?.ts || null,
+      since_last_event_ms: sinceLastMs
+    }
+  };
+}
+
 module.exports = {
   ingestEvent,
   listFlows,
@@ -266,5 +295,6 @@ module.exports = {
   getWaterfall,
   getServices,
   recentEvents,
-  summarizeFlow
+  summarizeFlow,
+  getMonitorStatus
 };
