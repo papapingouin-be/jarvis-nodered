@@ -124,9 +124,9 @@ async function loadFlows() {
     tool: els.toolFilter.value,
     q: els.qFilter.value
   });
-  const path = `/api/flows?${query.toString()}`;
+  const path = `api/flows?${query.toString()}`;
   try {
-    const [data, monitorStatus] = await Promise.all([api(path), api('/api/status')]);
+    const [data, monitorStatus] = await Promise.all([api(path), api('api/status')]);
     state.flows = data.items;
     renderEngineStatus(monitorStatus);
     logStep('loadFlows render', { count: data.items.length });
@@ -192,7 +192,7 @@ async function loadTrace(traceId) {
   logStep('loadTrace started', { traceId });
   state.selectedTraceId = traceId;
   try {
-    const data = await api(`/api/flows/${traceId}`);
+    const data = await api(`api/flows/${traceId}`);
     logStep('loadTrace render', { traceId, events: data.events.length });
     renderTrace(data.flow, data.events);
     loadWaterfall(traceId);
@@ -211,7 +211,7 @@ async function loadWaterfall(traceId = state.selectedTraceId) {
   }
 
   try {
-    const data = await api(`/api/flows/${traceId}/waterfall`);
+    const data = await api(`api/flows/${traceId}/waterfall`);
     const items = data.items;
     if (!items.length) {
       els.waterfallWrap.innerHTML = `<p class="empty-state">Aucun segment waterfall pour cette trace.</p>`;
@@ -245,7 +245,7 @@ async function loadWaterfall(traceId = state.selectedTraceId) {
 async function loadServices() {
   logStep('loadServices started');
   try {
-    const data = await api('/api/services');
+    const data = await api('api/services');
     if (!data.items.length) {
       els.servicesWrap.innerHTML = `
         <p class="empty-state">
@@ -305,7 +305,7 @@ function bindUI() {
   els.tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
   els.refreshFlows.addEventListener('click', loadFlows);
 
-  state.stream = new EventSource('/api/stream');
+  state.stream = new EventSource('api/stream');
   state.stream.addEventListener('open', () => {
     logStep('SSE stream connected', { readyState: state.stream.readyState });
   });
