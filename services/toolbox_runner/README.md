@@ -8,6 +8,21 @@ Service d'exécution des outils CLI JSON-in/JSON-out.
 - `GET /v1/tools` : liste des outils disponibles dans le registre chargé.
 - `POST /v1/run` : exécute un outil (`tool` requis dans le payload).
 
+## CORS (OpenWebUI mode utilisateur)
+
+Le service active CORS pour permettre les appels depuis le navigateur (mode connexion
+utilisateur dans OpenWebUI). Les requêtes `OPTIONS` (preflight) sont acceptées.
+
+- Variable: `TOOLBOX_CORS_ALLOW_ORIGINS`
+- Valeur par défaut: `*`
+- Format: liste d'origines séparées par des virgules
+
+Exemple :
+
+```bash
+TOOLBOX_CORS_ALLOW_ORIGINS="http://openwebui.jarvis.papapingouinbe.duckdns.org,https://openwebui.jarvis.papapingouinbe.duckdns.org"
+```
+
 Si `tool` est manquant dans `POST /v1/run`, le service renvoie une erreur `422`
 avec une charge utile qui inclut les outils disponibles et un exemple de payload.
 
