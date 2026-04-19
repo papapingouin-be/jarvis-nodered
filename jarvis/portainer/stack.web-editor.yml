@@ -134,7 +134,7 @@ services:
       - ${JARVIS_HOST_ROOT}:/app
     environment:
       PORT: 4318
-    command: sh -lc "npm ci && npm start"
+    command: sh -lc "npm ci && exec node src/server.js"
     ports:
       - "4318:4318"
     logging: *default-logging
