@@ -2,6 +2,7 @@ const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const { validateEvent } = require('./schema');
+const { otlpJsonToEvents } = require('./otlp');
 const {
   ingestEvent,
   listFlows,
@@ -64,6 +65,33 @@ app.post('/api/events', (req, res) => {
     warnings: validation.warnings,
     trace_id: req.body.trace_id
   });
+});
+
+app.post('/v1/traces', (req, res) => {
+  logStep('POST /v1/traces received', {
+    resource_spans: Array.isArray(req.body?.resourceSpans) ? req.body.resourceSpans.length : 0
+  });
+  const events = otlpJsonToEvents(req.body);
+  if (!events.length) {
+    logStep('POST /v1/traces ignored', { reason: 'no spans found' });
+    return res.status(202).json({ ok: true, ingested: 0 });
+  }
+
+  let accepted = 0;
+  for (const event of events) {
+    const validation = validateEvent(event);
+    if (!validation.valid) {
+      continue;
+    }
+    ingestEvent(event);
+    accepted += 1;
+  }
+
+  logStep('POST /v1/traces ingested', { accepted, total: events.length });
+  if (accepted > 0) {
+    broadcast('event_ingested', { source: 'otlp', accepted });
+  }
+  return res.status(202).json({ ok: true, ingested: accepted, generated: events.length });
 });
 
 app.get('/api/flows', (req, res) => {
