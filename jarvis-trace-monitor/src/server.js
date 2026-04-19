@@ -30,6 +30,18 @@ function logStep(step, details) {
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
+app.use((req, res, next) => {
+  const startedAtMs = Date.now();
+  res.on('finish', () => {
+    logStep('HTTP request completed', {
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      duration_ms: Date.now() - startedAtMs
+    });
+  });
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const sseClients = new Set();
@@ -204,6 +216,16 @@ app.get('/api/stream', (req, res) => {
 
 app.get('/healthz', (req, res) => {
   res.json({ ok: true, service: 'jarvis-trace-monitor' });
+});
+
+app.use((req, res) => {
+  logStep('Route not found', {
+    method: req.method,
+    path: req.originalUrl,
+    contentType: req.headers['content-type'],
+    accept: req.headers.accept
+  });
+  res.status(404).json({ ok: false, error: 'Route inconnue' });
 });
 
 const server = app.listen(port, () => {

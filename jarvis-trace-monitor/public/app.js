@@ -57,14 +57,28 @@ function logError(step, error) {
 }
 
 async function api(path) {
-  logStep('API request started', { path });
+  const url = new URL(path, window.location.href);
+  logStep('API request started', { path, resolvedUrl: url.href });
   const startedAt = performance.now();
   try {
     const res = await fetch(path);
     const latencyMs = Math.round(performance.now() - startedAt);
-    logStep('API response received', { path, status: res.status, ok: res.ok, latencyMs });
+    logStep('API response received', {
+      path,
+      resolvedUrl: url.href,
+      status: res.status,
+      ok: res.ok,
+      latencyMs
+    });
     if (!res.ok) {
-      throw new Error(`HTTP ${res.status} for ${path}`);
+      const errorBody = await res.text().catch(() => '');
+      logError('API non-OK response payload', {
+        path,
+        resolvedUrl: url.href,
+        status: res.status,
+        bodyPreview: errorBody.slice(0, 300)
+      });
+      throw new Error(`HTTP ${res.status} for ${path}${errorBody ? ` — ${errorBody.slice(0, 120)}` : ''}`);
     }
     const data = await res.json();
     logStep('API response parsed', {
@@ -74,7 +88,12 @@ async function api(path) {
     });
     return data;
   } catch (error) {
-    logError('API request failed', { path, error: error.message });
+    logError('API request failed', {
+      path,
+      resolvedUrl: url.href,
+      error: error.message,
+      online: navigator.onLine
+    });
     throw error;
   }
 }
@@ -146,7 +165,14 @@ async function loadFlows() {
 function renderEngineStatus(status, error = null) {
   if (error || !status) {
     els.engineStatus.className = 'engine-status error';
-    els.engineStatus.textContent = `Moteur indisponible: ${error?.message || 'erreur inconnue'}`;
+    const statusHint = error?.message?.includes('404')
+      ? 'endpoint /api/status introuvable (version backend?)'
+      : 'erreur inconnue';
+    els.engineStatus.textContent = `Moteur indisponible: ${error?.message || statusHint}`;
+    logError('renderEngineStatus degraded', {
+      reason: error?.message || 'status not returned',
+      location: window.location.href
+    });
     return;
   }
 
@@ -311,7 +337,10 @@ function bindUI() {
   els.tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
   els.refreshFlows.addEventListener('click', loadFlows);
 
-  state.stream = new EventSource('api/stream');
+  const streamPath = 'api/stream';
+  const streamUrl = new URL(streamPath, window.location.href);
+  logStep('SSE stream initialization', { path: streamPath, resolvedUrl: streamUrl.href });
+  state.stream = new EventSource(streamPath);
   state.stream.addEventListener('open', () => {
     logStep('SSE stream connected', { readyState: state.stream.readyState });
   });
@@ -321,7 +350,8 @@ function bindUI() {
   state.stream.addEventListener('error', (event) => {
     logError('SSE stream error', {
       readyState: state.stream.readyState,
-      eventType: event.type
+      eventType: event.type,
+      resolvedUrl: streamUrl.href
     });
   });
   state.stream.addEventListener('event_ingested', (event) => {
