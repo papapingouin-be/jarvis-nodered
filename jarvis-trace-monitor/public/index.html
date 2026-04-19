@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jarvis Trace Monitor</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Jarvis Trace Monitor</h1>
+      <p>Monitoring corrélé des flux MCP (live + trace + waterfall + services)</p>
+    </header>
+
+    <nav>
+      <button class="tab active" data-tab="live">Live Flows</button>
+      <button class="tab" data-tab="trace">Trace Detail</button>
+      <button class="tab" data-tab="waterfall">Waterfall</button>
+      <button class="tab" data-tab="services">Services</button>
+    </nav>
+
+    <section id="live" class="panel active">
+      <div class="filters">
+        <input id="qFilter" placeholder="Recherche texte" />
+        <input id="serviceFilter" placeholder="Service" />
+        <input id="toolFilter" placeholder="Tool" />
+        <select id="statusFilter">
+          <option value="">Tous les statuts</option>
+          <option>received</option>
+          <option>running</option>
+          <option>waiting</option>
+          <option>completed</option>
+          <option>error</option>
+          <option>timeout</option>
+        </select>
+        <button id="refreshFlows">Rafraîchir</button>
+      </div>
+      <div id="flows" class="grid"></div>
+    </section>
+
+    <section id="trace" class="panel">
+      <div id="traceHeader" class="trace-header">Sélectionnez un flux depuis la vue Live.</div>
+      <div id="traceSteps" class="steps"></div>
+      <pre id="traceDetails" class="details">Détails d'étape…</pre>
+    </section>
+
+    <section id="waterfall" class="panel">
+      <div id="waterfallWrap"></div>
+    </section>
+
+    <section id="services" class="panel">
+      <div id="servicesWrap"></div>
+    </section>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
