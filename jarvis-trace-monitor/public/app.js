@@ -126,7 +126,13 @@ async function loadFlows() {
   });
   const path = `api/flows?${query.toString()}`;
   try {
-    const [data, monitorStatus] = await Promise.all([api(path), api('api/status')]);
+    const [data, monitorStatus] = await Promise.all([
+      api(path),
+      api('api/status').catch((error) => {
+        logError('loadFlows status endpoint unavailable', { error: error.message });
+        return null;
+      })
+    ]);
     state.flows = data.items;
     renderEngineStatus(monitorStatus);
     logStep('loadFlows render', { count: data.items.length });
