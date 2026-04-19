@@ -96,19 +96,37 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
     )
 
 
-@app.get("/health")
+@app.get(
+    "/health",
+    tags=["jarvis_tools"],
+    summary="Health check",
+    description="Return service status to verify that toolbox_runner is alive.",
+    operation_id="jarvis_health_check",
+)
 def health() -> dict[str, str]:
     log_event(logger, service="toolbox_runner", event="healthcheck")
     return {"status": "ok"}
 
 
-@app.get("/v1/tools")
+@app.get(
+    "/v1/tools",
+    tags=["jarvis_tools"],
+    summary="List available tools",
+    description="Return the list of available tools registered in the toolbox registry.",
+    operation_id="jarvis_list_tools",
+)
 def list_tools() -> dict[str, list[str]]:
     tools = _available_tool_names()
     return {"tools": tools}
 
 
-@app.post("/v1/run")
+@app.post(
+    "/v1/run",
+    tags=["jarvis_tools"],
+    summary="Execute tool",
+    description="Execute a tool from the toolbox registry using the provided input payload.",
+    operation_id="jarvis_execute_tool",
+)
 def run(payload: ToolRunRequest) -> dict:
     log_event(
         logger,
