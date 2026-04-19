@@ -13,6 +13,7 @@ const els = {
   toolFilter: document.getElementById('toolFilter'),
   statusFilter: document.getElementById('statusFilter'),
   refreshFlows: document.getElementById('refreshFlows'),
+  engineStatus: document.getElementById('engineStatus'),
   traceHeader: document.getElementById('traceHeader'),
   traceSteps: document.getElementById('traceSteps'),
   traceDetails: document.getElementById('traceDetails'),
@@ -32,6 +33,13 @@ function fmtDuration(ms) {
 
 function fmtDate(ts) {
   return ts ? new Date(ts).toLocaleTimeString() : '-';
+}
+
+function fmtSince(ms) {
+  if (ms === null || ms === undefined) return 'jamais';
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60000) return `${Math.round(ms / 1000)} s`;
+  return `${Math.round(ms / 60000)} min`;
 }
 
 function logStep(step, details) {
@@ -71,11 +79,17 @@ async function api(path) {
   }
 }
 
-function renderFlows(items) {
+function renderFlows(items, monitorStatus = null) {
   if (!items.length) {
+    const noEventYet = monitorStatus?.events?.total === 0;
+    const runningFlows = monitorStatus?.events?.running_flows || 0;
+    const engineRunning = monitorStatus?.engine?.running;
     els.flows.innerHTML = `
       <article class="empty-state">
         <strong>Aucun flux pour le moment.</strong>
+        <p>${engineRunning ? 'Le moteur tourne bien.' : 'Le moteur ne répond pas correctement.'}
+        ${noEventYet ? 'Aucun événement n’a encore été ingéré.' : `Événements observés: ${monitorStatus?.events?.total || 0}.`}
+        ${runningFlows ? `Flux en cours détectés: ${runningFlows}.` : ''}</p>
         <p>Injectez des événements via <code>POST /api/events</code>, ou lancez <code>npm run seed</code> puis rafraîchissez.</p>
       </article>
     `;
@@ -112,13 +126,41 @@ async function loadFlows() {
   });
   const path = `/api/flows?${query.toString()}`;
   try {
-    const data = await api(path);
+    const [data, monitorStatus] = await Promise.all([api(path), api('/api/status')]);
     state.flows = data.items;
+    renderEngineStatus(monitorStatus);
     logStep('loadFlows render', { count: data.items.length });
-    renderFlows(data.items);
+    renderFlows(data.items, monitorStatus);
   } catch (error) {
     logError('loadFlows failed', error);
+    renderEngineStatus(null, error);
   }
+}
+
+function renderEngineStatus(status, error = null) {
+  if (error || !status) {
+    els.engineStatus.className = 'engine-status error';
+    els.engineStatus.textContent = `Moteur indisponible: ${error?.message || 'erreur inconnue'}`;
+    return;
+  }
+
+  const running = status.engine?.running;
+  const className = running ? 'ok' : 'warn';
+  const uptime = fmtDuration(status.engine?.uptime_ms);
+  const sseClients = status.stream?.sse_clients ?? 0;
+  const totalEvents = status.events?.total ?? 0;
+  const tracesTotal = status.events?.traces_total ?? 0;
+  const lastEvent = status.events?.last_event_ts ? fmtDate(status.events.last_event_ts) : 'aucun';
+  const sinceLast = fmtSince(status.events?.since_last_event_ms);
+
+  els.engineStatus.className = `engine-status ${className}`;
+  els.engineStatus.innerHTML = `
+    <strong>Moteur:</strong> ${running ? 'en marche' : 'arrêté'} ·
+    <strong>Uptime:</strong> ${uptime} ·
+    <strong>SSE:</strong> ${sseClients} client(s) ·
+    <strong>Événements:</strong> ${totalEvents} (${tracesTotal} trace(s)) ·
+    <strong>Dernier événement:</strong> ${lastEvent} (${sinceLast})
+  `;
 }
 
 function renderTrace(flow, events) {
