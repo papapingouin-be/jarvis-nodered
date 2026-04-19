@@ -39,6 +39,16 @@ async function api(path) {
 }
 
 function renderFlows(items) {
+  if (!items.length) {
+    els.flows.innerHTML = `
+      <article class="empty-state">
+        <strong>Aucun flux pour le moment.</strong>
+        <p>Injectez des événements via <code>POST /api/events</code>, ou lancez <code>npm run seed</code> puis rafraîchissez.</p>
+      </article>
+    `;
+    return;
+  }
+
   els.flows.innerHTML = items
     .map((flow) => `
       <article class="card" data-trace-id="${flow.trace_id}">
@@ -72,7 +82,8 @@ async function loadFlows() {
 }
 
 function renderTrace(flow, events) {
-  els.traceHeader.innerHTML = `<strong>${flow.trace_id}</strong> ${statusBadge(flow.status)} · ${flow.insights.join(' | ')}`;
+  const insights = (flow.insights || []).join(' | ');
+  els.traceHeader.innerHTML = `<strong>${flow.trace_id}</strong> ${statusBadge(flow.status)}${insights ? ` · ${insights}` : ''}`;
 
   els.traceSteps.innerHTML = events
     .map((evt, index) => `
@@ -110,6 +121,10 @@ async function loadWaterfall(traceId = state.selectedTraceId) {
 
   const data = await api(`/api/flows/${traceId}/waterfall`);
   const items = data.items;
+  if (!items.length) {
+    els.waterfallWrap.innerHTML = `<p class="empty-state">Aucun segment waterfall pour cette trace.</p>`;
+    return;
+  }
   const minStart = Math.min(...items.map((item) => new Date(item.start_ts).getTime()));
   const maxEnd = Math.max(...items.map((item) => new Date(item.end_ts).getTime()));
   const total = Math.max(maxEnd - minStart, 1);
@@ -132,6 +147,15 @@ async function loadWaterfall(traceId = state.selectedTraceId) {
 
 async function loadServices() {
   const data = await api('/api/services');
+  if (!data.items.length) {
+    els.servicesWrap.innerHTML = `
+      <p class="empty-state">
+        Aucun service observé pour l'instant. Dès qu'un événement est ingéré, l'état des services s'affichera ici.
+      </p>
+    `;
+    return;
+  }
+
   els.servicesWrap.innerHTML = `
     <table class="table">
       <thead>
