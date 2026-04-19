@@ -57,11 +57,12 @@ function logError(step, error) {
 }
 
 async function api(path) {
-  const url = new URL(path, window.location.href);
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(normalizedPath, window.location.href);
   logStep('API request started', { path, resolvedUrl: url.href });
   const startedAt = performance.now();
   try {
-    const res = await fetch(path);
+    const res = await fetch(normalizedPath);
     const latencyMs = Math.round(performance.now() - startedAt);
     logStep('API response received', {
       path,
@@ -95,6 +96,35 @@ async function api(path) {
       online: navigator.onLine
     });
     throw error;
+  }
+}
+
+async function loadMonitorStatus() {
+  try {
+    return await api('/api/status');
+  } catch (statusError) {
+    logError('loadMonitorStatus /api/status unavailable', { error: statusError.message });
+    try {
+      const health = await api('/healthz');
+      if (health?.ok) {
+        return {
+          engine: { running: true, uptime_ms: null },
+          stream: { sse_clients: null },
+          events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
+          degraded: true,
+          degraded_reason: 'Statut détaillé indisponible (/api/status absent), fallback /healthz actif'
+        };
+      }
+    } catch (healthError) {
+      logError('loadMonitorStatus /healthz fallback failed', { error: healthError.message });
+    }
+    return {
+      engine: { running: false },
+      stream: { sse_clients: null },
+      events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
+      degraded: true,
+      degraded_reason: 'Endpoints /api/status et /healthz indisponibles'
+    };
   }
 }
 
@@ -147,10 +177,7 @@ async function loadFlows() {
   try {
     const [data, monitorStatus] = await Promise.all([
       api(path),
-      api('api/status').catch((error) => {
-        logError('loadFlows status endpoint unavailable', { error: error.message });
-        return null;
-      })
+      loadMonitorStatus()
     ]);
     state.flows = data.items;
     renderEngineStatus(monitorStatus);
@@ -177,11 +204,11 @@ function renderEngineStatus(status, error = null) {
   }
 
   const running = status.engine?.running;
-  const className = running ? 'ok' : 'warn';
+  const className = status.degraded ? 'warn' : running ? 'ok' : 'warn';
   const uptime = fmtDuration(status.engine?.uptime_ms);
-  const sseClients = status.stream?.sse_clients ?? 0;
-  const totalEvents = status.events?.total ?? 0;
-  const tracesTotal = status.events?.traces_total ?? 0;
+  const sseClients = status.stream?.sse_clients ?? '?';
+  const totalEvents = status.events?.total ?? '?';
+  const tracesTotal = status.events?.traces_total ?? '?';
   const lastEvent = status.events?.last_event_ts ? fmtDate(status.events.last_event_ts) : 'aucun';
   const sinceLast = fmtSince(status.events?.since_last_event_ms);
 
@@ -192,6 +219,7 @@ function renderEngineStatus(status, error = null) {
     <strong>SSE:</strong> ${sseClients} client(s) ·
     <strong>Événements:</strong> ${totalEvents} (${tracesTotal} trace(s)) ·
     <strong>Dernier événement:</strong> ${lastEvent} (${sinceLast})
+    ${status.degraded ? `<br/><span class="muted">${status.degraded_reason || 'Statut partiel'}</span>` : ''}
   `;
 }
 
