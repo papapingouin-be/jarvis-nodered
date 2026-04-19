@@ -1,7 +1,8 @@
 const state = {
   selectedTraceId: null,
   flows: [],
-  stream: null
+  stream: null,
+  statusEndpointAvailable: null
 };
 
 const els = {
@@ -100,32 +101,44 @@ async function api(path) {
 }
 
 async function loadMonitorStatus() {
-  try {
-    return await api('/api/status');
-  } catch (statusError) {
-    logError('loadMonitorStatus /api/status unavailable', { error: statusError.message });
+  if (state.statusEndpointAvailable !== false) {
     try {
-      const health = await api('/healthz');
-      if (health?.ok) {
-        return {
-          engine: { running: true, uptime_ms: null },
-          stream: { sse_clients: null },
-          events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
-          degraded: true,
-          degraded_reason: 'Statut détaillé indisponible (/api/status absent), fallback /healthz actif'
-        };
+      const status = await api('/api/status');
+      state.statusEndpointAvailable = true;
+      return status;
+    } catch (statusError) {
+      if (statusError.message.includes('HTTP 404')) {
+        state.statusEndpointAvailable = false;
+        logStep('loadMonitorStatus /api/status unavailable, switching to /healthz fallback', {
+          error: statusError.message
+        });
+      } else {
+        logError('loadMonitorStatus /api/status unavailable', { error: statusError.message });
       }
-    } catch (healthError) {
-      logError('loadMonitorStatus /healthz fallback failed', { error: healthError.message });
     }
-    return {
-      engine: { running: false },
-      stream: { sse_clients: null },
-      events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
-      degraded: true,
-      degraded_reason: 'Endpoints /api/status et /healthz indisponibles'
-    };
   }
+
+  try {
+    const health = await api('/healthz');
+    if (health?.ok) {
+      return {
+        engine: { running: true, uptime_ms: null },
+        stream: { sse_clients: null },
+        events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
+        degraded: true,
+        degraded_reason: 'Statut détaillé indisponible (/api/status absent), fallback /healthz actif'
+      };
+    }
+  } catch (healthError) {
+    logError('loadMonitorStatus /healthz fallback failed', { error: healthError.message });
+  }
+  return {
+    engine: { running: false },
+    stream: { sse_clients: null },
+    events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
+    degraded: true,
+    degraded_reason: 'Endpoints /api/status et /healthz indisponibles'
+  };
 }
 
 function renderFlows(items, monitorStatus = null) {
