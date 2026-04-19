@@ -42,6 +42,7 @@ app.add_middleware(
 @app.middleware("http")
 async def log_http_requests(request: Request, call_next):
     started = perf_counter()
+    client_ip = request.client.host if request.client else "unknown"
     log_event(
         logger,
         service="toolbox_runner",
@@ -49,20 +50,39 @@ async def log_http_requests(request: Request, call_next):
         method=request.method,
         path=request.url.path,
         query=str(request.url.query or ""),
-        client=(request.client.host if request.client else "unknown"),
+        client=client_ip,
+        origin=request.headers.get("origin"),
+        referer=request.headers.get("referer"),
+        user_agent=request.headers.get("user-agent"),
     )
-    response = await call_next(request)
-    duration_ms = round((perf_counter() - started) * 1000, 2)
-    log_event(
-        logger,
-        service="toolbox_runner",
-        event="http_response",
-        method=request.method,
-        path=request.url.path,
-        status_code=response.status_code,
-        duration_ms=duration_ms,
-    )
-    return response
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        log_event(
+            logger,
+            service="toolbox_runner",
+            event="http_error",
+            method=request.method,
+            path=request.url.path,
+            client=client_ip,
+            duration_ms=duration_ms,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
+    else:
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        log_event(
+            logger,
+            service="toolbox_runner",
+            event="http_response",
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+        )
+        return response
 
 
 def _refresh_registry() -> dict:
@@ -134,6 +154,13 @@ def health() -> dict[str, str]:
 )
 def list_tools() -> dict[str, list[str]]:
     tools = _available_tool_names()
+    log_event(
+        logger,
+        service="toolbox_runner",
+        event="list_tools",
+        count=len(tools),
+        tools=tools,
+    )
     return {"tools": tools}
 
 
