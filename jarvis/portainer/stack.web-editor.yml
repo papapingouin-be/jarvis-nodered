@@ -122,6 +122,24 @@ services:
       - "8050:8050"
     logging: *default-logging
 
+  jarvis_trace_monitor:
+    image: node:20-alpine
+    container_name: jarvis_trace_monitor
+    restart: unless-stopped
+    working_dir: /app/jarvis-trace-monitor
+    networks:
+      - jarvis_net
+      - proxy
+    volumes:
+      - ${JARVIS_HOST_ROOT}:/app
+    environment:
+      PORT: 4318
+    command: sh -lc "npm ci && npm start"
+    ports:
+      - "4318:4318"
+    logging: *default-logging
+
+
 networks:
   jarvis_net:
     external: true
