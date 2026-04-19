@@ -158,3 +158,45 @@ La couche d'interprétation calcule des messages utiles par trace, par exemple:
 - V1 privilégie la lisibilité opérationnelle et la simplicité de déploiement.
 - Le waterfall repose sur les timestamps d'événements corrélés (`span_id` quand disponible).
 - L'état de service (`healthy/warning/silent/error`) est estimé avec règles simples sur activité récente, erreurs et latence.
+
+## Dépannage rapide
+
+### Cas: OpenWebUI affiche `TOOL_RESULT_RAW`, mais le moniteur reste vide
+
+Si OpenWebUI affiche un résultat brut de tool comme:
+
+```text
+TOOL_RESULT_RAW:
+{"tools":["example_echo","http_probe", ...]}
+```
+
+et qu'aucune trace n'apparaît dans le monitor, c'est généralement normal: ce payload n'est **pas** un événement de trace.
+
+Le monitor n'affiche que des objets envoyés à `POST /api/events` avec au minimum:
+
+- `ts`
+- `service`
+- `trace_id`
+- `event`
+- `summary`
+
+Exemple d'adaptation minimale côté intégration:
+
+```bash
+curl -X POST http://localhost:4318/api/events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "ts":"2026-04-19T14:20:11.120Z",
+    "service":"openwebui",
+    "trace_id":"conv-123",
+    "event":"tool_invocation_finished",
+    "summary":"Liste des tools récupérée",
+    "details":{"tools":["example_echo","http_probe"]}
+  }'
+```
+
+Checklist rapide:
+- vérifier que le monitor est joignable (`GET /api/health`);
+- vérifier que votre bridge envoie bien vers `POST /api/events` (et non uniquement vers stdout);
+- vérifier que `trace_id` est stable pour toute la conversation;
+- vérifier que les timestamps (`ts`) sont en ISO-8601 UTC.
