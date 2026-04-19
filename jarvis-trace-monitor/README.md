@@ -9,6 +9,7 @@ Monitor web orienté **trace métier corrélée** pour la chaîne MCP de Jarvis 
 ## Fonctionnalités livrées
 
 - Ingestion d'événements structurés via `POST /api/events`.
+- Compatibilité OTLP/HTTP JSON basique via `POST /v1/traces` (conversion automatique en événements monitorables).
 - Corrélation par `trace_id` et reconstruction de flux.
 - Vue **Live** des flux récents/en cours avec filtres (statut/service/tool/texte).
 - Vue **Trace détaillée** cliquable (style run n8n simplifié).
@@ -100,6 +101,7 @@ Types d'événements V1 pris en charge (extensible):
 ## API
 
 - `POST /api/events`
+- `POST /v1/traces` (OTLP/HTTP JSON minimal)
 - `GET /api/flows`
 - `GET /api/flows/:traceId`
 - `GET /api/flows/:traceId/timeline`
