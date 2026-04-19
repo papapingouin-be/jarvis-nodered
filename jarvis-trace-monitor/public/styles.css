@@ -1,0 +1,62 @@
+:root {
+  --bg: #0e1116;
+  --panel: #171c24;
+  --text: #e4eaf1;
+  --muted: #94a0b2;
+  --ok: #34d399;
+  --warn: #f59e0b;
+  --error: #ef4444;
+  --silent: #6b7280;
+  --border: #273041;
+}
+
+* { box-sizing: border-box; font-family: Inter, Segoe UI, sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--text); }
+header { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+header h1 { margin: 0 0 4px 0; }
+header p { margin: 0; color: var(--muted); }
+
+nav { display: flex; gap: 8px; padding: 12px 20px; border-bottom: 1px solid var(--border); }
+.tab { background: #1f2632; color: var(--text); border: 1px solid var(--border); padding: 8px 12px; cursor: pointer; }
+.tab.active { border-color: #4f8cff; }
+
+.panel { display: none; padding: 16px 20px; }
+.panel.active { display: block; }
+
+.filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+input, select, button {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px;
+}
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border); padding: 12px; cursor: pointer; }
+.card:hover { border-color: #4f8cff; }
+.muted { color: var(--muted); font-size: 0.88rem; }
+.badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+.status-completed, .health-healthy { background: rgba(52, 211, 153, 0.2); color: var(--ok); }
+.status-running, .status-waiting, .health-warning { background: rgba(245, 158, 11, 0.2); color: var(--warn); }
+.status-error, .status-timeout, .health-error { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+.status-received, .health-silent { background: rgba(107, 114, 128, 0.2); color: #c2c8d2; }
+
+.steps { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
+.step { background: var(--panel); border: 1px solid var(--border); padding: 8px 10px; cursor: pointer; }
+.step:hover { border-color: #4f8cff; }
+.arrow { color: var(--muted); }
+.details {
+  background: #0b0e13;
+  border: 1px solid var(--border);
+  padding: 12px;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.water-row { margin-bottom: 10px; }
+.water-label { margin-bottom: 4px; color: var(--muted); }
+.water-track { position: relative; background: #0b0f16; border: 1px solid var(--border); height: 22px; }
+.water-bar { position: absolute; top: 0; height: 100%; background: linear-gradient(90deg, #2563eb, #7c3aed); }
+
+.table { width: 100%; border-collapse: collapse; }
+.table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
