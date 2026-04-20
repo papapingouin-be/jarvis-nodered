@@ -2,7 +2,9 @@ const state = {
   selectedTraceId: null,
   flows: [],
   stream: null,
-  statusEndpointAvailable: null
+  statusEndpointAvailable: null,
+  pollTimer: null,
+  streamReady: false
 };
 
 const els = {
@@ -100,6 +102,62 @@ async function api(path) {
   }
 }
 
+async function postJson(path, payload) {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  const url = new URL(normalizedPath, window.location.href);
+  logStep('API POST request started', { path, resolvedUrl: url.href, payload });
+  const startedAt = performance.now();
+  const res = await fetch(normalizedPath, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const latencyMs = Math.round(performance.now() - startedAt);
+  logStep('API POST response received', {
+    path,
+    resolvedUrl: url.href,
+    status: res.status,
+    ok: res.ok,
+    latencyMs
+  });
+  if (!res.ok) {
+    const errorBody = await res.text().catch(() => '');
+    throw new Error(`HTTP ${res.status} for ${path}${errorBody ? ` — ${errorBody.slice(0, 120)}` : ''}`);
+  }
+  return res.json();
+}
+
+async function injectSampleTrace() {
+  const traceId = `ui-seed-${Date.now()}`;
+  const startedAt = Date.now();
+  const service = 'jarvis-trace-monitor-ui';
+  const common = {
+    trace_id: traceId,
+    service,
+    severity: 'info',
+    metadata: { source: 'ui-seed-button' }
+  };
+
+  await postJson('/api/events', {
+    ...common,
+    event: 'flow.received',
+    summary: 'Seed UI: trace reçue',
+    ts: new Date(startedAt).toISOString()
+  });
+  await postJson('/api/events', {
+    ...common,
+    event: 'flow.completed',
+    summary: 'Seed UI: trace terminée',
+    status: 'completed',
+    ts: new Date(startedAt + 250).toISOString(),
+    duration_ms: 250
+  });
+  logStep('injectSampleTrace done', { traceId });
+  await loadFlows();
+  await loadTrace(traceId);
+  activateTab('trace');
+}
+
 async function loadMonitorStatus() {
   if (state.statusEndpointAvailable !== false) {
     try {
@@ -153,8 +211,24 @@ function renderFlows(items, monitorStatus = null) {
         ${noEventYet ? 'Aucun événement n’a encore été ingéré.' : `Événements observés: ${monitorStatus?.events?.total || 0}.`}
         ${runningFlows ? `Flux en cours détectés: ${runningFlows}.` : ''}</p>
         <p>Injectez des événements via <code>POST /api/events</code>, ou lancez <code>npm run seed</code> puis rafraîchissez.</p>
+        <button id="seedFromUiBtn">Injecter un exemple depuis l'UI</button>
       </article>
     `;
+    const seedBtn = document.getElementById('seedFromUiBtn');
+    if (seedBtn) {
+      seedBtn.addEventListener('click', async () => {
+        seedBtn.disabled = true;
+        seedBtn.textContent = 'Injection en cours…';
+        try {
+          await injectSampleTrace();
+          seedBtn.textContent = 'Exemple injecté ✓';
+        } catch (error) {
+          logError('injectSampleTrace failed', { error: error.message });
+          seedBtn.textContent = `Échec: ${error.message}`;
+          seedBtn.disabled = false;
+        }
+      });
+    }
     return;
   }
 
@@ -383,12 +457,16 @@ function bindUI() {
   logStep('SSE stream initialization', { path: streamPath, resolvedUrl: streamUrl.href });
   state.stream = new EventSource(streamPath);
   state.stream.addEventListener('open', () => {
+    state.streamReady = true;
+    schedulePolling();
     logStep('SSE stream connected', { readyState: state.stream.readyState });
   });
   state.stream.addEventListener('ready', (event) => {
     logStep('SSE ready event', event.data);
   });
   state.stream.addEventListener('error', (event) => {
+    state.streamReady = false;
+    schedulePolling();
     logError('SSE stream error', {
       readyState: state.stream.readyState,
       eventType: event.type,
@@ -407,10 +485,19 @@ function bindUI() {
   });
 }
 
+function schedulePolling() {
+  if (state.pollTimer) {
+    clearInterval(state.pollTimer);
+  }
+  const pollEveryMs = state.streamReady ? 30000 : 5000;
+  logStep('Polling schedule updated', { pollEveryMs, streamReady: state.streamReady });
+  state.pollTimer = setInterval(() => {
+    logStep('Periodic refresh triggered');
+    loadFlows();
+  }, pollEveryMs);
+}
+
 logStep('App initialization');
 bindUI();
 loadFlows();
-setInterval(() => {
-  logStep('Periodic refresh triggered');
-  loadFlows();
-}, 5000);
+schedulePolling();
