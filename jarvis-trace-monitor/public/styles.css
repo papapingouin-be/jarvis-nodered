@@ -53,6 +53,9 @@ input, select, button {
   color: var(--muted);
   padding: 12px;
 }
+.empty-state button {
+  margin-top: 10px;
+}
 .muted { color: var(--muted); font-size: 0.88rem; }
 .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
 .status-completed, .health-healthy { background: rgba(52, 211, 153, 0.2); color: var(--ok); }
