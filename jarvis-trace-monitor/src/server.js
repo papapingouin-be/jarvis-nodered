@@ -11,6 +11,7 @@ const {
   getWaterfall,
   getServices,
   recentEvents,
+  purgeEventsOlderThan,
   summarizeFlow,
   getMonitorStatus
 } = require('./traceService');
@@ -29,6 +30,7 @@ const exposedRoutes = [
   '/api/flows/:traceId/waterfall',
   '/api/services',
   '/api/events/recent',
+  '/api/events/purge',
   '/api/status',
   '/api/debug/codex',
   '/api/debug/codex-tool',
@@ -50,8 +52,14 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 app.use((req, res, next) => {
   const startedAtMs = Date.now();
+  const requestId = req.headers['x-request-id'] || `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const traceHint = req.headers['x-trace-id'] || req.query.trace_id || req.body?.trace_id || req.body?.traceId || null;
+  req.requestId = requestId;
+  res.setHeader('x-request-id', requestId);
   res.on('finish', () => {
     logStep('HTTP request completed', {
+      request_id: requestId,
+      trace_hint: traceHint,
       method: req.method,
       path: req.originalUrl,
       status: res.statusCode,
@@ -246,6 +254,23 @@ app.get('/api/events/recent', (req, res) => {
   const limit = Math.min(Number(req.query.limit || 100), 500);
   logStep('GET /api/events/recent response', { limit });
   res.json({ items: recentEvents(limit), total: limit });
+});
+
+app.post('/api/events/purge', (req, res) => {
+  const keepDays = Number(req.body?.keep_days ?? req.query.keep_days ?? 7);
+  if (!Number.isFinite(keepDays) || keepDays < 0) {
+    return res.status(400).json({ ok: false, error: 'keep_days invalide' });
+  }
+
+  const cutoff = new Date(Date.now() - keepDays * 24 * 60 * 60 * 1000).toISOString();
+  const result = purgeEventsOlderThan(cutoff);
+  logStep('POST /api/events/purge response', {
+    request_id: req.requestId || null,
+    keep_days: keepDays,
+    deleted: result.deleted,
+    cutoff_iso: result.cutoff_iso
+  });
+  res.json({ ok: true, keep_days: keepDays, ...result });
 });
 
 app.get('/api/status', (req, res) => {
