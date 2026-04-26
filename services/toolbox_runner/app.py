@@ -97,9 +97,49 @@ def _available_tool_names() -> list[str]:
     return sorted(REGISTRY.keys())
 
 
+def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
+    context = context or {}
+    log_event(
+        logger,
+        service="toolbox_runner",
+        event="run_request",
+        tool=tool,
+        input_keys=sorted(tool_input.keys()),
+        context_keys=sorted(context.keys()),
+        input_intent=tool_input.get("intent"),
+        input_operation=tool_input.get("operation"),
+        req_id=context.get("req_id"),
+    )
+    manifest = REGISTRY.get(tool)
+    if not manifest:
+        manifest = _refresh_registry().get(tool)
+    if not manifest:
+        return {
+            "ok": False,
+            "tool": tool,
+            "error_code": "MISSING_TOOL",
+            "message": f"tool not found: {tool}",
+            "retryable": False,
+            "data": {"available_tools": sorted(REGISTRY.keys())},
+        }
+
+    try:
+        return run_tool(manifest, tool_input)
+    except ToolRunError as exc:
+        log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code)
+        return {
+            "ok": False,
+            "tool": tool,
+            "error_code": exc.code,
+            "message": exc.message,
+            "retryable": exc.retryable,
+            "data": {},
+        }
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
-    if request.url.path != "/v1/run":
+    if request.url.path not in {"/v1/run", "/run"}:
         return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
     missing_tool = any(
@@ -172,39 +212,37 @@ def list_tools() -> dict[str, list[str]]:
     operation_id="jarvis_execute_tool",
 )
 def run(payload: ToolRunRequest) -> dict:
-    log_event(
-        logger,
-        service="toolbox_runner",
-        event="run_request",
-        tool=payload.tool,
-        input_keys=sorted(payload.input.keys()),
-        context_keys=sorted(payload.context.keys()),
-        input_intent=payload.input.get("intent"),
-        input_operation=payload.input.get("operation"),
-        req_id=payload.context.get("req_id"),
-    )
-    manifest = REGISTRY.get(payload.tool)
-    if not manifest:
-        manifest = _refresh_registry().get(payload.tool)
-    if not manifest:
-        return {
-            "ok": False,
-            "tool": payload.tool,
-            "error_code": "MISSING_TOOL",
-            "message": f"tool not found: {payload.tool}",
-            "retryable": False,
-            "data": {"available_tools": sorted(REGISTRY.keys())},
-        }
+    return _execute_tool(payload.tool, payload.input, payload.context)
 
-    try:
-        return run_tool(manifest, payload.input)
-    except ToolRunError as exc:
-        log_event(logger, service="toolbox_runner", event="run_error", tool=payload.tool, code=exc.code)
-        return {
-            "ok": False,
-            "tool": payload.tool,
-            "error_code": exc.code,
-            "message": exc.message,
-            "retryable": exc.retryable,
-            "data": {},
-        }
+
+@app.post(
+    "/v1/run/{tool}",
+    tags=["jarvis_tools"],
+    summary="Execute tool by path",
+    description="Execute a tool from the toolbox registry using the path parameter and a direct input payload.",
+    operation_id="jarvis_execute_tool_by_path",
+)
+def run_by_path(tool: str, payload: dict) -> dict:
+    return _execute_tool(tool, payload, {})
+
+
+@app.post(
+    "/run",
+    tags=["jarvis_tools"],
+    summary="Execute tool (compat)",
+    description="Compatibility alias for /v1/run.",
+    operation_id="jarvis_execute_tool_compat",
+)
+def run_compat(payload: ToolRunRequest) -> dict:
+    return _execute_tool(payload.tool, payload.input, payload.context)
+
+
+@app.post(
+    "/run/{tool}",
+    tags=["jarvis_tools"],
+    summary="Execute tool by path (compat)",
+    description="Compatibility alias for /v1/run/{tool}.",
+    operation_id="jarvis_execute_tool_by_path_compat",
+)
+def run_by_path_compat(tool: str, payload: dict) -> dict:
+    return _execute_tool(tool, payload, {})

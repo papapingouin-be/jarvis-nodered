@@ -71,6 +71,19 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, 
         raise ToolRunError("INVALID_JSON", "tool returned non-json output") from exc
 
     _validate(manifest["output_schema"], data)
+    tool_logs = [{"level": "info", "message": f"{manifest['name']} executed"}]
+    stderr_text = (result.stderr or "").strip()
+    if stderr_text:
+        for line in stderr_text.splitlines():
+            tool_logs.append({"level": "info", "message": line[:500]})
+        log_event(
+            logger,
+            service="toolbox_runner",
+            event="tool_execute_stderr",
+            tool=manifest["name"],
+            lines=len(stderr_text.splitlines()),
+        )
+
     output = {
         "ok": True,
         "tool": manifest["name"],
@@ -79,7 +92,7 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any]) -> dict[str, 
         "data": data,
         "artifacts": [],
         "warnings": [],
-        "logs": [{"level": "info", "message": f"{manifest['name']} executed"}],
+        "logs": tool_logs,
     }
     validate_payload("tool_output.schema.json", output)
     log_event(logger, service="toolbox_runner", event="tool_execute_done", tool=manifest["name"])

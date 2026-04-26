@@ -7,6 +7,8 @@ Service d'exécution des outils CLI JSON-in/JSON-out.
 - `GET /health` : healthcheck.
 - `GET /v1/tools` : liste des outils disponibles dans le registre chargé.
 - `POST /v1/run` : exécute un outil (`tool` requis dans le payload).
+- `POST /v1/run/{tool}` : exécute un outil en passant l'input directement dans le body JSON.
+- Compatibilité: `POST /run` et `POST /run/{tool}` (alias des endpoints `/v1/*`).
 
 ## CORS (OpenWebUI mode utilisateur)
 
@@ -25,6 +27,10 @@ TOOLBOX_CORS_ALLOW_ORIGINS="http://openwebui.jarvis.papapingouinbe.duckdns.org,h
 
 Si `tool` est manquant dans `POST /v1/run`, le service renvoie une erreur `422`
 avec une charge utile qui inclut les outils disponibles et un exemple de payload.
+
+Si un outil écrit sur `stderr` tout en renvoyant un JSON valide sur `stdout`,
+ces lignes sont propagées dans `logs` côté réponse et un événement
+`tool_execute_stderr` est aussi émis dans les logs du runner.
 
 ## Exemple `npm_service`
 
