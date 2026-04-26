@@ -82,3 +82,13 @@ input, select, button {
 
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { border-bottom: 1px solid var(--border); padding: 8px; text-align: left; }
+.debug-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+#debugConsole, #debugPayload {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

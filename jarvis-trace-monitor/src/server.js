@@ -18,6 +18,22 @@ const {
 const app = express();
 const port = Number(process.env.PORT || 4318);
 const startedAt = Date.now();
+const exposedRoutes = [
+  '/api/events',
+  '/v1/traces',
+  '/v1/traces/',
+  '/',
+  '/api/flows',
+  '/api/flows/:traceId',
+  '/api/flows/:traceId/timeline',
+  '/api/flows/:traceId/waterfall',
+  '/api/services',
+  '/api/events/recent',
+  '/api/status',
+  '/api/debug/web-tool',
+  '/api/stream',
+  '/healthz'
+];
 
 function logStep(step, details) {
   const ts = new Date().toISOString();
@@ -192,6 +208,41 @@ app.get('/api/status', (req, res) => {
     sseClients: status.stream.sse_clients
   });
   res.json(status);
+});
+
+app.get('/api/debug/web-tool', (req, res) => {
+  const sortedEnvKeys = Object.keys(process.env).sort();
+  const payload = {
+    ok: true,
+    generated_at: new Date().toISOString(),
+    cwd: process.cwd(),
+    pid: process.pid,
+    ppid: process.ppid,
+    platform: process.platform,
+    arch: process.arch,
+    node_version: process.version,
+    exec_path: process.execPath,
+    argv: process.argv,
+    uptime_seconds: Math.round(process.uptime()),
+    memory_usage: process.memoryUsage(),
+    env_keys: sortedEnvKeys,
+    env: process.env,
+    routes: exposedRoutes,
+    request_context: {
+      method: req.method,
+      original_url: req.originalUrl,
+      hostname: req.hostname,
+      ip: req.ip,
+      protocol: req.protocol,
+      forwarded_for: req.headers['x-forwarded-for'] || null,
+      host_header: req.headers.host || null
+    }
+  };
+  logStep('GET /api/debug/web-tool response', {
+    envCount: sortedEnvKeys.length,
+    routes: exposedRoutes.length
+  });
+  res.json(payload);
 });
 
 app.get('/api/stream', (req, res) => {

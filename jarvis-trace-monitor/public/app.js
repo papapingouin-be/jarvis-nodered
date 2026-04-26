@@ -4,7 +4,9 @@ const state = {
   stream: null,
   healthzAvailable: null,
   pollTimer: null,
-  streamReady: false
+  streamReady: false,
+  debugLogs: [],
+  debugSnapshot: null
 };
 
 const els = {
@@ -21,7 +23,12 @@ const els = {
   traceSteps: document.getElementById('traceSteps'),
   traceDetails: document.getElementById('traceDetails'),
   waterfallWrap: document.getElementById('waterfallWrap'),
-  servicesWrap: document.getElementById('servicesWrap')
+  servicesWrap: document.getElementById('servicesWrap'),
+  refreshDebug: document.getElementById('refreshDebug'),
+  debugStatus: document.getElementById('debugStatus'),
+  debugSummary: document.getElementById('debugSummary'),
+  debugConsole: document.getElementById('debugConsole'),
+  debugPayload: document.getElementById('debugPayload')
 };
 
 function statusBadge(value, clsPrefix = 'status') {
@@ -47,16 +54,29 @@ function fmtSince(ms) {
 
 function logStep(step, details) {
   const ts = new Date().toISOString();
+  const payload = { ts, level: 'info', step, details: details || null };
+  state.debugLogs.push(payload);
+  if (state.debugLogs.length > 300) {
+    state.debugLogs.shift();
+  }
   if (details === undefined) {
     console.log(`[JarvisTraceMonitor][${ts}] ${step}`);
+    renderDebugConsole();
     return;
   }
   console.log(`[JarvisTraceMonitor][${ts}] ${step}`, details);
+  renderDebugConsole();
 }
 
 function logError(step, error) {
   const ts = new Date().toISOString();
+  const payload = { ts, level: 'error', step, details: error || null };
+  state.debugLogs.push(payload);
+  if (state.debugLogs.length > 300) {
+    state.debugLogs.shift();
+  }
   console.error(`[JarvisTraceMonitor][${ts}] ${step}`, error);
+  renderDebugConsole();
 }
 
 async function api(path) {
@@ -99,6 +119,139 @@ async function api(path) {
       online: navigator.onLine
     });
     throw error;
+  }
+}
+
+function getRuntimeContext() {
+  const now = new Date();
+  return {
+    timestamp_iso: now.toISOString(),
+    location: {
+      href: window.location.href,
+      origin: window.location.origin,
+      protocol: window.location.protocol,
+      host: window.location.host,
+      pathname: window.location.pathname
+    },
+    user_agent: navigator.userAgent,
+    language: navigator.language,
+    languages: navigator.languages,
+    online: navigator.onLine,
+    visibility_state: document.visibilityState,
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+  };
+}
+
+function renderDebugConsole() {
+  if (!els.debugConsole) return;
+  const lines = state.debugLogs
+    .map((entry) => {
+      const suffix = entry.details ? ` ${JSON.stringify(entry.details)}` : '';
+      return `[${entry.ts}] ${entry.level.toUpperCase()} ${entry.step}${suffix}`;
+    })
+    .join('\n');
+  els.debugConsole.textContent = lines || 'Aucune entrée pour le moment…';
+}
+
+function renderDebugSummary(snapshot, fetchError = null) {
+  if (!els.debugSummary || !els.debugStatus) return;
+
+  if (fetchError || !snapshot) {
+    els.debugStatus.textContent = `Diagnostic échoué: ${fetchError?.message || 'erreur inconnue'}`;
+    els.debugSummary.innerHTML = `
+      <article class="empty-state">
+        <strong>Impossible de charger le diagnostic backend.</strong>
+        <p>Erreur: ${fetchError?.message || 'N/A'}</p>
+        <p>Vérifiez l'URL et l'état du backend. Tous les détails restent visibles ci-dessous.</p>
+      </article>
+    `;
+    return;
+  }
+
+  const envCount = Array.isArray(snapshot?.backend?.env_keys) ? snapshot.backend.env_keys.length : 0;
+  const endpoints = snapshot?.connectivity?.endpoints || [];
+  const failing = endpoints.filter((endpoint) => endpoint.ok === false).length;
+  const statusCls = failing ? 'status-error' : 'status-completed';
+  els.debugStatus.innerHTML = `Diagnostic chargé à ${fmtDate(snapshot.generated_at)} · ${statusBadge(failing ? 'error' : 'completed')} (${failing} endpoint(s) en erreur)`;
+  els.debugSummary.innerHTML = `
+    <table class="table">
+      <tbody>
+        <tr><th>URL actuelle</th><td>${snapshot.client.location.href}</td></tr>
+        <tr><th>Chemin backend</th><td>${snapshot.backend.cwd}</td></tr>
+        <tr><th>Node version</th><td>${snapshot.backend.node_version}</td></tr>
+        <tr><th>Variables d'env</th><td><span class="badge ${statusCls}">${envCount}</span></td></tr>
+        <tr><th>Routes exposées</th><td>${(snapshot.backend.routes || []).join(', ')}</td></tr>
+      </tbody>
+    </table>
+  `;
+}
+
+async function loadDebugData() {
+  const startedAt = performance.now();
+  els.debugStatus.textContent = 'Collecte du diagnostic en cours…';
+  const client = getRuntimeContext();
+  const endpointChecks = ['/api/status', '/healthz', '/api/services', '/api/flows?status=&service=&tool=&q='];
+  const connectivity = [];
+
+  for (const endpoint of endpointChecks) {
+    const resolvedUrl = new URL(endpoint, window.location.href).href;
+    try {
+      const res = await fetch(endpoint);
+      connectivity.push({
+        path: endpoint,
+        resolved_url: resolvedUrl,
+        status: res.status,
+        ok: res.ok
+      });
+    } catch (error) {
+      connectivity.push({
+        path: endpoint,
+        resolved_url: resolvedUrl,
+        status: null,
+        ok: false,
+        error: error.message
+      });
+    }
+  }
+
+  try {
+    const backend = await api('/api/debug/web-tool');
+    const snapshot = {
+      generated_at: new Date().toISOString(),
+      latency_ms: Math.round(performance.now() - startedAt),
+      client,
+      connectivity: { endpoints: connectivity },
+      frontend_state: {
+        selected_trace_id: state.selectedTraceId,
+        stream_ready: state.streamReady,
+        flows_count: state.flows.length,
+        healthz_available: state.healthzAvailable
+      },
+      backend
+    };
+    state.debugSnapshot = snapshot;
+    renderDebugSummary(snapshot);
+    els.debugPayload.textContent = JSON.stringify(snapshot, null, 2);
+    logStep('loadDebugData rendered', {
+      endpoints: connectivity.length,
+      backendRoutes: backend.routes?.length || 0
+    });
+  } catch (error) {
+    state.debugSnapshot = {
+      generated_at: new Date().toISOString(),
+      client,
+      connectivity: { endpoints: connectivity },
+      frontend_state: {
+        selected_trace_id: state.selectedTraceId,
+        stream_ready: state.streamReady,
+        flows_count: state.flows.length,
+        healthz_available: state.healthzAvailable
+      },
+      error: error.message
+    };
+    renderDebugSummary(null, error);
+    els.debugPayload.textContent = JSON.stringify(state.debugSnapshot, null, 2);
+    logError('loadDebugData failed', { error: error.message });
   }
 }
 
@@ -447,12 +600,14 @@ function activateTab(tabId) {
 
   if (tabId === 'services') loadServices();
   if (tabId === 'waterfall') loadWaterfall();
+  if (tabId === 'debug') loadDebugData();
 }
 
 function bindUI() {
   logStep('bindUI started');
   els.tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
   els.refreshFlows.addEventListener('click', loadFlows);
+  els.refreshDebug.addEventListener('click', loadDebugData);
 
   const streamPath = 'api/stream';
   const streamUrl = new URL(streamPath, window.location.href);
