@@ -73,29 +73,78 @@ function broadcast(event, payload) {
   logStep('Broadcast done', { event, clients: sseClients.size });
 }
 
+function normalizeIncomingEvent(payload) {
+  const body = payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : {};
+  const ts = body.ts || body.timestamp || new Date().toISOString();
+  const service = body.service || body.source || 'unknown-service';
+  const event = body.event || body.type || body.action || 'event_received';
+  const traceId = body.trace_id || body.traceId || body.conversation_id || body.conversationId || body.request_id || body.correlation_id || `${service}:${event}`;
+  const summary = body.summary || body.message || body.msg || event;
+  const level = typeof body.level === 'string' ? body.level : 'info';
+  const status = typeof body.status === 'string'
+    ? body.status
+    : ['error', 'critical'].includes(level.toLowerCase())
+      ? 'error'
+      : ['warning', 'warn'].includes(level.toLowerCase())
+        ? 'warning'
+        : null;
+
+  const known = new Set([
+    'ts', 'timestamp', 'service', 'source', 'trace_id', 'traceId', 'conversation_id', 'conversationId',
+    'request_id', 'correlation_id', 'event', 'type', 'action', 'summary', 'message', 'msg',
+    'level', 'status', 'span_id', 'spanId', 'parent_span_id', 'parentSpanId', 'stage', 'tool', 'intent', 'details'
+  ]);
+
+  const details = {
+    ...(body.details && typeof body.details === 'object' && !Array.isArray(body.details) ? body.details : {})
+  };
+  for (const [key, value] of Object.entries(body)) {
+    if (!known.has(key)) {
+      details[key] = value;
+    }
+  }
+
+  return {
+    ts,
+    service,
+    trace_id: traceId,
+    span_id: body.span_id || body.spanId || null,
+    parent_span_id: body.parent_span_id || body.parentSpanId || null,
+    event,
+    stage: body.stage || null,
+    tool: body.tool || null,
+    intent: body.intent || null,
+    status,
+    level,
+    summary,
+    details
+  };
+}
+
 app.post('/api/events', (req, res) => {
+  const normalizedEvent = normalizeIncomingEvent(req.body);
   logStep('POST /api/events received', {
-    trace_id: req.body?.trace_id,
-    service: req.body?.service,
-    event: req.body?.event
+    trace_id: normalizedEvent.trace_id,
+    service: normalizedEvent.service,
+    event: normalizedEvent.event
   });
-  const validation = validateEvent(req.body);
+  const validation = validateEvent(normalizedEvent);
   if (!validation.valid) {
     logStep('POST /api/events validation failed', { errors: validation.errors });
     return res.status(400).json({ ok: false, errors: validation.errors });
   }
 
-  ingestEvent(req.body);
+  ingestEvent(normalizedEvent);
   logStep('POST /api/events ingested', {
-    trace_id: req.body.trace_id,
+    trace_id: normalizedEvent.trace_id,
     warnings: validation.warnings?.length || 0
   });
-  broadcast('event_ingested', req.body);
+  broadcast('event_ingested', normalizedEvent);
 
   return res.status(202).json({
     ok: true,
     warnings: validation.warnings,
-    trace_id: req.body.trace_id
+    trace_id: normalizedEvent.trace_id
   });
 });
 

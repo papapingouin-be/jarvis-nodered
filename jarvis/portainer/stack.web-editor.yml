@@ -47,6 +47,7 @@ services:
       LLM_MODEL_CLASSIFY: ${LLM_MODEL_CLASSIFY:-llama3.1:8b}
       LLM_MODEL_PROJECT: ${LLM_MODEL_PROJECT:-llama3.1:8b}
       LLM_MODEL_SUMMARY: ${LLM_MODEL_SUMMARY:-llama3.1:8b}
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
     command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
@@ -64,6 +65,7 @@ services:
     environment:
       PYTHONPATH: /app
       OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
     command: bash -lc "REQ=/app/services/openproject_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/openproject_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema; fi && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
@@ -81,6 +83,7 @@ services:
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
@@ -99,6 +102,7 @@ services:
       PYTHONPATH: /app
       DRY_RUN: ${DRY_RUN:-true}
       GITEA_REMOTE_URL: ${GITEA_REMOTE_URL:-}
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
     command: bash -lc "REQ=/app/services/git_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/git_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
@@ -117,6 +121,7 @@ services:
     environment:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
     command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
