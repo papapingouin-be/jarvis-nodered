@@ -2,7 +2,7 @@ const state = {
   selectedTraceId: null,
   flows: [],
   stream: null,
-  statusEndpointAvailable: null,
+  healthzAvailable: null,
   pollTimer: null,
   streamReady: false
 };
@@ -158,44 +158,48 @@ async function injectSampleTrace() {
   activateTab('trace');
 }
 
-async function loadMonitorStatus() {
-  if (state.statusEndpointAvailable !== false) {
+function summarizeFlowsStatus(flows) {
+  const lastActivityTs = flows
+    .map((flow) => flow.last_ts)
+    .filter(Boolean)
+    .sort()
+    .at(-1) || null;
+  const sinceLastEventMs = lastActivityTs ? Math.max(Date.now() - new Date(lastActivityTs).getTime(), 0) : null;
+  const runningFlows = flows.filter((flow) => flow.status === 'running').length;
+
+  return {
+    estimated_total_events: flows.length,
+    traces_total: flows.length,
+    running_flows: runningFlows,
+    last_event_ts: lastActivityTs,
+    since_last_event_ms: sinceLastEventMs
+  };
+}
+
+async function loadMonitorStatus(flows = []) {
+  if (state.healthzAvailable === null) {
     try {
-      const status = await api('/api/status');
-      state.statusEndpointAvailable = true;
-      return status;
-    } catch (statusError) {
-      if (statusError.message.includes('HTTP 404')) {
-        state.statusEndpointAvailable = false;
-        logStep('loadMonitorStatus /api/status unavailable, switching to /healthz fallback', {
-          error: statusError.message
-        });
-      } else {
-        logError('loadMonitorStatus /api/status unavailable', { error: statusError.message });
-      }
+      const health = await api('/healthz');
+      state.healthzAvailable = Boolean(health?.ok);
+    } catch (healthError) {
+      state.healthzAvailable = false;
+      logError('loadMonitorStatus /healthz failed', { error: healthError.message });
     }
   }
 
-  try {
-    const health = await api('/healthz');
-    if (health?.ok) {
-      return {
-        engine: { running: true, uptime_ms: null },
-        stream: { sse_clients: null },
-        events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
-        degraded: true,
-        degraded_reason: 'Statut détaillé indisponible (/api/status absent), fallback /healthz actif'
-      };
-    }
-  } catch (healthError) {
-    logError('loadMonitorStatus /healthz fallback failed', { error: healthError.message });
-  }
+  const events = summarizeFlowsStatus(flows);
   return {
-    engine: { running: false },
+    engine: { running: state.healthzAvailable === true, uptime_ms: null },
     stream: { sse_clients: null },
-    events: { total: null, traces_total: null, since_last_event_ms: null, last_event_ts: null },
+    events: {
+      total: events.estimated_total_events,
+      traces_total: events.traces_total,
+      running_flows: events.running_flows,
+      since_last_event_ms: events.since_last_event_ms,
+      last_event_ts: events.last_event_ts
+    },
     degraded: true,
-    degraded_reason: 'Endpoints /api/status et /healthz indisponibles'
+    degraded_reason: 'Mode compatibilité: statut reconstruit depuis /api/flows + /healthz'
   };
 }
 
@@ -262,10 +266,8 @@ async function loadFlows() {
   });
   const path = `api/flows?${query.toString()}`;
   try {
-    const [data, monitorStatus] = await Promise.all([
-      api(path),
-      loadMonitorStatus()
-    ]);
+    const data = await api(path);
+    const monitorStatus = await loadMonitorStatus(data.items);
     state.flows = data.items;
     renderEngineStatus(monitorStatus);
     logStep('loadFlows render', { count: data.items.length });
@@ -280,7 +282,7 @@ function renderEngineStatus(status, error = null) {
   if (error || !status) {
     els.engineStatus.className = 'engine-status error';
     const statusHint = error?.message?.includes('404')
-      ? 'endpoint /api/status introuvable (version backend?)'
+      ? 'endpoint backend introuvable (proxy/version backend?)'
       : 'erreur inconnue';
     els.engineStatus.textContent = `Moteur indisponible: ${error?.message || statusHint}`;
     logError('renderEngineStatus degraded', {
