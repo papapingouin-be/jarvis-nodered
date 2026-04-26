@@ -258,6 +258,25 @@ function recentEvents(limit = 100) {
   return db.prepare('SELECT * FROM events ORDER BY ts DESC, id DESC LIMIT ?').all(limit).map(normalizeRow);
 }
 
+function purgeEventsOlderThan(cutoffIso) {
+  const parsed = Date.parse(cutoffIso || '');
+  if (Number.isNaN(parsed)) {
+    throw new Error('cutoffIso invalide');
+  }
+
+  const before = db.prepare('SELECT COUNT(*) AS total FROM events').get().total;
+  const stmt = db.prepare('DELETE FROM events WHERE ts < ?');
+  const result = stmt.run(new Date(parsed).toISOString());
+  const after = db.prepare('SELECT COUNT(*) AS total FROM events').get().total;
+
+  return {
+    deleted: result.changes,
+    before,
+    after,
+    cutoff_iso: new Date(parsed).toISOString()
+  };
+}
+
 function getMonitorStatus(meta = {}) {
   const startedAt = meta.startedAt || Date.now();
   const now = Date.now();
@@ -295,6 +314,7 @@ module.exports = {
   getWaterfall,
   getServices,
   recentEvents,
+  purgeEventsOlderThan,
   summarizeFlow,
   getMonitorStatus
 };

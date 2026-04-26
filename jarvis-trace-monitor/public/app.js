@@ -18,6 +18,8 @@ const els = {
   toolFilter: document.getElementById('toolFilter'),
   statusFilter: document.getElementById('statusFilter'),
   refreshFlows: document.getElementById('refreshFlows'),
+  purgeDays: document.getElementById('purgeDays'),
+  purgeEvents: document.getElementById('purgeEvents'),
   engineStatus: document.getElementById('engineStatus'),
   traceHeader: document.getElementById('traceHeader'),
   traceSteps: document.getElementById('traceSteps'),
@@ -296,6 +298,38 @@ async function postJson(path, payload) {
     throw new Error(`HTTP ${res.status} for ${path}${errorBody ? ` — ${errorBody.slice(0, 120)}` : ''}`);
   }
   return res.json();
+}
+
+async function purgeOldMessages() {
+  const keepDays = Number(els.purgeDays?.value || 7);
+  if (!Number.isFinite(keepDays) || keepDays < 0) {
+    logError('purgeOldMessages invalid keepDays', { keepDays });
+    return;
+  }
+
+  const confirmed = window.confirm(`Supprimer les événements de plus de ${keepDays} jour(s) ?`);
+  if (!confirmed) return;
+
+  els.purgeEvents.disabled = true;
+  const previousText = els.purgeEvents.textContent;
+  els.purgeEvents.textContent = 'Purge en cours…';
+  try {
+    const payload = await postJson('/api/events/purge', { keep_days: keepDays });
+    logStep('purgeOldMessages done', payload);
+    els.purgeEvents.textContent = `Purge OK (${payload.deleted})`;
+    await loadFlows();
+    if (state.selectedTraceId) {
+      await loadTrace(state.selectedTraceId);
+    }
+  } catch (error) {
+    logError('purgeOldMessages failed', { error: error.message });
+    els.purgeEvents.textContent = 'Échec purge';
+  } finally {
+    setTimeout(() => {
+      els.purgeEvents.disabled = false;
+      els.purgeEvents.textContent = previousText;
+    }, 1200);
+  }
 }
 
 async function injectSampleTrace() {
@@ -625,6 +659,7 @@ function bindUI() {
   logStep('bindUI started');
   els.tabs.forEach((tab) => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
   els.refreshFlows.addEventListener('click', loadFlows);
+  els.purgeEvents.addEventListener('click', purgeOldMessages);
   els.refreshDebug.addEventListener('click', loadDebugData);
 
   const streamPath = 'api/stream';

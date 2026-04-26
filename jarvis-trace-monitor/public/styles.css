@@ -92,3 +92,5 @@ input, select, button {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+.filters input[type="number"] { width: 110px; }
