@@ -30,6 +30,8 @@ const exposedRoutes = [
   '/api/services',
   '/api/events/recent',
   '/api/status',
+  '/api/debug/codex',
+  '/api/debug/codex-tool',
   '/api/debug/web-tool',
   '/api/stream',
   '/healthz'
@@ -210,10 +212,11 @@ app.get('/api/status', (req, res) => {
   res.json(status);
 });
 
-app.get('/api/debug/web-tool', (req, res) => {
+function buildDebugPayload(req, debugTarget) {
   const sortedEnvKeys = Object.keys(process.env).sort();
-  const payload = {
+  return {
     ok: true,
+    debug_target: debugTarget,
     generated_at: new Date().toISOString(),
     cwd: process.cwd(),
     pid: process.pid,
@@ -238,11 +241,28 @@ app.get('/api/debug/web-tool', (req, res) => {
       host_header: req.headers.host || null
     }
   };
+}
+
+function handleDebugRoute(req, res, debugTarget) {
+  const payload = buildDebugPayload(req, debugTarget);
   logStep('GET /api/debug/web-tool response', {
-    envCount: sortedEnvKeys.length,
+    debugTarget,
+    envCount: payload.env_keys.length,
     routes: exposedRoutes.length
   });
   res.json(payload);
+}
+
+app.get('/api/debug/codex', (req, res) => {
+  handleDebugRoute(req, res, 'codex');
+});
+
+app.get('/api/debug/codex-tool', (req, res) => {
+  handleDebugRoute(req, res, 'codex-tool');
+});
+
+app.get('/api/debug/web-tool', (req, res) => {
+  handleDebugRoute(req, res, 'web-tool');
 });
 
 app.get('/api/stream', (req, res) => {

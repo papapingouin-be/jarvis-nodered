@@ -169,6 +169,7 @@ function renderDebugSummary(snapshot, fetchError = null) {
   }
 
   const envCount = Array.isArray(snapshot?.backend?.env_keys) ? snapshot.backend.env_keys.length : 0;
+  const backendSource = snapshot?.backend_source || snapshot?.backend?.debug_target || 'inconnu';
   const endpoints = snapshot?.connectivity?.endpoints || [];
   const failing = endpoints.filter((endpoint) => endpoint.ok === false).length;
   const statusCls = failing ? 'status-error' : 'status-completed';
@@ -179,6 +180,7 @@ function renderDebugSummary(snapshot, fetchError = null) {
         <tr><th>URL actuelle</th><td>${snapshot.client.location.href}</td></tr>
         <tr><th>Chemin backend</th><td>${snapshot.backend.cwd}</td></tr>
         <tr><th>Node version</th><td>${snapshot.backend.node_version}</td></tr>
+        <tr><th>Source debug</th><td>${backendSource}</td></tr>
         <tr><th>Variables d'env</th><td><span class="badge ${statusCls}">${envCount}</span></td></tr>
         <tr><th>Routes exposées</th><td>${(snapshot.backend.routes || []).join(', ')}</td></tr>
       </tbody>
@@ -192,6 +194,7 @@ async function loadDebugData() {
   const client = getRuntimeContext();
   const endpointChecks = ['/api/status', '/healthz', '/api/services', '/api/flows?status=&service=&tool=&q='];
   const connectivity = [];
+  const backendDebugEndpoints = ['/api/debug/codex-tool', '/api/debug/codex', '/api/debug/web-tool'];
 
   for (const endpoint of endpointChecks) {
     const resolvedUrl = new URL(endpoint, window.location.href).href;
@@ -215,10 +218,25 @@ async function loadDebugData() {
   }
 
   try {
-    const backend = await api('/api/debug/web-tool');
+    let backend = null;
+    let backendSource = null;
+    let lastError = null;
+    for (const endpoint of backendDebugEndpoints) {
+      try {
+        backend = await api(endpoint);
+        backendSource = endpoint;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!backend) {
+      throw lastError || new Error('Aucun endpoint debug backend disponible');
+    }
     const snapshot = {
       generated_at: new Date().toISOString(),
       latency_ms: Math.round(performance.now() - startedAt),
+      backend_source: backendSource,
       client,
       connectivity: { endpoints: connectivity },
       frontend_state: {
