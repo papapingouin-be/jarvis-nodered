@@ -12,8 +12,9 @@ from pathlib import Path
 from typing import Any
 from urllib import error, request
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -36,6 +37,7 @@ DEFAULT_SERVICES = [
 
 app = FastAPI(title="Jarvis Debug Studio", version="3.0.0-control-tower")
 _subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+_ingestion_stats: dict[str, Any] = {}
 
 
 class TraceEvent(BaseModel):
@@ -62,6 +64,23 @@ class NpmProbeRequest(BaseModel):
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def reset_ingestion_stats() -> None:
+    _ingestion_stats.clear()
+    _ingestion_stats.update(
+        {
+            "started_at": utc_now(),
+            "received_events_since_start": 0,
+            "last_received_event": None,
+            "last_error": None,
+            "invalid_json_count": 0,
+            "invalid_payload_count": 0,
+        }
+    )
+
+
+reset_ingestion_stats()
 
 
 def redact(value: Any, parent_key: str = "") -> Any:
@@ -230,6 +249,85 @@ def service_status(item: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def db_debug_stats() -> dict[str, Any]:
+    db_exists = DB_PATH.exists()
+    with connect() as conn:
+        events_count = int(conn.execute("SELECT COUNT(*) FROM trace_events").fetchone()[0] or 0)
+        traces_count = int(conn.execute("SELECT COUNT(DISTINCT trace_id) FROM trace_events").fetchone()[0] or 0)
+        last_event_at = conn.execute("SELECT MAX(ts) FROM trace_events").fetchone()[0]
+    return {
+        "type": "sqlite",
+        "db_path": str(DB_PATH),
+        "db_exists": db_exists,
+        "events_count": events_count,
+        "traces_count": traces_count,
+        "last_event_at": last_event_at,
+    }
+
+
+def expected_gateway_url() -> str:
+    return os.getenv("JARVIS_DEBUG_EXPECTED_TRACE_GATEWAY_URL", "http://jarvis_debug_studio:8060")
+
+
+def diagnose_debug_status(storage: dict[str, Any], toolbox_check: dict[str, Any] | None = None) -> list[dict[str, str]]:
+    diag: list[dict[str, str]] = []
+    if _ingestion_stats["received_events_since_start"] == 0:
+        diag.append(
+            {
+                "level": "warning",
+                "message": "Aucune trace reçue depuis le démarrage.",
+                "probable_cause": "toolbox_runner n’envoie pas les événements vers Jarvis Debug Studio.",
+                "action": f"Vérifier TRACE_ENABLED=true et TRACE_GATEWAY_URL={expected_gateway_url()} dans toolbox_runner.",
+            }
+        )
+    if storage["db_exists"] is False:
+        diag.append(
+            {
+                "level": "error",
+                "message": "Le fichier SQLite est introuvable.",
+                "probable_cause": "Le volume /opt/jarvis/database n’est pas monté ou le chemin JARVIS_DEBUG_DB est incorrect.",
+                "action": f"Créer/monter le fichier {storage['db_path']} puis redémarrer jarvis_debug_studio.",
+            }
+        )
+    if int(_ingestion_stats.get("invalid_json_count", 0)) > 0:
+        diag.append(
+            {
+                "level": "warning",
+                "message": "Des événements ont été rejetés à cause d’un JSON invalide.",
+                "probable_cause": "Le producteur envoie un body mal formé sur /api/trace/event.",
+                "action": "Corriger le JSON envoyé (syntaxe + Content-Type application/json).",
+            }
+        )
+    if int(_ingestion_stats.get("invalid_payload_count", 0)) > 0:
+        diag.append(
+            {
+                "level": "warning",
+                "message": "Des événements ont été rejetés car le payload ne respecte pas le schéma TraceEvent.",
+                "probable_cause": "Champs manquants (ex: trace_id, phase) ou types incorrects.",
+                "action": "Vérifier le schéma attendu côté émetteur.",
+            }
+        )
+    if toolbox_check and not toolbox_check.get("reachable", False):
+        diag.append(
+            {
+                "level": "error",
+                "message": "toolbox_runner est injoignable depuis Jarvis Debug Studio.",
+                "probable_cause": "Service toolbox_runner offline, mauvais DNS Docker ou port invalide.",
+                "action": "Vérifier http://toolbox_runner:8030/health et le réseau Docker.",
+            }
+        )
+    if not diag:
+        diag.append(
+            {
+                "level": "ok",
+                "message": "Diagnostic nominal: ingestion active.",
+                "probable_cause": "Aucune anomalie critique détectée.",
+                "action": "Continuer la supervision.",
+            }
+        )
+    return diag
+
+
 def add_local_debug_event(phase: str, status: str, trace_id: str, **kw: Any) -> None:
     event = TraceEvent(
         trace_id=trace_id,
@@ -270,8 +368,22 @@ def add_local_debug_event(phase: str, status: str, trace_id: str, **kw: Any) -> 
 
 @app.on_event("startup")
 def startup() -> None:
+    reset_ingestion_stats()
     with connect():
         pass
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path == "/api/trace/event":
+        has_json_invalid = any((err.get("type") or "").endswith("json_invalid") for err in exc.errors())
+        if has_json_invalid:
+            _ingestion_stats["invalid_json_count"] = int(_ingestion_stats.get("invalid_json_count", 0)) + 1
+            _ingestion_stats["last_error"] = "JSON invalide reçu sur /api/trace/event"
+        else:
+            _ingestion_stats["invalid_payload_count"] = int(_ingestion_stats.get("invalid_payload_count", 0)) + 1
+            _ingestion_stats["last_error"] = "Payload invalide reçu sur /api/trace/event"
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
 @app.get("/health")
@@ -305,6 +417,66 @@ def get_tools() -> dict[str, Any]:
     toolbox_url = os.getenv("TOOLBOX_RUNNER_URL", "http://toolbox_runner:8030").rstrip("/")
     status, data, err, duration_ms = http_json(toolbox_url + "/v1/tools", timeout=2.0)
     return {"ok": err is None and status and 200 <= status < 300, "http_status": status, "duration_ms": duration_ms, "data": data, "error": err}
+
+
+def toolbox_connectivity_check() -> dict[str, Any]:
+    health_url = "http://toolbox_runner:8030/health"
+    tools_url = "http://toolbox_runner:8030/v1/tools"
+    h_status, h_data, h_err, h_latency = http_json(health_url, timeout=2.5)
+    t_status, t_data, t_err, t_latency = http_json(tools_url, timeout=2.5)
+    tools = t_data.get("tools", []) if isinstance(t_data, dict) else []
+    reachable = (
+        h_err is None
+        and t_err is None
+        and h_status is not None
+        and t_status is not None
+        and 200 <= h_status < 300
+        and 200 <= t_status < 300
+    )
+    return {
+        "reachable": reachable,
+        "latency_ms": {"health": h_latency, "tools": t_latency},
+        "health": {"url": health_url, "http_status": h_status, "response": redact(h_data), "error": h_err},
+        "tools": {"url": tools_url, "http_status": t_status, "available": tools, "error": t_err},
+        "error": h_err or t_err,
+    }
+
+
+@app.get("/api/debug/toolbox-check")
+def debug_toolbox_check() -> dict[str, Any]:
+    result = toolbox_connectivity_check()
+    return {"ok": result["reachable"], "service": "toolbox_runner", **result}
+
+
+@app.get("/api/debug/status")
+def debug_status() -> dict[str, Any]:
+    storage = db_debug_stats()
+    toolbox_check = toolbox_connectivity_check()
+    return {
+        "ok": True,
+        "service": "jarvis_debug_studio",
+        "debug_studio": {
+            "online": True,
+            "internal_port": 8060,
+            "external_port_hint": 4318,
+        },
+        "storage": storage,
+        "trace_ingestion": {
+            "endpoint": "/api/trace/event",
+            "received_events_since_start": _ingestion_stats["received_events_since_start"],
+            "last_received_event": _ingestion_stats["last_received_event"],
+            "last_error": _ingestion_stats["last_error"],
+            "invalid_json_count": _ingestion_stats["invalid_json_count"],
+            "invalid_payload_count": _ingestion_stats["invalid_payload_count"],
+            "started_at": _ingestion_stats["started_at"],
+        },
+        "configuration_expected": {
+            "TRACE_ENABLED": "true",
+            "TRACE_GATEWAY_URL": expected_gateway_url(),
+        },
+        "toolbox_runner_check": toolbox_check,
+        "diagnosis": diagnose_debug_status(storage, toolbox_check),
+    }
 
 
 @app.post("/api/probes/npm_service/list")
@@ -354,6 +526,16 @@ async def post_event(event: TraceEvent) -> dict[str, Any]:
         event_id = cur.lastrowid
     row_event["id"] = event_id
     row_event["explanation"] = explain_error(event.error_code, event.error_message)
+    _ingestion_stats["received_events_since_start"] = int(_ingestion_stats.get("received_events_since_start", 0)) + 1
+    _ingestion_stats["last_received_event"] = {
+        "id": event_id,
+        "trace_id": event.trace_id,
+        "phase": event.phase,
+        "status": event.status,
+        "tool": event.tool,
+        "timestamp": ts,
+    }
+    _ingestion_stats["last_error"] = None
     for queue in list(_subscribers):
         try:
             queue.put_nowait(row_event)
