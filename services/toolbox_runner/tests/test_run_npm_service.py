@@ -102,3 +102,35 @@ def test_run_npm_service_list_services_requires_only_instance_name(tmp_path) -> 
     assert out["data"]["intent"] == "list_services"
     assert result["instance_name"] == "default"
     assert result["instance_configured"] is False
+
+
+def test_run_npm_service_list_services_defaults_instance_name(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    npm_manifest = build_registry()["npm_service"]
+
+    out = run_tool(
+        npm_manifest,
+        {
+            "intent": "list.services",
+        },
+    )
+
+    result = out["data"]["result"]
+    assert out["data"]["intent"] == "list_services"
+    assert result["instance_name"] == "default"
+    assert result["instance_configured"] is False
+
+
+def test_run_npm_service_supports_natural_language_list_intent(tmp_path) -> None:
+    os.environ["JARVIS_INFRA_DB"] = str(tmp_path / "infra.db")
+    npm_manifest = build_registry()["npm_service"]
+
+    out = run_tool(
+        npm_manifest,
+        {
+            "intent": "utilise npm_service et liste les services",
+        },
+    )
+
+    assert out["data"]["intent"] == "list_services"
+    assert out["data"]["result"]["instance_name"] == "default"

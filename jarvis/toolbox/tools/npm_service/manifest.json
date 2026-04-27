@@ -104,7 +104,10 @@
           "list_proxy_services",
           "plan_service_action",
           "describe",
-          "lister les services npm"
+          "lister les services npm",
+          "liste les services npm",
+          "liste les services",
+          "utilise npm_service et liste les services"
         ]
       }
     },
@@ -163,15 +166,13 @@
                 "list.services",
                 "list_services",
                 "list_proxy_services",
-                "lister les services npm"
+                "lister les services npm",
+                "liste les services npm",
+                "liste les services",
+                "utilise npm_service et liste les services"
               ]
             }
           }
-        },
-        "then": {
-          "required": [
-            "instance_name"
-          ]
         }
       },
       {
