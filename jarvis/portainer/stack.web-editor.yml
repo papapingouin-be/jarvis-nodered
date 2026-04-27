@@ -10,7 +10,7 @@ x-logging: &default-logging
 
 services:
   nodered:
-    image: nodered/node-red:4.1.8
+    image: nodered/node-red:latest
     container_name: jarvis_nodered
     restart: unless-stopped
     user: ${NODERED_USER:-0:0}
