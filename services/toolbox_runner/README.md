@@ -32,6 +32,16 @@ Si un outil écrit sur `stderr` tout en renvoyant un JSON valide sur `stdout`,
 ces lignes sont propagées dans `logs` côté réponse et un événement
 `tool_execute_stderr` est aussi émis dans les logs du runner.
 
+## Logging / debug
+
+- `LOG_LEVEL` (défaut `INFO`) : niveau global des logs Python (`DEBUG`, `INFO`, ...).
+- `TOOLBOX_LOG_EXCLUDE_PATHS` : chemins HTTP à ignorer dans les traces du middleware
+  (défaut `/openapi.json,/docs,/docs/oauth2-redirect`), utile pour réduire le bruit
+  lié aux préflights CORS et au chargement Swagger/OpenAPI.
+- `NPM_SERVICE_DEBUG` (`1|true|yes|on`) : active des logs détaillés du tool
+  `npm_service` (résolution des credentials, URLs appelées, compteurs remote/local)
+  via `stderr`, ensuite visibles dans `output.logs` via `toolbox_runner`.
+
 ## Exemple `npm_service`
 
 Le tool `npm_service` exige aussi `input.intent` (champ requis par son schéma).
