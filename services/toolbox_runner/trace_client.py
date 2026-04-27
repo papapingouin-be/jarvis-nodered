@@ -17,7 +17,7 @@ def trace_enabled() -> bool:
 
 
 def gateway_url() -> str:
-    return os.getenv("TRACE_GATEWAY_URL") or os.getenv("TRACE_MONITOR_URL") or "http://jarvis_debug_studio:4318"
+    return os.getenv("TRACE_GATEWAY_URL") or os.getenv("TRACE_MONITOR_URL") or "http://jarvis_debug_studio:8060"
 
 
 def now_iso() -> str:
