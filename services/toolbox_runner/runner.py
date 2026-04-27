@@ -55,19 +55,46 @@ def _base_metadata(manifest: dict[str, Any], entrypoint: Path, command: list[str
     }
 
 
-def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any], trace: TraceClient | None = None) -> dict[str, Any]:
+def _emit_legacy_trace(
+    trace_hook: Any | None,
+    stage: str,
+    payload: dict[str, Any],
+    *,
+    duration_ms: float | None = None,
+    has_error: bool = False,
+) -> None:
+    if trace_hook is None:
+        return
+    trace_hook(stage, payload, duration_ms, has_error)
+
+
+def run_tool(
+    manifest: dict[str, Any],
+    tool_input: dict[str, Any],
+    trace: TraceClient | None = None,
+    trace_hook: Any | None = None,
+) -> dict[str, Any]:
     tool_name = manifest["name"]
     trace = trace or TraceClient(None, None, tool_name)
     total_timer = StepTimer()
+    _emit_legacy_trace(trace_hook, "entry", {"tool": tool_name, "input": tool_input})
 
     validation_timer = StepTimer()
     trace.event("validation.start", "running", input=tool_input, metadata={"schema": manifest.get("input_schema", {})})
     try:
         _validate(manifest["input_schema"], tool_input)
     except ToolRunError as exc:
+        _emit_legacy_trace(
+            trace_hook,
+            "validation",
+            {"error_code": exc.code, "error_message": exc.message, "input": tool_input},
+            duration_ms=validation_timer.ms(),
+            has_error=True,
+        )
         trace.event("validation.error", "error", input=tool_input, duration_ms=validation_timer.ms(), error_code=exc.code, error_message=exc.message)
         raise
     trace.event("validation.ok", "ok", input=tool_input, duration_ms=validation_timer.ms())
+    _emit_legacy_trace(trace_hook, "validation", {"input": tool_input}, duration_ms=validation_timer.ms())
 
     entrypoint = Path(manifest["tool_root"]) / manifest["entrypoint"]
     script_detected = entrypoint.suffix == ".py"
@@ -115,11 +142,19 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any], trace: TraceC
     }
     if result.stdout:
         trace.event("code.execution.stdout", "ok", output={"stdout": result.stdout}, metadata={"bytes": len(result.stdout)})
+        _emit_legacy_trace(trace_hook, "stdout", {"stdout": result.stdout})
     if result.stderr:
         trace.event("code.execution.stderr", "warning", output={"stderr": result.stderr}, metadata={"bytes": len(result.stderr)})
 
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip() or "tool crashed"
+        _emit_legacy_trace(
+            trace_hook,
+            "exit",
+            {"returncode": result.returncode, "stderr": stderr},
+            duration_ms=exec_timer.ms(),
+            has_error=True,
+        )
         trace.event("code.execution.error", "error", output=raw, metadata=metadata, duration_ms=exec_timer.ms(), error_code="TOOL_CRASH", error_message=stderr[:2000])
         log_event(logger, service="toolbox_runner", event="tool_execute_crash", tool=tool_name, return_code=result.returncode, stderr=stderr[:500])
         raise ToolRunError("TOOL_CRASH", stderr)
@@ -159,6 +194,7 @@ def run_tool(manifest: dict[str, Any], tool_input: dict[str, Any], trace: TraceC
         "logs": tool_logs,
     }
     validate_payload("tool_output.schema.json", output)
+    _emit_legacy_trace(trace_hook, "exit", {"returncode": result.returncode, "output": output}, duration_ms=total_timer.ms())
     trace.event("response.returned", "ok", input=tool_input, output=output, duration_ms=total_timer.ms())
     log_event(logger, service="toolbox_runner", event="tool_execute_done", tool=tool_name)
     return output
