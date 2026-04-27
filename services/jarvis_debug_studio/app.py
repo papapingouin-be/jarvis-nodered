@@ -25,7 +25,7 @@ MAX_CODE_LINES = int(os.getenv("JARVIS_DEBUG_MAX_CODE_LINES", "160"))
 SECRET_RE = re.compile(r"(password|secret|token|api[-_]?key|authorization|credential|bearer)", re.I)
 
 DEFAULT_SERVICES = [
-    {"name": "debug_studio", "url": "http://jarvis_debug_studio:4318/health", "type": "debug"},
+    {"name": "debug_studio", "url": "http://jarvis_debug_studio:8060/health", "type": "debug"},
     {"name": "toolbox_runner", "url": "http://toolbox_runner:8030/health", "type": "toolbox", "tools_url": "http://toolbox_runner:8030/v1/tools"},
     {"name": "llm_adapter", "url": "http://llm_adapter:8010/health", "type": "adapter"},
     {"name": "openproject_adapter", "url": "http://openproject_adapter:8020/health", "type": "adapter"},
@@ -276,7 +276,11 @@ def startup() -> None:
 
 @app.get("/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "db": str(DB_PATH), "version": app.version, "role": "control-tower"}
+    return {
+        "ok": True,
+        "service": "jarvis_debug_studio",
+        "status": "online",
+    }
 
 
 @app.get("/api/services")
@@ -290,7 +294,7 @@ def get_services() -> dict[str, Any]:
             "offline": sum(1 for s in items if s["status"] == "offline"),
         },
         "trace_config": {
-            "expected_toolbox_gateway_url": "http://jarvis_debug_studio:4318",
+            "expected_toolbox_gateway_url": "http://jarvis_debug_studio:8060",
             "note": "Si les services sont online mais qu’aucune trace n’arrive, vérifie TRACE_ENABLED=true et TRACE_GATEWAY_URL dans toolbox_runner.",
         },
     }
