@@ -1,0 +1,11 @@
+body { font-family: Arial, sans-serif; margin: 0; background: #0d1117; color: #e6edf3; }
+.layout { display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+.sidebar { border-right: 1px solid #30363d; padding: 16px; overflow: auto; }
+.content { padding: 16px; overflow: auto; }
+button { width: 100%; margin-bottom: 8px; padding: 8px; }
+ul { list-style: none; padding: 0; margin: 0; }
+li { padding: 8px; border: 1px solid #30363d; margin-bottom: 6px; cursor: pointer; }
+li:hover { background: #161b22; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+th, td { border: 1px solid #30363d; padding: 8px; vertical-align: top; }
+pre { white-space: pre-wrap; max-width: 460px; overflow-wrap: anywhere; margin: 0; }

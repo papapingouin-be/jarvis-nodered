@@ -14,6 +14,7 @@ from services.common.logging_utils import configure_logging, log_event
 from services.common.jarvis_types import ToolRunRequest
 from services.toolbox_runner.registry import build_registry
 from services.toolbox_runner.runner import ToolRunError, run_tool
+from services.toolbox_runner.tracing import emit_trace_event
 
 app = FastAPI(
     title="toolbox_runner",
@@ -110,8 +111,10 @@ def _available_tool_names() -> list[str]:
     return sorted(REGISTRY.keys())
 
 
-def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
+def _execute_tool(tool: str, tool_input: dict, context: dict | None = None, trace_id: str = "") -> dict:
     context = context or {}
+    if not trace_id:
+        trace_id = str(context.get("trace_id") or "")
     log_event(
         logger,
         service="toolbox_runner",
@@ -122,6 +125,7 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> d
         input_intent=tool_input.get("intent"),
         input_operation=tool_input.get("operation"),
         req_id=context.get("req_id"),
+        trace_id=trace_id,
     )
     manifest = REGISTRY.get(tool)
     if not manifest:
@@ -136,10 +140,23 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> d
             "data": {"available_tools": sorted(REGISTRY.keys())},
         }
 
+    trace_hook = None
+    if trace_id and tool == "npm_service":
+        trace_hook = lambda stage, payload, duration_ms=None, has_error=False: emit_trace_event(
+            trace_id=trace_id,
+            tool=tool,
+            stage=stage,
+            payload=payload,
+            duration_ms=duration_ms,
+            has_error=has_error,
+        )
+
     try:
-        return run_tool(manifest, tool_input)
+        return run_tool(manifest, tool_input, trace_hook=trace_hook)
     except ToolRunError as exc:
-        log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code)
+        if trace_hook is not None:
+            trace_hook("error", {"code": exc.code, "message": exc.message}, has_error=True)
+        log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code, trace_id=trace_id)
         return {
             "ok": False,
             "tool": tool,
@@ -224,8 +241,9 @@ def list_tools() -> dict[str, list[str]]:
     description="Execute a tool from the toolbox registry using the provided input payload.",
     operation_id="jarvis_execute_tool",
 )
-def run(payload: ToolRunRequest) -> dict:
-    return _execute_tool(payload.tool, payload.input, payload.context)
+def run(payload: ToolRunRequest, request: Request) -> dict:
+    header_trace_id = request.headers.get("x-trace-id") or ""
+    return _execute_tool(payload.tool, payload.input, payload.context, header_trace_id)
 
 
 @app.post(
@@ -235,8 +253,9 @@ def run(payload: ToolRunRequest) -> dict:
     description="Execute a tool from the toolbox registry using the path parameter and a direct input payload.",
     operation_id="jarvis_execute_tool_by_path",
 )
-def run_by_path(tool: str, payload: dict) -> dict:
-    return _execute_tool(tool, payload, {})
+def run_by_path(tool: str, payload: dict, request: Request) -> dict:
+    header_trace_id = request.headers.get("x-trace-id") or ""
+    return _execute_tool(tool, payload, {}, header_trace_id)
 
 
 @app.post(
@@ -246,8 +265,9 @@ def run_by_path(tool: str, payload: dict) -> dict:
     description="Compatibility alias for /v1/run.",
     operation_id="jarvis_execute_tool_compat",
 )
-def run_compat(payload: ToolRunRequest) -> dict:
-    return _execute_tool(payload.tool, payload.input, payload.context)
+def run_compat(payload: ToolRunRequest, request: Request) -> dict:
+    header_trace_id = request.headers.get("x-trace-id") or ""
+    return _execute_tool(payload.tool, payload.input, payload.context, header_trace_id)
 
 
 @app.post(
@@ -257,5 +277,6 @@ def run_compat(payload: ToolRunRequest) -> dict:
     description="Compatibility alias for /v1/run/{tool}.",
     operation_id="jarvis_execute_tool_by_path_compat",
 )
-def run_by_path_compat(tool: str, payload: dict) -> dict:
-    return _execute_tool(tool, payload, {})
+def run_by_path_compat(tool: str, payload: dict, request: Request) -> dict:
+    header_trace_id = request.headers.get("x-trace-id") or ""
+    return _execute_tool(tool, payload, {}, header_trace_id)

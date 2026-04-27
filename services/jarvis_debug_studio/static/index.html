@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jarvis Debug Studio</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <section class="sidebar">
+        <h1>Jarvis Debug Studio</h1>
+        <button id="refresh-btn">Refresh traces</button>
+        <ul id="trace-list"></ul>
+      </section>
+      <section class="content">
+        <h2 id="trace-title">Select a trace</h2>
+        <div id="trace-meta"></div>
+        <table>
+          <thead>
+            <tr>
+              <th>stage</th>
+              <th>handler</th>
+              <th>code preview</th>
+              <th>stdout</th>
+              <th>stderr</th>
+              <th>output brut</th>
+              <th>durée (ms)</th>
+              <th>erreurs</th>
+            </tr>
+          </thead>
+          <tbody id="trace-events"></tbody>
+        </table>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
