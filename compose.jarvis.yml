@@ -29,6 +29,10 @@ services:
       LLM_ADAPTER_URL: http://llm_adapter:8010
       JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/devlab_backend/requirements.txt; [ -f "$REQ" ] || REQ=services/devlab_backend/requirements.txt; if [ -f "$REQ" ]; then pip install --no-cache-dir -r "$REQ"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic jsonschema ruff; fi && uvicorn services.devlab_backend.app:app --host 0.0.0.0 --port 8090"
     ports:
       - "8090:8090"
@@ -43,6 +47,10 @@ services:
     environment:
       PYTHONPATH: /app
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
@@ -62,6 +70,10 @@ services:
     environment:
       PYTHONPATH: /app
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/openproject_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/openproject_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema; fi && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
@@ -79,7 +91,10 @@ services:
       TOOL_TIMEOUT_S: 30
       JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
-      JARVIS_DEBUG_STUDIO_URL: ${JARVIS_DEBUG_STUDIO_URL:-http://jarvis_debug_studio:8060}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
@@ -94,10 +109,11 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
-      JARVIS_DEBUG_STUDIO_DB: /opt/jarvis/database/jarvis_debug_studio.db
-    command: bash -lc "REQ=/app/services/jarvis_debug_studio/requirements.txt; [ -f \"$REQ\" ] || REQ=services/jarvis_debug_studio/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.jarvis_debug_studio.app:app --host 0.0.0.0 --port 8060"
+      JARVIS_DEBUG_DB: /opt/jarvis/database/jarvis_debug_studio.sqlite
+      JARVIS_DEBUG_MAX_CODE_LINES: 160
+    command: bash -lc "REQ=/app/services/jarvis_debug_studio/requirements.txt; pip install --no-cache-dir -r \"$REQ\" && uvicorn services.jarvis_debug_studio.app:app --host 0.0.0.0 --port 4318"
     ports:
-      - "8060:8060"
+      - "4318:4318"
 
   git_bridge:
     image: python:3.11-slim
@@ -110,6 +126,10 @@ services:
       PYTHONPATH: /app
       DRY_RUN: "true"
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/git_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/git_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
@@ -126,6 +146,10 @@ services:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: ${TRACE_ENABLED:-true}
+      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:4318}
+      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
+      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"

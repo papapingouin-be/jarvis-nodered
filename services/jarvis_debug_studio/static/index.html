@@ -1,38 +1,53 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Jarvis Debug Studio</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <main class="layout">
-      <section class="sidebar">
-        <h1>Jarvis Debug Studio</h1>
-        <button id="refresh-btn">Refresh traces</button>
-        <ul id="trace-list"></ul>
-      </section>
-      <section class="content">
-        <h2 id="trace-title">Select a trace</h2>
-        <div id="trace-meta"></div>
-        <table>
-          <thead>
-            <tr>
-              <th>stage</th>
-              <th>handler</th>
-              <th>code preview</th>
-              <th>stdout</th>
-              <th>stderr</th>
-              <th>output brut</th>
-              <th>durée (ms)</th>
-              <th>erreurs</th>
-            </tr>
-          </thead>
-          <tbody id="trace-events"></tbody>
-        </table>
-      </section>
-    </main>
-    <script src="/static/app.js"></script>
-  </body>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Jarvis Debug Studio</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>Jarvis Debug Studio</h1>
+      <p>Boîte noire d’exécution : appels, entrées/sorties, code, logs et erreurs.</p>
+    </div>
+    <div class="actions">
+      <input id="search" placeholder="trace_id, tool, phase…" />
+      <select id="status-filter">
+        <option value="">Tous statuts</option><option value="ok">OK</option><option value="warning">Warning</option><option value="error">Error</option><option value="running">Running</option>
+      </select>
+      <button id="refresh">Rafraîchir</button>
+      <button id="live" class="ghost">Live: off</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <aside class="traces">
+      <div class="panel-title">Traces récentes</div>
+      <div id="trace-list" class="trace-list"></div>
+    </aside>
+
+    <section class="timeline-panel">
+      <div class="panel-title" id="trace-title">Sélectionne une trace</div>
+      <div id="trace-summary" class="summary muted">Aucun appel chargé.</div>
+      <div id="timeline" class="timeline"></div>
+    </section>
+
+    <section class="detail-panel">
+      <div class="panel-title" id="detail-title">Détail étape</div>
+      <div class="tabs">
+        <button data-tab="input" class="active">Entrée</button>
+        <button data-tab="output">Sortie</button>
+        <button data-tab="code">Code</button>
+        <button data-tab="logs">Logs</button>
+        <button data-tab="error">Erreur</button>
+        <button data-tab="meta">Meta</button>
+      </div>
+      <pre id="detail-content">Clique sur une étape de la timeline.</pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
 </html>

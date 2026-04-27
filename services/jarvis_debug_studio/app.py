@@ -1,202 +1,297 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import re
 import sqlite3
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from services.common.logging_utils import configure_logging, log_event
+APP_DIR = Path(__file__).resolve().parent
+DB_PATH = Path(os.getenv("JARVIS_DEBUG_DB", "/opt/jarvis/database/jarvis_debug_studio.sqlite"))
+MAX_VALUE_LENGTH = int(os.getenv("JARVIS_DEBUG_MAX_VALUE_LENGTH", "6000"))
+MAX_JSON_LENGTH = int(os.getenv("JARVIS_DEBUG_MAX_JSON_LENGTH", "120000"))
+MAX_CODE_LINES = int(os.getenv("JARVIS_DEBUG_MAX_CODE_LINES", "160"))
+SECRET_RE = re.compile(r"(password|secret|token|api[-_]?key|authorization|credential|bearer)", re.I)
 
-MAX_VALUE_LENGTH = int(os.getenv("JARVIS_DEBUG_STUDIO_MAX_VALUE_LENGTH", "4000"))
-MAX_JSON_LENGTH = int(os.getenv("JARVIS_DEBUG_STUDIO_MAX_JSON_LENGTH", "30000"))
-SECRET_KEY_RE = re.compile(r"(secret|password|token|api[-_]?key|authorization)", re.IGNORECASE)
-
-logger = configure_logging("jarvis_debug_studio")
-app = FastAPI(title="jarvis_debug_studio", version="1.0")
+app = FastAPI(title="Jarvis Debug Studio", version="2.0.0")
+_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
 
-class TraceEventIn(BaseModel):
-    trace_id: str = Field(min_length=1, max_length=128)
-    tool: str = Field(min_length=1, max_length=128)
-    stage: str = Field(min_length=1, max_length=128)
-    payload: dict[str, Any] = Field(default_factory=dict)
+class TraceEvent(BaseModel):
+    trace_id: str = Field(min_length=1, max_length=160)
+    run_id: str | None = Field(default=None, max_length=160)
+    timestamp: str | None = None
+    source: str = "unknown"
+    service: str = "unknown"
+    tool: str | None = None
+    phase: str = Field(min_length=1, max_length=160)
+    status: str = "ok"
     duration_ms: float | None = None
-    has_error: bool = False
+    input: Any = Field(default_factory=dict)
+    output: Any = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    error_code: str | None = None
+    error_message: str | None = None
 
 
-def _db_path() -> Path:
-    configured = os.getenv("JARVIS_DEBUG_STUDIO_DB")
-    if configured:
-        return Path(configured)
-    return Path("/opt/jarvis/database/jarvis_debug_studio.db")
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _connect() -> sqlite3.Connection:
-    path = _db_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+def redact(value: Any, parent_key: str = "") -> Any:
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for k, v in value.items():
+            if SECRET_RE.search(str(k)):
+                out[k] = "***REDACTED***"
+            else:
+                out[k] = redact(v, str(k))
+        return out
+    if isinstance(value, list):
+        return [redact(v, parent_key) for v in value[:300]]
+    if isinstance(value, str):
+        if parent_key and SECRET_RE.search(parent_key):
+            return "***REDACTED***"
+        if len(value) > MAX_VALUE_LENGTH:
+            return value[:MAX_VALUE_LENGTH] + f"\n...[truncated {len(value) - MAX_VALUE_LENGTH} chars]"
+        return value
+    return value
+
+
+def normalize_code_preview(metadata: dict[str, Any]) -> dict[str, Any]:
+    preview = metadata.get("code_preview")
+    if isinstance(preview, str):
+        lines = preview.splitlines()
+        if len(lines) > MAX_CODE_LINES:
+            metadata = dict(metadata)
+            metadata["code_preview"] = "\n".join(lines[:MAX_CODE_LINES]) + f"\n# ...[truncated {len(lines) - MAX_CODE_LINES} lines]"
+    return metadata
+
+
+def dumps_limited(value: Any) -> str:
+    clean = redact(value)
+    raw = json.dumps(clean, ensure_ascii=False, default=str)
+    if len(raw) <= MAX_JSON_LENGTH:
+        return raw
+    return json.dumps({"truncated": True, "preview": raw[:MAX_JSON_LENGTH], "original_size": len(raw)}, ensure_ascii=False)
+
+
+def loads_json(raw: str | None) -> Any:
+    if not raw:
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {"raw": raw}
+
+
+def connect() -> sqlite3.Connection:
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS trace_events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             trace_id TEXT NOT NULL,
-            tool TEXT NOT NULL,
-            stage TEXT NOT NULL,
-            payload_json TEXT NOT NULL,
+            run_id TEXT,
+            ts TEXT NOT NULL,
+            source TEXT NOT NULL,
+            service TEXT NOT NULL,
+            tool TEXT,
+            phase TEXT NOT NULL,
+            status TEXT NOT NULL,
             duration_ms REAL,
-            has_error INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            input_json TEXT NOT NULL,
+            output_json TEXT NOT NULL,
+            metadata_json TEXT NOT NULL,
+            error_code TEXT,
+            error_message TEXT
         )
         """
     )
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_trace_events_trace_id ON trace_events(trace_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_trace ON trace_events(trace_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_tool ON trace_events(tool)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON trace_events(status)")
     conn.commit()
     return conn
 
 
-def _truncate_string(value: str) -> str:
-    if len(value) <= MAX_VALUE_LENGTH:
-        return value
-    return value[:MAX_VALUE_LENGTH] + "…[truncated]"
+def explain_error(error_code: str | None, error_message: str | None) -> str | None:
+    if not error_code:
+        return None
+    mapping = {
+        "VALIDATION_ERROR": "Le JSON reçu ne respecte pas le schéma de l’outil. Vérifie surtout les champs obligatoires comme intent.",
+        "MISSING_TOOL": "L’outil demandé n’est pas présent dans le registre toolbox_runner.",
+        "TIMEOUT": "L’outil a dépassé le délai. Le script appelé est trop lent ou bloqué.",
+        "TOOL_CRASH": "Le script Python a retourné un code d’erreur. Regarde stderr et le code exécuté.",
+        "INVALID_JSON": "Le script a écrit autre chose que du JSON valide dans stdout.",
+        "OUTPUT_VALIDATION_ERROR": "Le résultat ne respecte pas le schéma de sortie attendu.",
+    }
+    base = mapping.get(error_code, "Erreur non classée. Regarde la phase, stderr et le payload détaillé.")
+    if error_message:
+        return f"{base}\nDétail : {error_message}"
+    return base
 
 
-def _mask_and_limit(value: Any) -> Any:
-    if isinstance(value, dict):
-        sanitized: dict[str, Any] = {}
-        for key, item in value.items():
-            if SECRET_KEY_RE.search(key):
-                sanitized[key] = "***"
-                continue
-            sanitized[key] = _mask_and_limit(item)
-        return sanitized
-    if isinstance(value, list):
-        return [_mask_and_limit(item) for item in value[:100]]
-    if isinstance(value, str):
-        return _truncate_string(value)
-    return value
-
-
-def _serialize_payload(payload: dict[str, Any]) -> str:
-    sanitized = _mask_and_limit(payload)
-    encoded = json.dumps(sanitized, ensure_ascii=False)
-    if len(encoded) <= MAX_JSON_LENGTH:
-        return encoded
-    return json.dumps(
-        {
-            "truncated": True,
-            "preview": encoded[:MAX_JSON_LENGTH],
-            "original_size": len(encoded),
-        },
-        ensure_ascii=False,
-    )
+@app.on_event("startup")
+def startup() -> None:
+    with connect():
+        pass
 
 
 @app.get("/health")
-def health() -> dict[str, str]:
-    log_event(logger, service="jarvis_debug_studio", event="healthcheck")
-    return {"status": "ok"}
+def health() -> dict[str, Any]:
+    return {"status": "ok", "db": str(DB_PATH), "version": app.version}
 
 
 @app.post("/api/trace/event")
-def post_trace_event(event: TraceEventIn) -> dict[str, Any]:
-    conn = _connect()
-    try:
-        payload_json = _serialize_payload(event.payload)
-        conn.execute(
+async def post_event(event: TraceEvent) -> dict[str, Any]:
+    ts = event.timestamp or utc_now()
+    metadata = normalize_code_preview(redact(event.metadata))
+    row_event = event.dict()
+    row_event["timestamp"] = ts
+    row_event["metadata"] = metadata
+    with connect() as conn:
+        cur = conn.execute(
             """
-            INSERT INTO trace_events(trace_id, tool, stage, payload_json, duration_ms, has_error)
-            VALUES(?, ?, ?, ?, ?, ?)
+            INSERT INTO trace_events(trace_id, run_id, ts, source, service, tool, phase, status,
+                                     duration_ms, input_json, output_json, metadata_json,
+                                     error_code, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                event.trace_id,
-                event.tool,
-                event.stage,
-                payload_json,
-                event.duration_ms,
-                1 if event.has_error else 0,
+                event.trace_id, event.run_id, ts, event.source, event.service, event.tool,
+                event.phase, event.status, event.duration_ms,
+                dumps_limited(event.input), dumps_limited(event.output), dumps_limited(metadata),
+                event.error_code, event.error_message,
             ),
         )
         conn.commit()
-    finally:
-        conn.close()
-
-    return {"ok": True}
+        event_id = cur.lastrowid
+    row_event["id"] = event_id
+    row_event["explanation"] = explain_error(event.error_code, event.error_message)
+    for queue in list(_subscribers):
+        try:
+            queue.put_nowait(row_event)
+        except Exception:
+            _subscribers.discard(queue)
+    return {"ok": True, "id": event_id}
 
 
 @app.get("/api/traces")
-def get_traces(limit: int = 100) -> dict[str, list[dict[str, Any]]]:
-    safe_limit = min(max(limit, 1), 500)
-    conn = _connect()
-    try:
+def list_traces(
+    limit: int = Query(default=100, ge=1, le=500),
+    tool: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+) -> dict[str, Any]:
+    where = []
+    args: list[Any] = []
+    if tool:
+        where.append("tool = ?")
+        args.append(tool)
+    if status:
+        where.append("status = ?")
+        args.append(status)
+    if q:
+        where.append("(trace_id LIKE ? OR run_id LIKE ? OR tool LIKE ? OR phase LIKE ?)")
+        like = f"%{q}%"
+        args.extend([like, like, like, like])
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    with connect() as conn:
         rows = conn.execute(
-            """
-            SELECT
-              trace_id,
-              MIN(tool) AS tool,
-              COUNT(*) AS events,
-              MAX(has_error) AS has_error,
-              MIN(created_at) AS started_at,
-              MAX(created_at) AS last_at,
-              MAX(duration_ms) AS duration_ms
+            f"""
+            SELECT trace_id,
+                   COALESCE(MAX(run_id), '') AS run_id,
+                   COALESCE(MAX(tool), '') AS tool,
+                   COALESCE(MAX(service), '') AS service,
+                   COUNT(*) AS events,
+                   MIN(ts) AS started_at,
+                   MAX(ts) AS last_at,
+                   ROUND(SUM(COALESCE(duration_ms, 0)), 2) AS observed_duration_ms,
+                   CASE WHEN SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) > 0 THEN 'error'
+                        WHEN SUM(CASE WHEN status='warning' THEN 1 ELSE 0 END) > 0 THEN 'warning'
+                        WHEN SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) > 0 THEN 'running'
+                        ELSE 'ok' END AS status,
+                   MAX(error_code) AS error_code,
+                   MAX(error_message) AS error_message
             FROM trace_events
+            {where_sql}
             GROUP BY trace_id
             ORDER BY MAX(id) DESC
             LIMIT ?
             """,
-            (safe_limit,),
+            (*args, limit),
         ).fetchall()
-    finally:
-        conn.close()
-
-    return {"items": [dict(row) for row in rows]}
+    items = [dict(r) for r in rows]
+    for item in items:
+        item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
+    return {"items": items}
 
 
 @app.get("/api/traces/{trace_id}")
 def get_trace(trace_id: str) -> dict[str, Any]:
-    conn = _connect()
-    try:
+    with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, trace_id, tool, stage, payload_json, duration_ms, has_error, created_at
-            FROM trace_events
-            WHERE trace_id = ?
-            ORDER BY id ASC
+            SELECT * FROM trace_events WHERE trace_id = ? ORDER BY id ASC
             """,
             (trace_id,),
         ).fetchall()
-    finally:
-        conn.close()
-
     if not rows:
-        raise HTTPException(status_code=404, detail="trace not found")
+        raise HTTPException(404, "trace not found")
+    events: list[dict[str, Any]] = []
+    for r in rows:
+        d = dict(r)
+        d["timestamp"] = d.pop("ts")
+        d["input"] = loads_json(d.pop("input_json"))
+        d["output"] = loads_json(d.pop("output_json"))
+        d["metadata"] = loads_json(d.pop("metadata_json"))
+        d["explanation"] = explain_error(d.get("error_code"), d.get("error_message"))
+        events.append(d)
+    first = events[0]
+    status = "error" if any(e["status"] == "error" for e in events) else ("warning" if any(e["status"] == "warning" for e in events) else "ok")
+    return {"trace_id": trace_id, "tool": first.get("tool"), "status": status, "events": events}
 
-    events = []
-    for row in rows:
-        event = dict(row)
+
+@app.delete("/api/traces/{trace_id}")
+def delete_trace(trace_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM trace_events WHERE trace_id = ?", (trace_id,))
+        conn.commit()
+    return {"ok": True, "deleted_events": cur.rowcount}
+
+
+@app.get("/api/live")
+async def live() -> StreamingResponse:
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=100)
+    _subscribers.add(queue)
+
+    async def gen():
         try:
-            event["payload"] = json.loads(event.pop("payload_json"))
-        except json.JSONDecodeError:
-            event["payload"] = {"raw": event.pop("payload_json")}
-        events.append(event)
+            yield "event: hello\ndata: {\"ok\": true}\n\n"
+            while True:
+                event = await queue.get()
+                yield "event: trace\ndata: " + json.dumps(event, ensure_ascii=False, default=str) + "\n\n"
+        finally:
+            _subscribers.discard(queue)
 
-    return {
-        "trace_id": trace_id,
-        "tool": events[0]["tool"],
-        "events": events,
-    }
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 
 @app.get("/")
-def studio_index() -> FileResponse:
-    return FileResponse(Path(__file__).parent / "static" / "index.html")
+def index() -> FileResponse:
+    return FileResponse(APP_DIR / "static" / "index.html")
 
 
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
+app.mount("/static", StaticFiles(directory=APP_DIR / "static"), name="static")

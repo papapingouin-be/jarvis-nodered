@@ -14,7 +14,7 @@ from services.common.logging_utils import configure_logging, log_event
 from services.common.jarvis_types import ToolRunRequest
 from services.toolbox_runner.registry import build_registry
 from services.toolbox_runner.runner import ToolRunError, run_tool
-from services.toolbox_runner.tracing import emit_trace_event
+from services.toolbox_runner.trace_client import TraceClient, new_trace_id, new_run_id
 
 app = FastAPI(
     title="toolbox_runner",
@@ -111,10 +111,21 @@ def _available_tool_names() -> list[str]:
     return sorted(REGISTRY.keys())
 
 
-def _execute_tool(tool: str, tool_input: dict, context: dict | None = None, trace_id: str = "") -> dict:
+def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
     context = context or {}
-    if not trace_id:
-        trace_id = str(context.get("trace_id") or "")
+    trace_id = context.get("trace_id") or context.get("req_id") or new_trace_id()
+    run_id = context.get("run_id") or new_run_id(tool)
+    trace = TraceClient(trace_id, run_id, tool)
+    trace.event(
+        "request.received",
+        "running",
+        input=tool_input,
+        metadata={
+            "context_keys": sorted(context.keys()),
+            "input_keys": sorted(tool_input.keys()),
+            "req_id": context.get("req_id"),
+        },
+    )
     log_event(
         logger,
         service="toolbox_runner",
@@ -126,12 +137,14 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None, trac
         input_operation=tool_input.get("operation"),
         req_id=context.get("req_id"),
         trace_id=trace_id,
+        run_id=run_id,
     )
     manifest = REGISTRY.get(tool)
     if not manifest:
+        trace.event("registry.refresh", "running", metadata={"reason": "tool_not_found_in_memory"})
         manifest = _refresh_registry().get(tool)
     if not manifest:
-        return {
+        result = {
             "ok": False,
             "tool": tool,
             "error_code": "MISSING_TOOL",
@@ -139,31 +152,22 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None, trac
             "retryable": False,
             "data": {"available_tools": sorted(REGISTRY.keys())},
         }
+        trace.event("tool.selected", "error", input=tool_input, output=result, error_code="MISSING_TOOL", error_message=result["message"])
+        return result
 
-    trace_hook = None
-    if trace_id and tool == "npm_service":
-        trace_hook = lambda stage, payload, duration_ms=None, has_error=False: emit_trace_event(
-            trace_id=trace_id,
-            tool=tool,
-            stage=stage,
-            payload=payload,
-            duration_ms=duration_ms,
-            has_error=has_error,
-        )
-
+    trace.event("tool.selected", "ok", input=tool_input, metadata={"manifest": {k: v for k, v in manifest.items() if k != "input_schema" and k != "output_schema"}})
     try:
-        return run_tool(manifest, tool_input, trace_hook=trace_hook)
+        return run_tool(manifest, tool_input, trace=trace)
     except ToolRunError as exc:
-        if trace_hook is not None:
-            trace_hook("error", {"code": exc.code, "message": exc.message}, has_error=True)
-        log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code, trace_id=trace_id)
+        trace.event("response.returned", "error", input=tool_input, error_code=exc.code, error_message=exc.message, metadata={"retryable": exc.retryable})
+        log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code, trace_id=trace_id, run_id=run_id)
         return {
             "ok": False,
             "tool": tool,
             "error_code": exc.code,
             "message": exc.message,
             "retryable": exc.retryable,
-            "data": {},
+            "data": {"trace_id": trace_id, "run_id": run_id},
         }
 
 
@@ -241,9 +245,8 @@ def list_tools() -> dict[str, list[str]]:
     description="Execute a tool from the toolbox registry using the provided input payload.",
     operation_id="jarvis_execute_tool",
 )
-def run(payload: ToolRunRequest, request: Request) -> dict:
-    header_trace_id = request.headers.get("x-trace-id") or ""
-    return _execute_tool(payload.tool, payload.input, payload.context, header_trace_id)
+def run(payload: ToolRunRequest) -> dict:
+    return _execute_tool(payload.tool, payload.input, payload.context)
 
 
 @app.post(
@@ -253,9 +256,8 @@ def run(payload: ToolRunRequest, request: Request) -> dict:
     description="Execute a tool from the toolbox registry using the path parameter and a direct input payload.",
     operation_id="jarvis_execute_tool_by_path",
 )
-def run_by_path(tool: str, payload: dict, request: Request) -> dict:
-    header_trace_id = request.headers.get("x-trace-id") or ""
-    return _execute_tool(tool, payload, {}, header_trace_id)
+def run_by_path(tool: str, payload: dict) -> dict:
+    return _execute_tool(tool, payload, {})
 
 
 @app.post(
@@ -265,9 +267,8 @@ def run_by_path(tool: str, payload: dict, request: Request) -> dict:
     description="Compatibility alias for /v1/run.",
     operation_id="jarvis_execute_tool_compat",
 )
-def run_compat(payload: ToolRunRequest, request: Request) -> dict:
-    header_trace_id = request.headers.get("x-trace-id") or ""
-    return _execute_tool(payload.tool, payload.input, payload.context, header_trace_id)
+def run_compat(payload: ToolRunRequest) -> dict:
+    return _execute_tool(payload.tool, payload.input, payload.context)
 
 
 @app.post(
@@ -277,6 +278,5 @@ def run_compat(payload: ToolRunRequest, request: Request) -> dict:
     description="Compatibility alias for /v1/run/{tool}.",
     operation_id="jarvis_execute_tool_by_path_compat",
 )
-def run_by_path_compat(tool: str, payload: dict, request: Request) -> dict:
-    header_trace_id = request.headers.get("x-trace-id") or ""
-    return _execute_tool(tool, payload, {}, header_trace_id)
+def run_by_path_compat(tool: str, payload: dict) -> dict:
+    return _execute_tool(tool, payload, {})
