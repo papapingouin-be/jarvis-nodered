@@ -22,6 +22,9 @@ INTENT_ALIASES = {
     "list_proxy_services": "list_services",
     "list.services": "list_services",
     "lister les services npm": "list_services",
+    "liste les services npm": "list_services",
+    "liste les services": "list_services",
+    "utilise npm_service et liste les services": "list_services",
     "plan_service_action": "plan_service_action",
     "plan.service_action": "plan_service_action",
     "describe": "describe",
@@ -222,7 +225,11 @@ def _register_service(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict
 
 
 def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
-    instance_name = payload["instance_name"]
+    instance_name_raw = payload.get("instance_name")
+    if isinstance(instance_name_raw, str) and instance_name_raw.strip():
+        instance_name = instance_name_raw.strip()
+    else:
+        instance_name = os.getenv("NPM_INSTANCE_NAME", "default").strip() or "default"
     rows = conn.execute(
         """
         SELECT domain, instance_name, forward_host, forward_port, scheme
