@@ -10,17 +10,36 @@
   <header class="topbar">
     <div>
       <h1>Jarvis Debug Studio</h1>
-      <p>Boîte noire d’exécution : appels, entrées/sorties, code, logs et erreurs.</p>
+      <p>Tour de contrôle Jarvis : services, appels outils, entrées/sorties, code exécuté et erreurs.</p>
     </div>
     <div class="actions">
       <input id="search" placeholder="trace_id, tool, phase…" />
       <select id="status-filter">
-        <option value="">Tous statuts</option><option value="ok">OK</option><option value="warning">Warning</option><option value="error">Error</option><option value="running">Running</option>
+        <option value="">Tous statuts</option>
+        <option value="ok">OK</option>
+        <option value="warning">Warning</option>
+        <option value="error">Error</option>
+        <option value="running">Running</option>
       </select>
-      <button id="refresh">Rafraîchir</button>
+      <button id="refresh-all">Rafraîchir tout</button>
       <button id="live" class="ghost">Live: off</button>
     </div>
   </header>
+
+  <section class="control">
+    <div class="control-head">
+      <div>
+        <h2>État des services</h2>
+        <p id="service-summary" class="muted">Chargement…</p>
+      </div>
+      <div class="control-actions">
+        <button id="refresh-services">Tester les services</button>
+        <button id="probe-npm" class="primary">Tester npm_service</button>
+      </div>
+    </div>
+    <div id="service-grid" class="service-grid"></div>
+    <div id="probe-result" class="probe-result muted">Le bouton “Tester npm_service” crée une trace même si OpenWebUI ne déclenche rien.</div>
+  </section>
 
   <main class="shell">
     <aside class="traces">
