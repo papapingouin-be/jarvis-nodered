@@ -41,6 +41,22 @@
     <div id="probe-result" class="probe-result muted">Le bouton “Tester npm_service” crée une trace même si OpenWebUI ne déclenche rien.</div>
   </section>
 
+  <section class="control">
+    <div class="control-head">
+      <div>
+        <h2>AI Debug Log / Journal IA</h2>
+        <p id="debug-summary" class="muted">Diagnostic en cours…</p>
+      </div>
+      <div class="control-actions">
+        <button id="refresh-debug">Rafraîchir diagnostic</button>
+        <button id="debug-probe-npm" class="primary">Tester npm_service</button>
+        <button id="copy-debug-report">Copier rapport debug</button>
+      </div>
+    </div>
+    <div id="debug-checks" class="debug-checks"></div>
+    <div id="debug-diagnosis" class="debug-diagnosis"></div>
+  </section>
+
   <main class="shell">
     <aside class="traces">
       <div class="panel-title">Traces récentes</div>

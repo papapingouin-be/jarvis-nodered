@@ -3,6 +3,9 @@ let currentTrace = null;
 let selectedEvent = null;
 let activeTab = 'input';
 let liveSource = null;
+let lastDebugStatus = null;
+let lastToolboxCheck = null;
+let lastNpmProbeResult = null;
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v) => v === undefined || v === null || v === '' ? '—' : v;
@@ -50,12 +53,63 @@ async function runNpmProbe(){
   out.textContent = 'Appel manuel de npm_service en cours…';
   try{
     const data = await api('/api/probes/npm_service/list', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({intent:'list.services'})});
+    lastNpmProbeResult = data;
     out.innerHTML = `Trace créée : <button class="linkbtn" onclick="loadTrace('${data.trace_id}')">${data.trace_id}</button> · ${data.ok ? 'OK' : 'Erreur'} · ${fmt(data.duration_ms)} ms`;
     await loadTraces();
     await loadTrace(data.trace_id);
+    await loadDebugStatus();
   }catch(err){
     out.textContent = `Échec du test npm_service : ${err.message}`;
+    lastNpmProbeResult = {ok:false, error: err.message};
   }
+}
+
+async function loadDebugStatus(){
+  const checks = $('debug-checks');
+  const diagnosisBox = $('debug-diagnosis');
+  checks.innerHTML = '<div class="empty">Diagnostic en cours…</div>';
+  diagnosisBox.innerHTML = '';
+  try{
+    const [status, toolbox] = await Promise.all([api('/api/debug/status'), api('/api/debug/toolbox-check')]);
+    lastDebugStatus = status;
+    lastToolboxCheck = toolbox;
+    $('debug-summary').textContent = `Événements: ${status.storage.events_count} · Traces: ${status.storage.traces_count} · Reçus depuis démarrage: ${status.trace_ingestion.received_events_since_start}`;
+    const rows = [
+      ['Jarvis Debug Studio est-il online ?', status.debug_studio.online ? 'ok' : 'error', `port interne ${status.debug_studio.internal_port}`],
+      ['Est-ce que /api/trace/event reçoit des événements ?', status.trace_ingestion.received_events_since_start > 0 ? 'ok' : 'warning', `reçus=${status.trace_ingestion.received_events_since_start}`],
+      ['Est-ce que le fichier SQLite existe ?', status.storage.db_exists ? 'ok' : 'error', status.storage.db_path],
+      ['Combien d’événements sont stockés ?', 'ok', String(status.storage.events_count)],
+      ['Quelle est la dernière trace reçue ?', status.trace_ingestion.last_received_event ? 'ok' : 'warning', short(pretty(status.trace_ingestion.last_received_event), 130)],
+      ['Quelle est la valeur attendue de TRACE_ENABLED ?', 'ok', status.configuration_expected.TRACE_ENABLED],
+      ['Quelle est la valeur attendue de TRACE_GATEWAY_URL ?', 'ok', status.configuration_expected.TRACE_GATEWAY_URL],
+      ['Est-ce que toolbox_runner sait joindre Jarvis Debug Studio ?', toolbox.reachable ? 'ok' : 'error', toolbox.error || 'reachable'],
+      ['Est-ce que le bouton Tester npm_service crée bien une trace ?', lastNpmProbeResult?.ok ? 'ok' : 'warning', lastNpmProbeResult ? (lastNpmProbeResult.trace_id || lastNpmProbeResult.error || 'test non concluant') : 'pas encore testé'],
+      ['Est-ce que les événements sont rejetés à cause d’un mauvais JSON ?', status.trace_ingestion.invalid_json_count > 0 ? 'warning' : 'ok', `invalid_json_count=${status.trace_ingestion.invalid_json_count}`],
+    ];
+    checks.innerHTML = rows.map(([label, level, value]) => `<div class="diag-row"><div class="diag-label">${label}</div><div>${badge(level)}</div><div class="diag-value">${value}</div></div>`).join('');
+    diagnosisBox.innerHTML = status.diagnosis.map(d => `<div class="diag-item ${d.level}">${badge(d.level)} <strong>${d.message}</strong><div>${fmt(d.probable_cause)}</div><div class="muted">Action: ${fmt(d.action)}</div></div>`).join('');
+  }catch(err){
+    $('debug-summary').textContent = 'Impossible de charger le diagnostic.';
+    checks.innerHTML = `<div class="empty error-text">${err.message}</div>`;
+  }
+}
+
+async function copyDebugReport(){
+  const status = lastDebugStatus || await api('/api/debug/status');
+  const toolbox = lastToolboxCheck || await api('/api/debug/toolbox-check');
+  const report = [
+    'AI Debug Report',
+    `services_online=${status.debug_studio.online}`,
+    `debug_studio_url_host=http://192.168.11.206:4318`,
+    `trace_gateway_expected=${status.configuration_expected.TRACE_GATEWAY_URL}`,
+    `traces_count=${status.storage.traces_count}`,
+    `events_count=${status.storage.events_count}`,
+    `last_event=${JSON.stringify(status.trace_ingestion.last_received_event)}`,
+    `toolbox_check=${JSON.stringify({reachable: toolbox.reachable, latency_ms: toolbox.latency_ms, tools: toolbox.tools?.available, error: toolbox.error})}`,
+    `npm_probe=${JSON.stringify(lastNpmProbeResult || {ok:false, note:'not_run'})}`,
+  ].join('\n');
+  await navigator.clipboard.writeText(report);
+  $('debug-summary').textContent = 'Rapport debug copié dans le presse-papier.';
 }
 
 async function loadTraces(){
@@ -69,7 +123,7 @@ async function loadTraces(){
   try{
     const data = await api('/api/traces?' + params.toString());
     if(!data.items.length){
-      list.innerHTML = `<div class="empty"><strong>Aucune trace.</strong><br><br>Ce n’est pas normal si tu viens d’appeler un outil.<br><br>Vérifie :<br>TRACE_ENABLED=true<br>TRACE_GATEWAY_URL=http://jarvis_debug_studio:4318<br><br>Ou clique sur <em>Tester npm_service</em>.</div>`;
+      list.innerHTML = `<div class="empty"><strong>Aucune trace.</strong><br><br>Ce n’est pas normal si tu viens d’appeler un outil.<br><br>Vérifie :<br>TRACE_ENABLED=true<br>TRACE_GATEWAY_URL=http://jarvis_debug_studio:8060<br><br>Consulte AI Debug Log puis clique sur <em>Tester npm_service</em>.</div>`;
       return;
     }
     list.innerHTML = data.items.map(t => `
@@ -145,6 +199,7 @@ function startLive(){
   liveSource.addEventListener('trace', ev => {
     const data = JSON.parse(ev.data);
     loadTraces();
+    loadDebugStatus();
     if(data.trace_id === currentTraceId) loadTrace(currentTraceId);
   });
 }
@@ -154,12 +209,16 @@ document.querySelectorAll('.tabs button').forEach(btn => btn.onclick = () => {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b === btn));
   renderDetail();
 });
-$('refresh-all').onclick = async () => { await loadServices(); await loadTraces(); };
+$('refresh-all').onclick = async () => { await loadServices(); await loadDebugStatus(); await loadTraces(); };
 $('refresh-services').onclick = loadServices;
 $('probe-npm').onclick = runNpmProbe;
+$('debug-probe-npm').onclick = runNpmProbe;
+$('refresh-debug').onclick = loadDebugStatus;
+$('copy-debug-report').onclick = copyDebugReport;
 $('search').oninput = () => { clearTimeout(window.__searchTimer); window.__searchTimer = setTimeout(loadTraces, 250); };
 $('status-filter').onchange = loadTraces;
 $('live').onclick = startLive;
 
 loadServices();
+loadDebugStatus();
 loadTraces();
