@@ -84,6 +84,8 @@ services:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      TRACE_ENABLED: "true"
+      TRACE_GATEWAY_URL: "http://jarvis_debug_studio:8060"
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
