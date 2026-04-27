@@ -31,6 +31,27 @@ services:
       REPO_PATH: ${JARVIS_HOST_ROOT}
     logging: *default-logging
 
+  devlab_backend:
+    image: python:3.11-slim
+    container_name: jarvis_devlab_backend
+    restart: unless-stopped
+    working_dir: /app
+    networks:
+      - jarvis_net
+    volumes:
+      - ${JARVIS_HOST_ROOT}:/app
+      - /opt/jarvis/database:/opt/jarvis/database
+    environment:
+      PYTHONPATH: /app
+      TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
+      LLM_ADAPTER_URL: http://llm_adapter:8010
+      JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
+      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+    command: bash -lc "REQ=/app/services/devlab_backend/requirements.txt; [ -f \"$REQ\" ] || REQ=services/devlab_backend/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic jsonschema ruff; fi && uvicorn services.devlab_backend.app:app --host 0.0.0.0 --port 8090"
+    ports:
+      - "8090:8090"
+    logging: *default-logging
+
   llm_adapter:
     image: python:3.11-slim
     container_name: jarvis_llm_adapter
@@ -84,9 +105,29 @@ services:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
+      JARVIS_DEBUG_STUDIO_URL: ${JARVIS_DEBUG_STUDIO_URL:-http://jarvis_debug_studio:8060}
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
+    logging: *default-logging
+
+  jarvis_debug_studio:
+    image: python:3.11-slim
+    container_name: jarvis_debug_studio
+    restart: unless-stopped
+    working_dir: /app
+    networks:
+      - jarvis_net
+      - proxy
+    volumes:
+      - ${JARVIS_HOST_ROOT}:/app
+      - /opt/jarvis/database:/opt/jarvis/database
+    environment:
+      PYTHONPATH: /app
+      JARVIS_DEBUG_STUDIO_DB: /opt/jarvis/database/jarvis_debug_studio.db
+    command: bash -lc "REQ=/app/services/jarvis_debug_studio/requirements.txt; [ -f \"$REQ\" ] || REQ=services/jarvis_debug_studio/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.jarvis_debug_studio.app:app --host 0.0.0.0 --port 8060"
+    ports:
+      - "8060:8060"
     logging: *default-logging
 
   git_bridge:
