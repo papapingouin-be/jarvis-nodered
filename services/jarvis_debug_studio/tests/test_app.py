@@ -53,3 +53,32 @@ def test_invalid_json_updates_ingestion_errors(monkeypatch, tmp_path) -> None:
     status = client.get("/api/debug/status")
     assert status.status_code == 200
     assert status.json()["trace_ingestion"]["invalid_json_count"] >= 1
+
+
+def test_trace_list_uses_latest_event_status(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    first = client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-latest-status",
+            "tool": "npm_service",
+            "phase": "manual_probe.sent",
+            "status": "running",
+        },
+    )
+    assert first.status_code == 200
+    second = client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-latest-status",
+            "tool": "npm_service",
+            "phase": "manual_probe.result",
+            "status": "ok",
+        },
+    )
+    assert second.status_code == 200
+
+    traces = client.get("/api/traces")
+    assert traces.status_code == 200
+    assert traces.json()["items"][0]["status"] == "ok"

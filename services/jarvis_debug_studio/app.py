@@ -575,10 +575,13 @@ def list_traces(
                    MIN(ts) AS started_at,
                    MAX(ts) AS last_at,
                    ROUND(SUM(COALESCE(duration_ms, 0)), 2) AS observed_duration_ms,
-                   CASE WHEN SUM(CASE WHEN status='error' THEN 1 ELSE 0 END) > 0 THEN 'error'
-                        WHEN SUM(CASE WHEN status='warning' THEN 1 ELSE 0 END) > 0 THEN 'warning'
-                        WHEN SUM(CASE WHEN status='running' THEN 1 ELSE 0 END) > 0 THEN 'running'
-                        ELSE 'ok' END AS status,
+                   (
+                       SELECT te2.status
+                       FROM trace_events te2
+                       WHERE te2.trace_id = trace_events.trace_id
+                       ORDER BY te2.id DESC
+                       LIMIT 1
+                   ) AS status,
                    MAX(error_code) AS error_code,
                    MAX(error_message) AS error_message
             FROM trace_events
