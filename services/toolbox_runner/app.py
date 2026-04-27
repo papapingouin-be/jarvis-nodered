@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from time import perf_counter
 
 from fastapi import FastAPI
@@ -30,6 +31,11 @@ def _cors_allowed_origins() -> list[str]:
     return origins or ["*"]
 
 
+def _http_log_excluded_paths() -> set[str]:
+    raw = os.getenv("TOOLBOX_LOG_EXCLUDE_PATHS", "/openapi.json,/docs,/docs/oauth2-redirect")
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_allowed_origins(),
@@ -41,12 +47,17 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_http_requests(request: Request, call_next):
+    if request.url.path in _http_log_excluded_paths():
+        return await call_next(request)
+
     started = perf_counter()
     client_ip = request.client.host if request.client else "unknown"
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
     log_event(
         logger,
         service="toolbox_runner",
         event="http_request",
+        request_id=request_id,
         method=request.method,
         path=request.url.path,
         query=str(request.url.query or ""),
@@ -63,6 +74,7 @@ async def log_http_requests(request: Request, call_next):
             logger,
             service="toolbox_runner",
             event="http_error",
+            request_id=request_id,
             method=request.method,
             path=request.url.path,
             client=client_ip,
@@ -77,6 +89,7 @@ async def log_http_requests(request: Request, call_next):
             logger,
             service="toolbox_runner",
             event="http_response",
+            request_id=request_id,
             method=request.method,
             path=request.url.path,
             status_code=response.status_code,

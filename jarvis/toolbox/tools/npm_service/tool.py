@@ -32,6 +32,17 @@ INTENT_ALIASES = {
 }
 
 
+def _debug_enabled() -> bool:
+    return os.getenv("NPM_SERVICE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _debug(event: str, **fields: Any) -> None:
+    if not _debug_enabled():
+        return
+    payload = {"event": event, **fields}
+    print(json.dumps(payload, ensure_ascii=False), file=sys.stderr)
+
+
 def _db_path() -> Path:
     env_db = os.getenv("JARVIS_INFRA_DB")
     if env_db:
@@ -240,6 +251,11 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
         (instance_name,),
     ).fetchall()
     local_services = [dict(row) for row in rows]
+    _debug(
+        "list_services_local",
+        instance_name=instance_name,
+        local_count=len(local_services),
+    )
 
     instance = _resolve_instance(conn, instance_name)
     if instance is None:
@@ -250,6 +266,12 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
             for key in fallback_keys
         }
         missing_fallback_keys = [key for key, value in fallback_values.items() if not value]
+        _debug(
+            "list_services_missing_instance",
+            instance_name=instance_name,
+            fallback_namespaces=list(fallback_namespaces),
+            missing_fallback_keys=missing_fallback_keys,
+        )
         return {
             "instance_name": instance_name,
             "services": local_services,
@@ -271,7 +293,18 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
 
     inst = instance
     password = inst["password"]
+    _debug(
+        "list_services_remote_fetch_start",
+        instance_name=instance_name,
+        base_url=inst["base_url"],
+        instance_source=inst["source"],
+    )
     remote_services = _fetch_remote_services(inst["base_url"], inst["login"], password)
+    _debug(
+        "list_services_remote_fetch_done",
+        instance_name=instance_name,
+        remote_count=len(remote_services),
+    )
     return {
         "instance_name": instance_name,
         "services": local_services,
@@ -298,6 +331,7 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
             if inst["password"] is not None
             else _read_secret(conn, inst["password_secret_key"])
         )
+        _debug("resolve_instance_registered", instance_name=instance_name)
         return {
             "name": inst["name"],
             "base_url": inst["base_url"],
@@ -314,6 +348,7 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
     login = _read_fallback_value(conn, fallback_namespaces, "NPM_IDENTITY")
     password = _read_fallback_value(conn, fallback_namespaces, "NPM_SECRET")
     if base_url and login and password:
+        _debug("resolve_instance_fallback", instance_name=instance_name, namespace_priority=list(fallback_namespaces))
         return {
             "name": instance_name,
             "base_url": base_url,
@@ -321,6 +356,7 @@ def _resolve_instance(conn: sqlite3.Connection, instance_name: str) -> dict[str,
             "password": password,
             "source": "config_web_fallback",
         }
+    _debug("resolve_instance_not_found", instance_name=instance_name, namespace_priority=list(fallback_namespaces))
     return None
 
 
@@ -332,6 +368,7 @@ def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dic
         else f"{normalized_base_url}/api"
     )
     token_url = f"{api_root}/tokens"
+    _debug("remote_token_request", url=token_url, identity=login)
     token_req = request.Request(
         token_url,
         data=json.dumps({"identity": login, "secret": password}).encode("utf-8"),
@@ -360,6 +397,7 @@ def _fetch_remote_services(base_url: str, login: str, password: str) -> list[dic
         )
 
     hosts_url = f"{api_root}/nginx/proxy-hosts"
+    _debug("remote_list_request", url=hosts_url)
     hosts_req = request.Request(
         hosts_url,
         headers={"Authorization": f"Bearer {token}"},

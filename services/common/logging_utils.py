@@ -17,7 +17,9 @@ def configure_logging(name: str) -> logging.Logger:
     formatter = logging.Formatter("%(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    level_name = os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO"
+    level = getattr(logging, level_name, logging.INFO)
+    logger.setLevel(level)
     return logger
 
 
