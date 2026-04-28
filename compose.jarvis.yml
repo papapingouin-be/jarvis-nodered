@@ -17,30 +17,6 @@ services:
     networks:
       - jarvis_net
       
-  devlab_backend:
-    image: python:3.11-slim
-    working_dir: /app
-    volumes:
-      - ${JARVIS_HOST_ROOT:-.}:/app
-      - /opt/jarvis/database:/opt/jarvis/database
-    env_file:
-      - .env
-    environment:
-      PYTHONPATH: /app
-      TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
-      LLM_ADAPTER_URL: http://llm_adapter:8010
-      JARVIS_INFRA_DB: /opt/jarvis/database/jarvis.db
-      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_debug_studio:8060}
-      TRACE_ENABLED: ${TRACE_ENABLED:-true}
-      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:8060}
-      TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
-      TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
-    command: bash -lc "REQ=/app/services/devlab_backend/requirements.txt; [ -f "$$REQ" ] || REQ=services/devlab_backend/requirements.txt; if [ -f "$$REQ" ]; then pip install --no-cache-dir -r "$$REQ"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic jsonschema ruff; fi && uvicorn services.devlab_backend.app:app --host 0.0.0.0 --port 8090"
-    ports:
-      - "8090:8090"
-    networks:
-      - jarvis_net
-
   llm_adapter:
     image: python:3.11-slim
     working_dir: /app
@@ -52,7 +28,7 @@ services:
       PYTHONPATH: /app
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_debug_studio:8060}
       TRACE_ENABLED: ${TRACE_ENABLED:-true}
-      TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:8060}
+      TRACE_GATEWAY_URL: http://jarvis_debug_studio:8060
       TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
       TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
