@@ -76,3 +76,57 @@ def test_debug_run_nonce_calls_tool(monkeypatch) -> None:
     payload = response.json()
     assert payload["result"]["tool"] == "debug_nonce"
     assert payload["result"]["data"]["source"] == "real_toolbox_runner"
+
+
+def test_openwebui_debug_nonce_calls_real_wrapper(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "real_calls.log"
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", log_file)
+    monkeypatch.setattr(
+        toolbox_app,
+        "_execute_tool",
+        lambda tool, tool_input, context: {"ok": True, "tool": tool, "data": {"nonce": "JARVIS-RUNTIME-123", "source": "real_toolbox_runner"}},
+    )
+    client = TestClient(toolbox_app.app)
+
+    response = client.post("/openwebui/debug_nonce", json={"input": {}, "context": {"trace_id": "owui-nonce"}})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {"nonce": "JARVIS-RUNTIME-123", "source": "real_toolbox_runner"}
+
+    calls = client.get("/debug/real-calls").json()["items"]
+    assert calls[-1]["tool"] == "debug_nonce"
+    assert calls[-1]["trace_id"] == "owui-nonce"
+
+
+def test_openwebui_npm_service_list_calls_real_wrapper(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "real_calls.log"
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", log_file)
+    monkeypatch.setattr(
+        toolbox_app,
+        "_execute_tool",
+        lambda tool, tool_input, context: {"ok": True, "tool": tool, "data": {"services": ["a", "b"]}},
+    )
+    client = TestClient(toolbox_app.app)
+
+    response = client.post("/openwebui/npm_service_list", json={"input": {}, "context": {"trace_id": "owui-npm"}})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload == {"services": ["a", "b"]}
+
+    calls = client.get("/debug/real-calls").json()["items"]
+    assert calls[-1]["tool"] == "npm_service"
+    assert calls[-1]["input"]["intent"] == "list.services"
+    assert calls[-1]["trace_id"] == "owui-npm"
+
+
+def test_openwebui_routes_present_in_openapi() -> None:
+    client = TestClient(toolbox_app.app)
+    response = client.get("/openapi.json")
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    assert "/openwebui/debug_nonce" in paths
+    assert "/openwebui/npm_service_list" in paths
+    assert paths["/openwebui/debug_nonce"]["post"]["operationId"] == "debug_nonce"
+    assert paths["/openwebui/debug_nonce"]["post"]["tags"] == ["openwebui_tools"]
+    assert paths["/openwebui/npm_service_list"]["post"]["operationId"] == "npm_service_list"
+    assert paths["/openwebui/npm_service_list"]["post"]["tags"] == ["openwebui_tools"]

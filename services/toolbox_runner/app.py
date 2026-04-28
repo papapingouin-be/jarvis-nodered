@@ -12,6 +12,7 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from services.common.logging_utils import configure_logging, log_event
 from services.common.jarvis_types import ToolRunRequest
@@ -36,6 +37,11 @@ app.openapi_version = "3.0.3"
 logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
 REAL_CALLS_LOG_PATH = Path(os.getenv("TOOLBOX_REAL_CALLS_LOG", "/tmp/toolbox_real_calls.log"))
+
+
+class OpenWebUiToolRequest(BaseModel):
+    input: dict = Field(default_factory=dict)
+    context: dict = Field(default_factory=dict)
 
 
 def _cors_allowed_origins() -> list[str]:
@@ -408,3 +414,38 @@ def run_compat(payload: ToolRunRequest) -> dict:
 def run_by_path_compat(tool: str, payload: dict) -> dict:
     _append_real_call(tool=tool, tool_input=payload, context={})
     return _execute_tool(tool, payload, {})
+
+
+@app.post(
+    "/openwebui/debug_nonce",
+    tags=["openwebui_tools"],
+    summary="Generate runtime nonce",
+    description="Generate a real runtime nonce from toolbox_runner.",
+    operation_id="debug_nonce",
+)
+def openwebui_debug_nonce(payload: OpenWebUiToolRequest) -> dict:
+    _append_real_call(tool="debug_nonce", tool_input=payload.input, context=payload.context)
+    result = _execute_tool("debug_nonce", payload.input, payload.context)
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    return {
+        "nonce": data.get("nonce"),
+        "source": data.get("source", "real_toolbox_runner"),
+    }
+
+
+@app.post(
+    "/openwebui/npm_service_list",
+    tags=["openwebui_tools"],
+    summary="List npm services",
+    description="List npm services using npm_service.",
+    operation_id="npm_service_list",
+)
+def openwebui_npm_service_list(payload: OpenWebUiToolRequest) -> dict:
+    merged_input = {"intent": "list.services", **payload.input}
+    _append_real_call(tool="npm_service", tool_input=merged_input, context=payload.context)
+    result = _execute_tool("npm_service", merged_input, payload.context)
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    services = data.get("services")
+    if services is None and isinstance(data.get("items"), list):
+        services = data.get("items")
+    return {"services": services if isinstance(services, list) else []}
