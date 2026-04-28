@@ -384,18 +384,32 @@ def health() -> dict[str, str]:
 )
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
+    request_info = build_request_info(request)
+    caller_type, caller_label = detect_caller(request_info)
     force_trace = request.headers.get("x-jarvis-trace-force", "").strip().lower() == "true"
     suppress_reason = should_suppress_trace_reason(request)
     if suppress_reason:
+        print(
+            "LIST_TOOLS_TRACE_DECISION "
+            f"caller_type={caller_type} force={force_trace} suppress=true trace=false reason={suppress_reason}"
+        )
         print(f"TRACE_SUPPRESSED reason={suppress_reason} path=/v1/tools")
         log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools, reason=suppress_reason)
         return {"tools": tools}
-    if not force_trace:
+    should_trace = caller_type == "openwebui" or force_trace
+    if not should_trace:
+        print(
+            "LIST_TOOLS_TRACE_DECISION "
+            f"caller_type={caller_type} force={force_trace} suppress=false trace=false reason=default_no_trace"
+        )
         print("TRACE_SUPPRESSED reason=v1_tools_default path=/v1/tools")
         return {"tools": tools}
+    reason = "openwebui" if caller_type == "openwebui" else "force_header"
+    print(
+        "LIST_TOOLS_TRACE_DECISION "
+        f"caller_type={caller_type} force={force_trace} suppress=false trace=true reason={reason}"
+    )
 
-    request_info = build_request_info(request)
-    caller_type, caller_label = detect_caller(request_info)
     request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
     trace_id = request_trace_id or _new_tools_list_trace_id()
     trace = TraceClient(trace_id, new_run_id("jarvis_list_tools"), "jarvis_list_tools")
