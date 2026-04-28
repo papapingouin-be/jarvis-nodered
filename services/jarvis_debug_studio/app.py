@@ -32,7 +32,6 @@ DEFAULT_SERVICES = [
     {"name": "openproject_adapter", "url": "http://openproject_adapter:8020/health", "type": "adapter"},
     {"name": "git_bridge", "url": "http://git_bridge:8040/health", "type": "bridge"},
     {"name": "log_bridge", "url": "http://log_bridge:8050/health", "type": "bridge"},
-    {"name": "devlab_backend", "url": "http://devlab_backend:8090/health", "type": "backend"},
 ]
 
 app = FastAPI(title="Jarvis Debug Studio", version="3.0.0-control-tower")
