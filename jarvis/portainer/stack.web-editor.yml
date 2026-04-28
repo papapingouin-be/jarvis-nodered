@@ -1,3 +1,9 @@
+# FICHIER PORTAINER OFFICIEL
+# Ne pas créer de compose.portainer.yml parallèle.
+# Toutes les modifications Portainer doivent être faites ici.
+# Accès navigateur Debug Studio : http://HOST:4318
+# URL interne Docker Debug Studio : http://jarvis_debug_studio:8060
+
 version: "3.8"
 
 name: jarvis
@@ -48,7 +54,7 @@ services:
       LLM_MODEL_PROJECT: ${LLM_MODEL_PROJECT:-llama3.1:8b}
       LLM_MODEL_SUMMARY: ${LLM_MODEL_SUMMARY:-llama3.1:8b}
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
-    command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
+    command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
     logging: *default-logging
@@ -66,9 +72,29 @@ services:
       PYTHONPATH: /app
       OP_CUSTOM_FIELD_MAP_JSON: ${OP_CUSTOM_FIELD_MAP_JSON:-{}}
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
-    command: bash -lc "REQ=/app/services/openproject_adapter/requirements.txt; [ -f \"$REQ\" ] || REQ=services/openproject_adapter/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema; fi && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
+    command: bash -lc "REQ=/app/services/openproject_adapter/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/openproject_adapter/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema; fi && uvicorn services.openproject_adapter.app:app --host 0.0.0.0 --port 8020"
     ports:
       - "8020:8020"
+    logging: *default-logging
+
+
+  jarvis_debug_studio:
+    image: python:3.11-slim
+    container_name: jarvis_debug_studio
+    restart: unless-stopped
+    working_dir: /app
+    networks:
+      - jarvis_net
+    volumes:
+      - ${JARVIS_HOST_ROOT}:/app
+      - /opt/jarvis/database:/opt/jarvis/database
+    environment:
+      PYTHONPATH: /app
+      TRACE_GATEWAY_INTERNAL_URL: http://jarvis_debug_studio:8060
+      DEBUG_DB_PATH: /opt/jarvis/database/jarvis_debug_studio.sqlite
+    command: bash -lc "REQ=/app/services/jarvis_debug_studio/requirements.txt; [ -f "$$REQ" ] || REQ=services/jarvis_debug_studio/requirements.txt; if [ -f "$$REQ" ]; then pip install --no-cache-dir -r "$$REQ"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.jarvis_debug_studio.app:app --host 0.0.0.0 --port 8060"
+    ports:
+      - "4318:8060"
     logging: *default-logging
 
   toolbox_runner:
@@ -83,10 +109,11 @@ services:
     environment:
       PYTHONPATH: /app
       TOOL_TIMEOUT_S: ${TOOL_TIMEOUT_S:-30}
-      TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
       TRACE_ENABLED: "true"
       TRACE_GATEWAY_URL: "http://jarvis_debug_studio:8060"
-    command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
+      TRACE_PAYLOADS: "true"
+      TRACE_CODE_PREVIEW: "true"
+    command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
     logging: *default-logging
@@ -105,7 +132,7 @@ services:
       DRY_RUN: ${DRY_RUN:-true}
       GITEA_REMOTE_URL: ${GITEA_REMOTE_URL:-}
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
-    command: bash -lc "REQ=/app/services/git_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/git_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
+    command: bash -lc "REQ=/app/services/git_bridge/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/git_bridge/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn pydantic; fi && uvicorn services.git_bridge.app:app --host 0.0.0.0 --port 8040"
     ports:
       - "8040:8040"
     logging: *default-logging
@@ -124,26 +151,9 @@ services:
       PYTHONPATH: /app
       LOG_BRIDGE_FILE: /var/log/jarvis/events.jsonl
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
-    command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
+    command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
-    logging: *default-logging
-
-  jarvis_trace_monitor:
-    image: node:20-alpine
-    container_name: jarvis_trace_monitor
-    restart: unless-stopped
-    working_dir: /app/jarvis-trace-monitor
-    networks:
-      - jarvis_net
-      - proxy
-    volumes:
-      - ${JARVIS_HOST_ROOT}:/app
-    environment:
-      PORT: 4318
-    command: sh -lc "npm ci && exec node src/server.js"
-    ports:
-      - "4318:4318"
     logging: *default-logging
 
 
