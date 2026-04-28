@@ -117,7 +117,7 @@ def test_run_compat_without_tool_returns_helpful_validation_payload(monkeypatch)
     assert payload["data"]["available_tools"] == ["example_echo"]
 
 
-def test_list_tools_endpoint_writes_real_call_marker_and_trace(monkeypatch, tmp_path: Path) -> None:
+def test_list_tools_endpoint_writes_real_call_marker_and_trace_when_forced(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(
         toolbox_app,
         "REGISTRY",
@@ -139,7 +139,7 @@ def test_list_tools_endpoint_writes_real_call_marker_and_trace(monkeypatch, tmp_
     monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
 
     client = TestClient(toolbox_app.app)
-    response = client.get("/v1/tools")
+    response = client.get("/v1/tools", headers={"x-jarvis-trace-force": "true"})
     assert response.status_code == 200
     payload = response.json()
     assert payload["tools"] == ["example_echo", "npm_service"]
@@ -157,6 +157,23 @@ def test_list_tools_endpoint_writes_real_call_marker_and_trace(monkeypatch, tmp_
         "code.execution.result",
         "response.returned",
     ]
+
+
+def test_list_tools_endpoint_does_not_trace_by_default(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(toolbox_app, "REGISTRY", {"example_echo": {"name": "example_echo"}})
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", tmp_path / "toolbox_real_calls.log")
+
+    class FakeTraceClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("TraceClient should not be created without force header")
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+
+    client = TestClient(toolbox_app.app)
+    response = client.get("/v1/tools")
+    assert response.status_code == 200
+    assert response.json()["tools"] == ["example_echo"]
+    assert not (tmp_path / "toolbox_real_calls.log").exists()
 
 
 def test_list_tools_endpoint_reuses_given_trace_id(monkeypatch, tmp_path: Path) -> None:
@@ -178,7 +195,7 @@ def test_list_tools_endpoint_reuses_given_trace_id(monkeypatch, tmp_path: Path) 
     monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
 
     client = TestClient(toolbox_app.app)
-    response = client.get("/v1/tools", headers={"x-trace-id": "trace-fixed-123"})
+    response = client.get("/v1/tools", headers={"x-trace-id": "trace-fixed-123", "x-jarvis-trace-force": "true"})
     assert response.status_code == 200
 
     assert trace_ids == ["trace-fixed-123"]
