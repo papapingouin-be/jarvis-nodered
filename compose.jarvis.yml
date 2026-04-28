@@ -65,6 +65,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+    networks:
+      - jarvis_net
 
   openproject_adapter:
     image: python:3.11-slim
