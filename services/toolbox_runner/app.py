@@ -245,6 +245,55 @@ def should_suppress_trace(request: Request) -> bool:
     return request.query_params.get("suppress_trace", "").lower() == "true"
 
 
+def _is_docker_ip(host: str | None) -> bool:
+    if not host:
+        return False
+    return host.startswith("172.") or host.startswith("10.") or host.startswith("192.168.")
+
+
+def detect_caller(request_info: dict) -> tuple[str, str]:
+    headers = request_info.get("headers_redacted", {})
+    ua = str(request_info.get("user_agent") or "").lower()
+    path = str(request_info.get("path") or "").lower()
+    if str(headers.get("x-jarvis-debug-probe", "")).lower() == "true":
+        return "jarvis_debug_studio", "Jarvis Debug Studio probe"
+    if "openwebui" in ua or headers.get("x-openwebui-user-id") or path.startswith("/openwebui"):
+        return "openwebui", "OpenWebUI / jarvis_openwebui"
+    if "curl" in ua:
+        return "curl", "curl client"
+    if any(x in ua for x in ["mozilla", "chrome", "safari", "firefox"]) and (request_info.get("origin") or request_info.get("referer")):
+        return "browser", "Browser"
+    if _is_docker_ip(str(request_info.get("client_host") or "")):
+        return "internal_docker", "Internal Docker service"
+    return "unknown", "Unknown caller"
+
+
+def build_request_info(request: Request) -> dict:
+    raw_headers = dict(request.headers)
+    redacted = {}
+    for k, v in raw_headers.items():
+        key = k.lower()
+        if any(token in key for token in ["authorization", "cookie", "x-api-key", "token", "secret"]):
+            redacted[k] = "***REDACTED***"
+        else:
+            redacted[k] = v
+    return {
+        "client_host": request.client.host if request.client else None,
+        "client_port": request.client.port if request.client else None,
+        "method": request.method,
+        "path": request.url.path,
+        "query": str(request.url.query or ""),
+        "user_agent": request.headers.get("user-agent"),
+        "referer": request.headers.get("referer"),
+        "origin": request.headers.get("origin"),
+        "x_forwarded_for": request.headers.get("x-forwarded-for"),
+        "x_openwebui_user_id": request.headers.get("x-openwebui-user-id"),
+        "x_openwebui_chat_id": request.headers.get("x-openwebui-chat-id"),
+        "x_request_id": request.headers.get("x-request-id"),
+        "headers_redacted": redacted,
+    }
+
+
 def _read_last_real_calls(limit: int = 50) -> list[dict]:
     if not REAL_CALLS_LOG_PATH.exists():
         return []
@@ -317,8 +366,13 @@ def health() -> dict[str, str]:
 )
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
+    request_info = build_request_info(request)
+    caller_type, caller_label = detect_caller(request_info)
+    trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "true").strip().lower() in {"1", "true", "yes", "on"}
     if should_suppress_trace(request):
         log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools)
+        return {"tools": tools}
+    if caller_type == "jarvis_debug_studio" or (not trace_list_tools and caller_type != "openwebui"):
         return {"tools": tools}
 
     request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
@@ -335,9 +389,9 @@ def list_tools(request: Request) -> dict[str, list[str]]:
 
     trace.event(
         "request.received",
-        "running",
+        "received",
         input={},
-        metadata={"path": "/v1/tools", "query": str(request.url.query or "")},
+        metadata={"path": "/v1/tools", "query": str(request.url.query or ""), "request_info": request_info, "caller_type": caller_type, "caller_label": caller_label},
     )
     trace.event("tool.selected", "ok", input={}, metadata={"tool": "jarvis_list_tools", "service": "toolbox_runner"})
     output = {"tools": tools}

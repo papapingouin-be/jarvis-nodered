@@ -79,6 +79,11 @@
     <section class="timeline-panel">
       <div class="panel-title" id="trace-title">Sélectionne une trace</div>
       <div id="trace-summary" class="summary muted">Aucun appel chargé.</div>
+      <div class="control-actions">
+        <button id="export-trace-json">Exporter JSON</button>
+        <button id="export-trace-txt">Exporter TXT</button>
+        <button id="copy-full-trace">Copier trace complète</button>
+      </div>
       <div id="timeline" class="timeline"></div>
     </section>
 
@@ -91,6 +96,7 @@
         <button data-tab="logs">Logs</button>
         <button data-tab="error">Erreur</button>
         <button data-tab="meta">Meta</button>
+        <button data-tab="caller">Demandeur</button>
       </div>
       <pre id="detail-content">Clique sur une étape de la timeline.</pre>
     </section>
