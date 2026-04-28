@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   toolbox_runner:
     image: python:3.11-slim
@@ -20,9 +18,9 @@ services:
       TRACE_MAX_CODE_LINES: "160"
     command: >
       bash -lc 'REQ=/app/services/toolbox_runner/requirements.txt;
-      [ -f "$REQ" ] || REQ=services/toolbox_runner/requirements.txt;
-      if [ -f "$REQ" ]; then
-        pip install --no-cache-dir -r "$REQ";
+      [ -f "$$REQ" ] || REQ=services/toolbox_runner/requirements.txt;
+      if [ -f "$$REQ" ]; then
+        pip install --no-cache-dir -r "$$REQ";
       else
         pip install --no-cache-dir fastapi uvicorn jsonschema pydantic;
       fi;
@@ -51,9 +49,9 @@ services:
       JARVIS_DEBUG_MANUAL_PROBE_TIMEOUT: "12"
     command: >
       bash -lc 'REQ=/app/services/jarvis_debug_studio/requirements.txt;
-      [ -f "$REQ" ] || REQ=services/jarvis_debug_studio/requirements.txt;
-      if [ -f "$REQ" ]; then
-        pip install --no-cache-dir -r "$REQ";
+      [ -f "$$REQ" ] || REQ=services/jarvis_debug_studio/requirements.txt;
+      if [ -f "$$REQ" ]; then
+        pip install --no-cache-dir -r "$$REQ";
       else
         pip install --no-cache-dir fastapi uvicorn pydantic;
       fi;
@@ -62,20 +60,13 @@ services:
       - "4318:8060"
     networks:
       - jarvis_net
-      - proxy
 
-# jarvis_trace_monitor intentionally disabled/removed from this stack.
+# navigateur
+# http://HOST:4318
 
-# Accès navigateur :
-# http://192.168.11.206:4318
-
-# URL interne Docker pour les traces :
+# communication interne docker
 # http://jarvis_debug_studio:8060
 
 networks:
   jarvis_net:
     external: true
-    name: jarvis_net
-  proxy:
-    external: true
-    name: jarvis_proxy
