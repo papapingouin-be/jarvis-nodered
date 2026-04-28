@@ -21,7 +21,7 @@ def test_run_refreshes_registry_before_missing_tool_response(monkeypatch) -> Non
     monkeypatch.setattr(
         toolbox_app,
         "run_tool",
-        lambda manifest, tool_input: {"ok": True, "tool": manifest["name"], "data": tool_input},
+        lambda manifest, tool_input, **kwargs: {"ok": True, "tool": manifest["name"], "data": tool_input},
     )
 
     client = TestClient(toolbox_app.app)
@@ -90,7 +90,7 @@ def test_run_path_endpoint_executes_tool(monkeypatch) -> None:
     monkeypatch.setattr(
         toolbox_app,
         "run_tool",
-        lambda manifest, tool_input: {"ok": True, "tool": manifest["name"], "data": tool_input},
+        lambda manifest, tool_input, **kwargs: {"ok": True, "tool": manifest["name"], "data": tool_input},
     )
 
     client = TestClient(toolbox_app.app)

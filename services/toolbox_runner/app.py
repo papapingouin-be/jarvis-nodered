@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from pathlib import Path
 from time import perf_counter
 
 from fastapi import FastAPI
@@ -14,7 +15,15 @@ from services.common.logging_utils import configure_logging, log_event
 from services.common.jarvis_types import ToolRunRequest
 from services.toolbox_runner.registry import build_registry
 from services.toolbox_runner.runner import ToolRunError, run_tool
-from services.toolbox_runner.trace_client import TraceClient, new_trace_id, new_run_id
+from services.toolbox_runner.trace_client import (
+    TraceClient,
+    gateway_url,
+    new_run_id,
+    new_trace_id,
+    trace_code_preview_enabled,
+    trace_enabled,
+    trace_payloads_enabled,
+)
 
 app = FastAPI(
     title="toolbox_runner",
@@ -111,11 +120,12 @@ def _available_tool_names() -> list[str]:
     return sorted(REGISTRY.keys())
 
 
-def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
+def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None = None) -> tuple[dict, TraceClient]:
     context = context or {}
     trace_id = context.get("trace_id") or context.get("req_id") or new_trace_id()
     run_id = context.get("run_id") or new_run_id(tool)
     trace = TraceClient(trace_id, run_id, tool)
+    print(f"TRACE_WRAPPER_ENTERED tool={tool} trace_id={trace_id}")
     trace.event(
         "request.received",
         "running",
@@ -153,11 +163,11 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> d
             "data": {"available_tools": sorted(REGISTRY.keys())},
         }
         trace.event("tool.selected", "error", input=tool_input, output=result, error_code="MISSING_TOOL", error_message=result["message"])
-        return result
+        return result, trace
 
     trace.event("tool.selected", "ok", input=tool_input, metadata={"manifest": {k: v for k, v in manifest.items() if k != "input_schema" and k != "output_schema"}})
     try:
-        return run_tool(manifest, tool_input, trace=trace)
+        return run_tool(manifest, tool_input, trace=trace), trace
     except ToolRunError as exc:
         trace.event("response.returned", "error", input=tool_input, error_code=exc.code, error_message=exc.message, metadata={"retryable": exc.retryable})
         log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code, trace_id=trace_id, run_id=run_id)
@@ -168,7 +178,12 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> d
             "message": exc.message,
             "retryable": exc.retryable,
             "data": {"trace_id": trace_id, "run_id": run_id},
-        }
+        }, trace
+
+
+def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
+    result, _ = _execute_tool_with_trace(tool, tool_input, context)
+    return result
 
 
 @app.exception_handler(RequestValidationError)
@@ -238,6 +253,61 @@ def list_tools() -> dict[str, list[str]]:
     return {"tools": tools}
 
 
+
+
+@app.get("/debug/trace-config")
+def debug_trace_config() -> dict:
+    trace_gateway = gateway_url()
+    return {
+        "service": "toolbox_runner",
+        "trace_enabled": trace_enabled(),
+        "trace_gateway_url": trace_gateway,
+        "trace_payloads": trace_payloads_enabled(),
+        "trace_code_preview": trace_code_preview_enabled(),
+        "pid": os.getpid(),
+        "cwd": str(Path.cwd()),
+        "env_present": {
+            "TRACE_ENABLED": "TRACE_ENABLED" in os.environ,
+            "TRACE_GATEWAY_URL": "TRACE_GATEWAY_URL" in os.environ,
+        },
+    }
+
+
+@app.post("/debug/send-test-trace")
+def debug_send_test_trace() -> dict:
+    trace = TraceClient("manual-toolbox-test", "manual-toolbox-test", "debug")
+    result = trace.send_custom_event(
+        {
+            "trace_id": "manual-toolbox-test",
+            "run_id": "manual-toolbox-test",
+            "source": "toolbox_runner",
+            "service": "toolbox_runner",
+            "tool": "debug",
+            "phase": "manual.test",
+            "status": "ok",
+            "input": {"message": "test from toolbox_runner"},
+            "output": {},
+            "metadata": {},
+        }
+    )
+    return result
+
+
+@app.post("/debug/run-npm-with-trace")
+def debug_run_npm_with_trace() -> dict:
+    payload = {
+        "tool": "npm_service",
+        "input": {"intent": "list.services"},
+        "context": {"trace_id": "debug-npm-direct"},
+    }
+    result, trace = _execute_tool_with_trace(payload["tool"], payload["input"], payload["context"])
+    return {
+        "result": result,
+        "trace_id": trace.trace_id,
+        "trace_send_status": trace.last_send_result,
+    }
+
+
 @app.post(
     "/v1/run",
     tags=["jarvis_tools"],
@@ -246,6 +316,12 @@ def list_tools() -> dict[str, list[str]]:
     operation_id="jarvis_execute_tool",
 )
 def run(payload: ToolRunRequest) -> dict:
+    trace_id = (payload.context or {}).get("trace_id") or (payload.context or {}).get("req_id") or "generated"
+    print(
+        f"TOOLBOX_RUN_RECEIVED trace_id={trace_id} tool={payload.tool} "
+        f"input={payload.input} TRACE_ENABLED={os.getenv('TRACE_ENABLED')} "
+        f"TRACE_GATEWAY_URL={os.getenv('TRACE_GATEWAY_URL')}"
+    )
     return _execute_tool(payload.tool, payload.input, payload.context)
 
 

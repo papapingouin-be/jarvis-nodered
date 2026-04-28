@@ -395,9 +395,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         if has_json_invalid:
             _ingestion_stats["invalid_json_count"] = int(_ingestion_stats.get("invalid_json_count", 0)) + 1
             _ingestion_stats["last_error"] = "JSON invalide reçu sur /api/trace/event"
+            print("DEBUG_STUDIO_EVENT_REJECTED error=JSON invalide reçu sur /api/trace/event")
         else:
             _ingestion_stats["invalid_payload_count"] = int(_ingestion_stats.get("invalid_payload_count", 0)) + 1
             _ingestion_stats["last_error"] = "Payload invalide reçu sur /api/trace/event"
+            print("DEBUG_STUDIO_EVENT_REJECTED error=Payload invalide reçu sur /api/trace/event")
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
@@ -463,6 +465,21 @@ def debug_toolbox_check() -> dict[str, Any]:
     return {"ok": result["reachable"], "service": "toolbox_runner", **result}
 
 
+@app.get("/api/debug/ingest-status")
+def debug_ingest_status() -> dict[str, Any]:
+    storage = db_debug_stats()
+    return {
+        "service": "jarvis_debug_studio",
+        "received_events_since_start": _ingestion_stats.get("received_events_since_start", 0),
+        "last_received_event": _ingestion_stats.get("last_received_event"),
+        "last_ingest_error": _ingestion_stats.get("last_error"),
+        "events_count_db": storage["events_count"],
+        "traces_count_db": storage["traces_count"],
+        "db_path": storage["db_path"],
+        "db_exists": storage["db_exists"],
+    }
+
+
 @app.get("/api/debug/status")
 def debug_status() -> dict[str, Any]:
     storage = db_debug_stats()
@@ -517,6 +534,9 @@ def probe_npm_service(req: NpmProbeRequest) -> dict[str, Any]:
 
 @app.post("/api/trace/event")
 async def post_event(event: TraceEvent) -> dict[str, Any]:
+    print(
+        f"DEBUG_STUDIO_EVENT_RECEIVED trace_id={event.trace_id} service={event.service} tool={event.tool} phase={event.phase}"
+    )
     ts = event.timestamp or utc_now()
     metadata = normalize_code_preview(redact(event.metadata))
     row_event = event.dict()
