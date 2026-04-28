@@ -83,6 +83,19 @@ def reset_ingestion_stats() -> None:
 reset_ingestion_stats()
 
 
+def _record_ingested_event(event_id: int, event: TraceEvent, timestamp: str) -> None:
+    _ingestion_stats["received_events_since_start"] = int(_ingestion_stats.get("received_events_since_start", 0)) + 1
+    _ingestion_stats["last_received_event"] = {
+        "id": event_id,
+        "trace_id": event.trace_id,
+        "phase": event.phase,
+        "status": event.status,
+        "tool": event.tool,
+        "timestamp": timestamp,
+    }
+    _ingestion_stats["last_error"] = None
+
+
 def redact(value: Any, parent_key: str = "") -> Any:
     if isinstance(value, dict):
         out: dict[str, Any] = {}
@@ -364,6 +377,8 @@ def add_local_debug_event(phase: str, status: str, trace_id: str, **kw: Any) -> 
             ),
         )
         conn.commit()
+        event_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+    _record_ingested_event(event_id, event, ts)
 
 
 @app.on_event("startup")
@@ -484,7 +499,7 @@ def probe_npm_service(req: NpmProbeRequest) -> dict[str, Any]:
     trace_id = req.trace_id or f"manual-npm-{uuid.uuid4().hex[:10]}"
     toolbox_url = os.getenv("TOOLBOX_RUNNER_URL", "http://toolbox_runner:8030").rstrip("/")
     payload = {"tool": "npm_service", "input": {"intent": req.intent}, "context": {"trace_id": trace_id, "origin": "jarvis_debug_studio.manual_probe"}}
-    add_local_debug_event("manual_probe.sent", "running", trace_id, tool="npm_service", input=payload, metadata={"target_url": toolbox_url + "/v1/run"})
+    add_local_debug_event("manual_probe.sent", "ok", trace_id, tool="npm_service", input=payload, metadata={"target_url": toolbox_url + "/v1/run"})
     status, data, err, duration_ms = http_json(toolbox_url + "/v1/run", method="POST", payload=payload, timeout=float(os.getenv("JARVIS_DEBUG_MANUAL_PROBE_TIMEOUT", "12")))
     ok = err is None and status is not None and 200 <= status < 300 and (not isinstance(data, dict) or data.get("ok") is not False)
     add_local_debug_event(
@@ -526,16 +541,7 @@ async def post_event(event: TraceEvent) -> dict[str, Any]:
         event_id = cur.lastrowid
     row_event["id"] = event_id
     row_event["explanation"] = explain_error(event.error_code, event.error_message)
-    _ingestion_stats["received_events_since_start"] = int(_ingestion_stats.get("received_events_since_start", 0)) + 1
-    _ingestion_stats["last_received_event"] = {
-        "id": event_id,
-        "trace_id": event.trace_id,
-        "phase": event.phase,
-        "status": event.status,
-        "tool": event.tool,
-        "timestamp": ts,
-    }
-    _ingestion_stats["last_error"] = None
+    _record_ingested_event(event_id, event, ts)
     for queue in list(_subscribers):
         try:
             queue.put_nowait(row_event)
@@ -614,7 +620,11 @@ def get_trace(trace_id: str) -> dict[str, Any]:
         d["explanation"] = explain_error(d.get("error_code"), d.get("error_message"))
         events.append(d)
     first = events[0]
-    status = "error" if any(e["status"] == "error" for e in events) else ("warning" if any(e["status"] == "warning" for e in events) else ("running" if any(e["status"] == "running" for e in events) else "ok"))
+    latest_status = str(events[-1].get("status") or "ok")
+    if latest_status in {"ok", "warning", "error", "running"}:
+        status = latest_status
+    else:
+        status = "ok"
     return {"trace_id": trace_id, "tool": first.get("tool"), "status": status, "events": events}
 
 
