@@ -141,7 +141,7 @@ def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None =
     caller_metadata = {"caller_type": caller_type, "caller_label": caller_label, "request_info": request_info}
     trace.event(
         "request.received",
-        "running",
+        "received",
         input=tool_input,
         metadata={
             "context_keys": sorted(context.keys()),
@@ -181,7 +181,7 @@ def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None =
 
     trace.event("tool.selected", "ok", input=tool_input, metadata={"manifest": {k: v for k, v in manifest.items() if k != "input_schema" and k != "output_schema"}, **caller_metadata})
     try:
-        result = run_tool(manifest, tool_input, trace=trace)
+        result = run_tool(manifest, tool_input, trace=trace, caller_info=caller_metadata)
         trace.event("response.returned", "ok", output=result, metadata=caller_metadata)
         return result, trace
     except ToolRunError as exc:

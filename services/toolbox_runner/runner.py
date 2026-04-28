@@ -73,6 +73,7 @@ def run_tool(
     tool_input: dict[str, Any],
     trace: TraceClient | None = None,
     trace_hook: Any | None = None,
+    caller_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     tool_name = manifest["name"]
     trace = trace or TraceClient(None, None, tool_name)
@@ -80,7 +81,7 @@ def run_tool(
     _emit_legacy_trace(trace_hook, "entry", {"tool": tool_name, "input": tool_input})
 
     validation_timer = StepTimer()
-    trace.event("validation.start", "running", input=tool_input, metadata={"schema": manifest.get("input_schema", {})})
+    trace.event("validation.start", "started", input=tool_input, metadata={"schema": manifest.get("input_schema", {})})
     try:
         _validate(manifest["input_schema"], tool_input)
     except ToolRunError as exc:
@@ -104,7 +105,8 @@ def run_tool(
     metadata["python_script_detected"] = script_detected
     metadata["code_preview"] = _read_code_preview(entrypoint)
 
-    trace.event("handler.resolved", "ok", input=tool_input, metadata=metadata)
+    caller_info = caller_info or {}
+    trace.event("handler.resolved", "ok", input=tool_input, metadata={**metadata, **caller_info})
     log_event(
         logger,
         service="toolbox_runner",
@@ -120,7 +122,7 @@ def run_tool(
     )
 
     exec_timer = StepTimer()
-    trace.event("code.execution.start", "running", input=tool_input, metadata=metadata)
+    trace.event("code.execution.start", "running", input=tool_input, metadata={**metadata, **caller_info})
     try:
         result = subprocess.run(
             command,
@@ -166,7 +168,7 @@ def run_tool(
         log_event(logger, service="toolbox_runner", event="tool_execute_invalid_json", tool=tool_name)
         raise ToolRunError("INVALID_JSON", "tool returned non-json output") from exc
 
-    trace.event("code.execution.result", "ok", input=tool_input, output={"raw_output": data}, metadata=metadata, duration_ms=exec_timer.ms())
+    trace.event("code.execution.result", "ok", input=tool_input, output={"raw_output": data}, metadata={**metadata, **caller_info}, duration_ms=exec_timer.ms())
 
     output_validation_timer = StepTimer()
     try:
@@ -195,6 +197,5 @@ def run_tool(
     }
     validate_payload("tool_output.schema.json", output)
     _emit_legacy_trace(trace_hook, "exit", {"returncode": result.returncode, "output": output}, duration_ms=total_timer.ms())
-    trace.event("response.returned", "ok", input=tool_input, output=output, duration_ms=total_timer.ms())
     log_event(logger, service="toolbox_runner", event="tool_execute_done", tool=tool_name)
     return output

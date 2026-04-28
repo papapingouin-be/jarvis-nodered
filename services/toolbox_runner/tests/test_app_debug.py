@@ -130,3 +130,57 @@ def test_openwebui_routes_present_in_openapi() -> None:
     assert paths["/openwebui/debug_nonce"]["post"]["tags"] == ["openwebui_tools"]
     assert paths["/openwebui/npm_service_list"]["post"]["operationId"] == "npm_service_list"
     assert paths["/openwebui/npm_service_list"]["post"]["tags"] == ["openwebui_tools"]
+
+
+def test_debug_nonce_trace_regression_checks(monkeypatch) -> None:
+    captured_events: list[dict] = []
+
+    class FakeTraceClient:
+        def __init__(self, trace_id: str, run_id: str, tool: str) -> None:
+            self.trace_id = trace_id
+            self.run_id = run_id
+            self.tool = tool
+
+        def event(self, phase: str, status: str = "ok", *, input=None, output=None, metadata=None, duration_ms=None, **kwargs) -> None:
+            captured_events.append(
+                {
+                    "phase": phase,
+                    "status": status,
+                    "metadata": metadata or {},
+                }
+            )
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+    monkeypatch.setattr(
+        toolbox_app,
+        "run_tool",
+        lambda manifest, tool_input, **kwargs: {"ok": True, "tool": manifest["name"], "data": {"nonce": "JARVIS-RUNTIME-123", "source": "real_toolbox_runner"}},
+    )
+    monkeypatch.setattr(
+        toolbox_app,
+        "REGISTRY",
+        {
+            "debug_nonce": {
+                "name": "debug_nonce",
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "tool_root": ".",
+                "entrypoint": "tool.py",
+            }
+        },
+    )
+
+    client = TestClient(toolbox_app.app)
+    response = client.post("/v1/run", json={"tool": "debug_nonce", "input": {"intent": "debug.nonce"}})
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+    response_returned_events = [e for e in captured_events if e["phase"] == "response.returned"]
+    assert len(response_returned_events) == 1
+    assert response_returned_events[0]["metadata"]["caller_type"] is not None
+
+    request_received = [e for e in captured_events if e["phase"] == "request.received"]
+    assert request_received
+    assert request_received[0]["status"] != "running"
+
+    assert response_returned_events[0]["status"] == "ok"
