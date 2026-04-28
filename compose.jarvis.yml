@@ -58,6 +58,8 @@ services:
     command: bash -lc "REQ=/app/services/llm_adapter/requirements.txt; [ -f \"$$REQ\" ] || REQ=services/llm_adapter/requirements.txt; if [ -f \"$$REQ\" ]; then pip install --no-cache-dir -r \"$$REQ\"; else pip install --no-cache-dir fastapi uvicorn httpx pydantic; fi && uvicorn services.llm_adapter.app:app --host 0.0.0.0 --port 8010"
     ports:
       - "8010:8010"
+    networks:
+      - jarvis_net
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8010/health')"]
       interval: 30s
