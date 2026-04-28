@@ -26,10 +26,18 @@ Côté `toolbox_runner` :
 
 ```env
 TRACE_ENABLED=true
-TRACE_GATEWAY_URL=http://jarvis_debug_studio:4318
+TRACE_GATEWAY_URL=http://jarvis_debug_studio:8060
 TRACE_CODE_PREVIEW=true
 TRACE_MAX_CODE_LINES=160
 ```
+
+Adresse navigateur :
+
+`http://192.168.11.206:4318`
+
+Adresse interne Docker :
+
+`http://jarvis_debug_studio:8060`
 
 ## Test manuel
 

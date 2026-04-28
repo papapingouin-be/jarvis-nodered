@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import os
 import uuid
+import json
 from pathlib import Path
 from time import perf_counter
+from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi import Request
@@ -33,6 +35,7 @@ app = FastAPI(
 app.openapi_version = "3.0.3"
 logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
+REAL_CALLS_LOG_PATH = Path(os.getenv("TOOLBOX_REAL_CALLS_LOG", "/tmp/toolbox_real_calls.log"))
 
 
 def _cors_allowed_origins() -> list[str]:
@@ -186,6 +189,44 @@ def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> d
     return result
 
 
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _append_real_call(*, tool: str, tool_input: dict, context: dict | None = None) -> dict:
+    context = context or {}
+    trace_id = context.get("trace_id") or context.get("req_id") or "generated"
+    payload = {
+        "timestamp": _now_iso(),
+        "marker": "REAL_TOOLBOX_RUN_CALLED",
+        "tool": tool,
+        "input": tool_input,
+        "trace_id": trace_id,
+        "trace_enabled": trace_enabled(),
+        "trace_gateway_url": gateway_url(),
+    }
+    print(f"### REAL_TOOLBOX_RUN_CALLED ### {json.dumps(payload, ensure_ascii=False, default=str)}")
+    REAL_CALLS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with REAL_CALLS_LOG_PATH.open("a", encoding="utf-8") as fp:
+        fp.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+    return payload
+
+
+def _read_last_real_calls(limit: int = 50) -> list[dict]:
+    if not REAL_CALLS_LOG_PATH.exists():
+        return []
+    lines = REAL_CALLS_LOG_PATH.read_text(encoding="utf-8").splitlines()
+    out: list[dict] = []
+    for line in lines[-limit:]:
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except json.JSONDecodeError:
+            out.append({"timestamp": _now_iso(), "marker": "REAL_TOOLBOX_RUN_CALLED", "parse_error": line[:300]})
+    return out
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
     if request.url.path not in {"/v1/run", "/run"}:
@@ -308,6 +349,19 @@ def debug_run_npm_with_trace() -> dict:
     }
 
 
+@app.get("/debug/real-calls")
+def debug_real_calls() -> dict:
+    calls = _read_last_real_calls(50)
+    return {"count": len(calls), "items": calls, "log_path": str(REAL_CALLS_LOG_PATH)}
+
+
+@app.post("/debug/run-nonce")
+def debug_run_nonce() -> dict:
+    payload = ToolRunRequest(tool="debug_nonce", input={}, context={"trace_id": f"debug-nonce-{uuid.uuid4().hex[:10]}"})
+    result = run(payload)
+    return {"result": result, "trace_id": payload.context["trace_id"]}
+
+
 @app.post(
     "/v1/run",
     tags=["jarvis_tools"],
@@ -316,12 +370,7 @@ def debug_run_npm_with_trace() -> dict:
     operation_id="jarvis_execute_tool",
 )
 def run(payload: ToolRunRequest) -> dict:
-    trace_id = (payload.context or {}).get("trace_id") or (payload.context or {}).get("req_id") or "generated"
-    print(
-        f"TOOLBOX_RUN_RECEIVED trace_id={trace_id} tool={payload.tool} "
-        f"input={payload.input} TRACE_ENABLED={os.getenv('TRACE_ENABLED')} "
-        f"TRACE_GATEWAY_URL={os.getenv('TRACE_GATEWAY_URL')}"
-    )
+    _append_real_call(tool=payload.tool, tool_input=payload.input, context=payload.context)
     return _execute_tool(payload.tool, payload.input, payload.context)
 
 
@@ -333,6 +382,7 @@ def run(payload: ToolRunRequest) -> dict:
     operation_id="jarvis_execute_tool_by_path",
 )
 def run_by_path(tool: str, payload: dict) -> dict:
+    _append_real_call(tool=tool, tool_input=payload, context={})
     return _execute_tool(tool, payload, {})
 
 
@@ -344,6 +394,7 @@ def run_by_path(tool: str, payload: dict) -> dict:
     operation_id="jarvis_execute_tool_compat",
 )
 def run_compat(payload: ToolRunRequest) -> dict:
+    _append_real_call(tool=payload.tool, tool_input=payload.input, context=payload.context)
     return _execute_tool(payload.tool, payload.input, payload.context)
 
 
@@ -355,4 +406,5 @@ def run_compat(payload: ToolRunRequest) -> dict:
     operation_id="jarvis_execute_tool_by_path_compat",
 )
 def run_by_path_compat(tool: str, payload: dict) -> dict:
+    _append_real_call(tool=tool, tool_input=payload, context={})
     return _execute_tool(tool, payload, {})

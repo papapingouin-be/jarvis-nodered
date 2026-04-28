@@ -13,6 +13,8 @@ const pretty = (v) => typeof v === 'string' ? v : JSON.stringify(v ?? {}, null, 
 const short = (s, n=72) => String(s ?? '—').length > n ? String(s).slice(0, n) + '…' : String(s ?? '—');
 function badge(status){ return `<span class="badge ${status || 'unknown'}">${status || 'unknown'}</span>`; }
 function serviceBadge(status){ return `<span class="svc-dot ${status === 'online' ? 'online' : 'offline'}"></span>${status === 'online' ? 'online' : 'offline'}`; }
+const BROWSER_URL = 'http://192.168.11.206:4318';
+const DOCKER_INTERNAL_URL = 'http://jarvis_debug_studio:8060';
 
 async function api(path, options){
   const res = await fetch(path, options);
@@ -76,6 +78,8 @@ async function loadDebugStatus(){
     $('debug-summary').textContent = `Événements: ${status.storage.events_count} · Traces: ${status.storage.traces_count} · Reçus depuis démarrage: ${status.trace_ingestion.received_events_since_start}`;
     const rows = [
       ['Jarvis Debug Studio est-il online ?', status.debug_studio.online ? 'ok' : 'error', `port interne ${status.debug_studio.internal_port}`],
+      ['Adresse navigateur', 'ok', BROWSER_URL],
+      ['Adresse interne Docker', 'ok', DOCKER_INTERNAL_URL],
       ['Est-ce que /api/trace/event reçoit des événements ?', status.trace_ingestion.received_events_since_start > 0 ? 'ok' : 'warning', `reçus=${status.trace_ingestion.received_events_since_start}`],
       ['Est-ce que le fichier SQLite existe ?', status.storage.db_exists ? 'ok' : 'error', status.storage.db_path],
       ['Combien d’événements sont stockés ?', 'ok', String(status.storage.events_count)],
@@ -100,7 +104,8 @@ async function copyDebugReport(){
   const report = [
     'AI Debug Report',
     `services_online=${status.debug_studio.online}`,
-    `debug_studio_url_host=http://192.168.11.206:4318`,
+    `debug_studio_url_host=${BROWSER_URL}`,
+    `debug_studio_url_internal=${DOCKER_INTERNAL_URL}`,
     `trace_gateway_expected=${status.configuration_expected.TRACE_GATEWAY_URL}`,
     `traces_count=${status.storage.traces_count}`,
     `events_count=${status.storage.events_count}`,
@@ -108,8 +113,36 @@ async function copyDebugReport(){
     `toolbox_check=${JSON.stringify({reachable: toolbox.reachable, latency_ms: toolbox.latency_ms, tools: toolbox.tools?.available, error: toolbox.error})}`,
     `npm_probe=${JSON.stringify(lastNpmProbeResult || {ok:false, note:'not_run'})}`,
   ].join('\n');
-  await navigator.clipboard.writeText(report);
-  $('debug-summary').textContent = 'Rapport debug copié dans le presse-papier.';
+  const copied = await copyText(report);
+  if(copied){
+    $('debug-summary').textContent = 'Rapport copié';
+    return;
+  }
+  $('debug-summary').textContent = 'Copie automatique impossible, rapport affiché ci-dessous.';
+  $('detail-content').textContent = report;
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 async function loadTraces(){

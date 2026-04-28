@@ -1,0 +1,29 @@
+{
+  "name": "debug_nonce",
+  "description": "Retourne un nonce runtime pour prouver un appel réel toolbox_runner",
+  "action_types": [
+    "analysis",
+    "run_tool"
+  ],
+  "entrypoint": "tool.py",
+  "input_schema": {
+    "type": "object",
+    "properties": {},
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "nonce": {
+        "type": "string"
+      },
+      "source": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "nonce",
+      "source"
+    ]
+  }
+}
