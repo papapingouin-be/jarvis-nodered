@@ -42,6 +42,9 @@ def test_debug_status_exposes_expected_gateway(monkeypatch, tmp_path) -> None:
     data = status.json()
     assert data["configuration_expected"]["TRACE_GATEWAY_URL"] == "http://jarvis_debug_studio:8060"
     assert data["debug_studio"]["internal_port"] == 8060
+    assert data["events_count_db"] == 0
+    assert data["traces_count_db"] == 0
+    assert data["last_event"] is None
 
 
 def test_invalid_json_updates_ingestion_errors(monkeypatch, tmp_path) -> None:
@@ -125,6 +128,67 @@ def test_manual_probe_updates_ingestion_stats(monkeypatch, tmp_path) -> None:
     status = client.get("/api/debug/status")
     assert status.status_code == 200
     assert status.json()["trace_ingestion"]["received_events_since_start"] >= 2
+
+
+def test_debug_status_uses_db_last_event_when_memory_is_empty(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    push = client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-db-fallback",
+            "tool": "npm_service",
+            "phase": "entry",
+            "status": "ok",
+        },
+    )
+    assert push.status_code == 200
+    app_module.reset_ingestion_stats()
+
+    status = client.get("/api/debug/status")
+    assert status.status_code == 200
+    payload = status.json()
+    assert payload["events_count_db"] == 1
+    assert payload["last_event_db"] is not None
+    assert payload["last_received_event_memory"] is None
+    assert payload["last_event"] is not None
+    assert payload["last_event"]["trace_id"] == "trace-db-fallback"
+
+
+def test_debug_status_diagnosis_distinguishes_existing_db_events(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-existing-db",
+            "tool": "npm_service",
+            "phase": "entry",
+            "status": "ok",
+        },
+    )
+    app_module.reset_ingestion_stats()
+
+    status = client.get("/api/debug/status")
+    assert status.status_code == 200
+    messages = [item["message"] for item in status.json()["diagnosis"]]
+    assert "Aucune trace reçue depuis le démarrage." not in messages
+    assert any("Des traces existent en base" in message for message in messages)
+
+
+def test_probe_send_test_trace_relays_to_toolbox(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    def fake_http_json(url: str, **kwargs):
+        assert url.endswith("/debug/send-test-trace")
+        return 200, {"ok": True, "sent": True}, None, 8.4
+
+    monkeypatch.setattr(app_module, "http_json", fake_http_json)
+    response = client.post("/api/probes/send-test-trace")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["http_status"] == 200
 
 
 def test_ingest_status_endpoint(monkeypatch, tmp_path) -> None:

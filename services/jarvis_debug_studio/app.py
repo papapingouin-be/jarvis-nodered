@@ -267,6 +267,39 @@ def db_debug_stats() -> dict[str, Any]:
         events_count = int(conn.execute("SELECT COUNT(*) FROM trace_events").fetchone()[0] or 0)
         traces_count = int(conn.execute("SELECT COUNT(DISTINCT trace_id) FROM trace_events").fetchone()[0] or 0)
         last_event_at = conn.execute("SELECT MAX(ts) FROM trace_events").fetchone()[0]
+        last_event_row = conn.execute(
+            """
+            SELECT id, trace_id, phase, status, tool, ts
+            FROM trace_events
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        last_trace_row = conn.execute(
+            """
+            SELECT trace_id, MAX(ts) as last_ts
+            FROM trace_events
+            GROUP BY trace_id
+            ORDER BY last_ts DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    last_event = None
+    if last_event_row:
+        last_event = {
+            "id": int(last_event_row["id"]),
+            "trace_id": last_event_row["trace_id"],
+            "phase": last_event_row["phase"],
+            "status": last_event_row["status"],
+            "tool": last_event_row["tool"],
+            "timestamp": last_event_row["ts"],
+        }
+    last_trace = None
+    if last_trace_row:
+        last_trace = {
+            "trace_id": last_trace_row["trace_id"],
+            "timestamp": last_trace_row["last_ts"],
+        }
     return {
         "type": "sqlite",
         "db_path": str(DB_PATH),
@@ -274,6 +307,8 @@ def db_debug_stats() -> dict[str, Any]:
         "events_count": events_count,
         "traces_count": traces_count,
         "last_event_at": last_event_at,
+        "last_event_db": last_event,
+        "last_trace_db": last_trace,
     }
 
 
@@ -283,13 +318,24 @@ def expected_gateway_url() -> str:
 
 def diagnose_debug_status(storage: dict[str, Any], toolbox_check: dict[str, Any] | None = None) -> list[dict[str, str]]:
     diag: list[dict[str, str]] = []
-    if _ingestion_stats["received_events_since_start"] == 0:
+    received_since_start = int(_ingestion_stats.get("received_events_since_start", 0) or 0)
+    events_count_db = int(storage.get("events_count", 0) or 0)
+    if events_count_db == 0:
         diag.append(
             {
                 "level": "warning",
-                "message": "Aucune trace reçue depuis le démarrage.",
-                "probable_cause": "toolbox_runner n’envoie pas les événements vers Jarvis Debug Studio.",
-                "action": f"Vérifier TRACE_ENABLED=true et TRACE_GATEWAY_URL={expected_gateway_url()} dans toolbox_runner.",
+                "message": "Aucune trace en base.",
+                "probable_cause": "Aucun événement n’a encore été persisté dans SQLite.",
+                "action": "Vérifier l’ingestion puis lancer un test manuel d’émission de trace.",
+            }
+        )
+    elif received_since_start == 0:
+        diag.append(
+            {
+                "level": "warning",
+                "message": "Des traces existent en base, mais aucune nouvelle trace n’a été reçue depuis le dernier redémarrage.",
+                "probable_cause": "Les traces historiques sont présentes, mais le flux courant d’ingestion n’a pas encore reçu de nouvel événement.",
+                "action": "Lancer curl -X POST http://HOST:8030/debug/send-test-trace pour vérifier l’ingestion actuelle.",
             }
         )
     if storage["db_exists"] is False:
@@ -326,6 +372,25 @@ def diagnose_debug_status(storage: dict[str, Any], toolbox_check: dict[str, Any]
                 "message": "toolbox_runner est injoignable depuis Jarvis Debug Studio.",
                 "probable_cause": "Service toolbox_runner offline, mauvais DNS Docker ou port invalide.",
                 "action": "Vérifier http://toolbox_runner:8030/health et le réseau Docker.",
+            }
+        )
+    if toolbox_check and toolbox_check.get("reachable", False) and received_since_start == 0:
+        diag.append(
+            {
+                "level": "warning",
+                "message": "toolbox_runner est joignable mais n’envoie pas de trace.",
+                "probable_cause": "La connectivité est OK mais aucun événement récent n’a été ingéré.",
+                "action": f"Vérifier TRACE_ENABLED=true et TRACE_GATEWAY_URL={expected_gateway_url()} dans toolbox_runner, puis lancer un test manuel.",
+            }
+        )
+    openwebui_probe = toolbox_check.get("openwebui_proof") if toolbox_check else None
+    if isinstance(openwebui_probe, dict) and not openwebui_probe.get("has_recent_openwebui_call", False):
+        diag.append(
+            {
+                "level": "warning",
+                "message": "Aucune preuve qu’OpenWebUI appelle toolbox_runner.",
+                "probable_cause": "Les appels observés sont manuels ou aucun appel réel récent n’a été enregistré.",
+                "action": "Déclencher un appel depuis OpenWebUI puis vérifier la section Preuve OpenWebUI.",
             }
         )
     if not diag:
@@ -449,11 +514,38 @@ def toolbox_connectivity_check() -> dict[str, Any]:
         and 200 <= h_status < 300
         and 200 <= t_status < 300
     )
+    real_calls_status, real_calls_data, real_calls_err, real_calls_latency = http_json(
+        "http://toolbox_runner:8030/debug/real-calls", timeout=2.5
+    )
+    real_calls_items = real_calls_data.get("items", []) if isinstance(real_calls_data, dict) else []
+    recent_openwebui_call = next(
+        (
+            item for item in real_calls_items
+            if isinstance(item, dict)
+            and (
+                str(item.get("source", "")).lower() == "openwebui"
+                or str(item.get("origin", "")).lower().startswith("openwebui")
+                or str(item.get("context", {}).get("origin", "")).lower().startswith("openwebui")
+            )
+        ),
+        None,
+    )
     return {
         "reachable": reachable,
         "latency_ms": {"health": h_latency, "tools": t_latency},
         "health": {"url": health_url, "http_status": h_status, "response": redact(h_data), "error": h_err},
         "tools": {"url": tools_url, "http_status": t_status, "available": tools, "error": t_err},
+        "real_calls": {
+            "http_status": real_calls_status,
+            "latency_ms": real_calls_latency,
+            "error": real_calls_err,
+            "count": len(real_calls_items),
+            "latest": real_calls_items[0] if real_calls_items else None,
+        },
+        "openwebui_proof": {
+            "has_recent_openwebui_call": recent_openwebui_call is not None,
+            "last_openwebui_call": recent_openwebui_call,
+        },
         "error": h_err or t_err,
     }
 
@@ -483,6 +575,9 @@ def debug_ingest_status() -> dict[str, Any]:
 def debug_status() -> dict[str, Any]:
     storage = db_debug_stats()
     toolbox_check = toolbox_connectivity_check()
+    last_received_event_memory = _ingestion_stats["last_received_event"]
+    last_event_db = storage.get("last_event_db")
+    last_event = last_received_event_memory or last_event_db
     return {
         "ok": True,
         "service": "jarvis_debug_studio",
@@ -492,10 +587,19 @@ def debug_status() -> dict[str, Any]:
             "external_port_hint": 4318,
         },
         "storage": storage,
+        "events_count_db": storage["events_count"],
+        "traces_count_db": storage["traces_count"],
+        "last_event_db": last_event_db,
+        "last_trace_db": storage.get("last_trace_db"),
+        "last_received_event_memory": last_received_event_memory,
+        "last_received_event_db": last_event_db,
+        "received_events_since_start": _ingestion_stats["received_events_since_start"],
+        "last_event": last_event,
         "trace_ingestion": {
             "endpoint": "/api/trace/event",
             "received_events_since_start": _ingestion_stats["received_events_since_start"],
-            "last_received_event": _ingestion_stats["last_received_event"],
+            "last_received_event": last_received_event_memory,
+            "last_received_event_db": last_event_db,
             "last_error": _ingestion_stats["last_error"],
             "invalid_json_count": _ingestion_stats["invalid_json_count"],
             "invalid_payload_count": _ingestion_stats["invalid_payload_count"],
@@ -529,6 +633,19 @@ def probe_npm_service(req: NpmProbeRequest) -> dict[str, Any]:
         error_message=err or (data.get("message") if isinstance(data, dict) else None),
     )
     return {"ok": ok, "trace_id": trace_id, "http_status": status, "duration_ms": duration_ms, "result": data, "error": err}
+
+
+@app.post("/api/probes/send-test-trace")
+def probe_send_test_trace() -> dict[str, Any]:
+    toolbox_url = os.getenv("TOOLBOX_RUNNER_URL", "http://toolbox_runner:8030").rstrip("/")
+    status, data, err, duration_ms = http_json(
+        toolbox_url + "/debug/send-test-trace",
+        method="POST",
+        payload={},
+        timeout=float(os.getenv("JARVIS_DEBUG_MANUAL_PROBE_TIMEOUT", "12")),
+    )
+    ok = err is None and status is not None and 200 <= status < 300 and (not isinstance(data, dict) or data.get("ok") is not False)
+    return {"ok": ok, "http_status": status, "duration_ms": duration_ms, "result": data, "error": err}
 
 
 @app.post("/api/trace/event")
