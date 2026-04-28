@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import uuid
 import json
+import random
 from pathlib import Path
 from time import perf_counter
 from datetime import datetime, timezone
@@ -199,23 +200,30 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _append_real_call(*, tool: str, tool_input: dict, context: dict | None = None) -> dict:
-    context = context or {}
-    trace_id = context.get("trace_id") or context.get("req_id") or "generated"
+def _append_real_call(*, marker: str, tool: str, tool_input: dict, trace_id: str) -> dict:
     payload = {
         "timestamp": _now_iso(),
-        "marker": "REAL_TOOLBOX_RUN_CALLED",
+        "marker": marker,
         "tool": tool,
         "input": tool_input,
         "trace_id": trace_id,
         "trace_enabled": trace_enabled(),
         "trace_gateway_url": gateway_url(),
     }
-    print(f"### REAL_TOOLBOX_RUN_CALLED ### {json.dumps(payload, ensure_ascii=False, default=str)}")
+    print(f"### {marker} ### {json.dumps(payload, ensure_ascii=False, default=str)}")
     REAL_CALLS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with REAL_CALLS_LOG_PATH.open("a", encoding="utf-8") as fp:
         fp.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
     return payload
+
+
+def _trace_id_from_context(context: dict | None = None) -> str:
+    context = context or {}
+    return str(context.get("trace_id") or context.get("req_id") or "generated")
+
+
+def _new_tools_list_trace_id() -> str:
+    return f"tools-list-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{random.randint(1000, 9999)}"
 
 
 def _read_last_real_calls(limit: int = 50) -> list[dict]:
@@ -288,16 +296,40 @@ def health() -> dict[str, str]:
     description="Return the list of available tools registered in the toolbox registry.",
     operation_id="jarvis_list_tools",
 )
-def list_tools() -> dict[str, list[str]]:
+def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
+    request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
+    trace_id = request_trace_id or _new_tools_list_trace_id()
+    trace = TraceClient(trace_id, new_run_id("jarvis_list_tools"), "jarvis_list_tools")
+
+    print("### REAL_TOOLBOX_LIST_TOOLS_CALLED ###")
+    _append_real_call(
+        marker="REAL_TOOLBOX_LIST_TOOLS_CALLED",
+        tool="jarvis_list_tools",
+        tool_input={},
+        trace_id=trace.trace_id,
+    )
+
+    trace.event(
+        "request.received",
+        "running",
+        input={},
+        metadata={"path": "/v1/tools", "query": str(request.url.query or "")},
+    )
+    trace.event("tool.selected", "ok", input={}, metadata={"tool": "jarvis_list_tools", "service": "toolbox_runner"})
+    output = {"tools": tools}
+    trace.event("code.execution.result", "ok", output=output)
+    trace.event("response.returned", "ok", output=output)
+
     log_event(
         logger,
         service="toolbox_runner",
         event="list_tools",
         count=len(tools),
         tools=tools,
+        trace_id=trace.trace_id,
     )
-    return {"tools": tools}
+    return output
 
 
 
@@ -376,7 +408,7 @@ def debug_run_nonce() -> dict:
     operation_id="jarvis_execute_tool",
 )
 def run(payload: ToolRunRequest) -> dict:
-    _append_real_call(tool=payload.tool, tool_input=payload.input, context=payload.context)
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=payload.tool, tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
     return _execute_tool(payload.tool, payload.input, payload.context)
 
 
@@ -388,7 +420,7 @@ def run(payload: ToolRunRequest) -> dict:
     operation_id="jarvis_execute_tool_by_path",
 )
 def run_by_path(tool: str, payload: dict) -> dict:
-    _append_real_call(tool=tool, tool_input=payload, context={})
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=tool, tool_input=payload, trace_id="generated")
     return _execute_tool(tool, payload, {})
 
 
@@ -400,7 +432,7 @@ def run_by_path(tool: str, payload: dict) -> dict:
     operation_id="jarvis_execute_tool_compat",
 )
 def run_compat(payload: ToolRunRequest) -> dict:
-    _append_real_call(tool=payload.tool, tool_input=payload.input, context=payload.context)
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=payload.tool, tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
     return _execute_tool(payload.tool, payload.input, payload.context)
 
 
@@ -412,7 +444,7 @@ def run_compat(payload: ToolRunRequest) -> dict:
     operation_id="jarvis_execute_tool_by_path_compat",
 )
 def run_by_path_compat(tool: str, payload: dict) -> dict:
-    _append_real_call(tool=tool, tool_input=payload, context={})
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=tool, tool_input=payload, trace_id="generated")
     return _execute_tool(tool, payload, {})
 
 
@@ -424,7 +456,7 @@ def run_by_path_compat(tool: str, payload: dict) -> dict:
     operation_id="debug_nonce",
 )
 def openwebui_debug_nonce(payload: OpenWebUiToolRequest) -> dict:
-    _append_real_call(tool="debug_nonce", tool_input=payload.input, context=payload.context)
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool="debug_nonce", tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
     result = _execute_tool("debug_nonce", payload.input, payload.context)
     data = result.get("data", {}) if isinstance(result, dict) else {}
     return {
@@ -442,7 +474,7 @@ def openwebui_debug_nonce(payload: OpenWebUiToolRequest) -> dict:
 )
 def openwebui_npm_service_list(payload: OpenWebUiToolRequest) -> dict:
     merged_input = {"intent": "list.services", **payload.input}
-    _append_real_call(tool="npm_service", tool_input=merged_input, context=payload.context)
+    _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool="npm_service", tool_input=merged_input, trace_id=_trace_id_from_context(payload.context))
     result = _execute_tool("npm_service", merged_input, payload.context)
     data = result.get("data", {}) if isinstance(result, dict) else {}
     services = data.get("services")
