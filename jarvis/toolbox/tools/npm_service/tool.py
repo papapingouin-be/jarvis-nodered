@@ -307,7 +307,8 @@ def _list_services(conn: sqlite3.Connection, payload: dict[str, Any]) -> dict[st
     )
     return {
         "instance_name": instance_name,
-        "services": local_services,
+        "services": remote_services if remote_services else local_services,
+        "local_services": local_services,
         "remote_services": remote_services,
         "remote_count": len(remote_services),
         "instance_configured": True,

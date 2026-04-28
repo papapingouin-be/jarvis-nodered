@@ -82,3 +82,46 @@ def test_trace_list_uses_latest_event_status(monkeypatch, tmp_path) -> None:
     traces = client.get("/api/traces")
     assert traces.status_code == 200
     assert traces.json()["items"][0]["status"] == "ok"
+
+
+def test_trace_details_use_latest_event_status(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-details-status",
+            "tool": "npm_service",
+            "phase": "manual_probe.sent",
+            "status": "running",
+        },
+    )
+    client.post(
+        "/api/trace/event",
+        json={
+            "trace_id": "trace-details-status",
+            "tool": "npm_service",
+            "phase": "manual_probe.result",
+            "status": "ok",
+        },
+    )
+
+    trace = client.get("/api/traces/trace-details-status")
+    assert trace.status_code == 200
+    assert trace.json()["status"] == "ok"
+
+
+def test_manual_probe_updates_ingestion_stats(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    def fake_http_json(url: str, **kwargs):
+        return 200, {"ok": True, "tool": "npm_service", "result": {"services": []}}, None, 12.5
+
+    monkeypatch.setattr(app_module, "http_json", fake_http_json)
+    probe = client.post("/api/probes/npm_service/list", json={"intent": "list.services"})
+    assert probe.status_code == 200
+    assert probe.json()["ok"] is True
+
+    status = client.get("/api/debug/status")
+    assert status.status_code == 200
+    assert status.json()["trace_ingestion"]["received_events_since_start"] >= 2
