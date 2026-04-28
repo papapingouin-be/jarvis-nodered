@@ -711,6 +711,77 @@ async def post_event(event: TraceEvent) -> dict[str, Any]:
     return {"ok": True, "id": event_id}
 
 
+
+
+def parse_iso(ts: str | None) -> datetime | None:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def compute_trace_status(events: list[dict[str, Any]]) -> str:
+    if not events:
+        return "unknown"
+    if any(str(ev.get("status", "")).lower() == "error" for ev in events):
+        return "error"
+    if any(ev.get("phase") == "response.returned" and str(ev.get("status", "")).lower() == "ok" for ev in events):
+        return "ok"
+    if any(ev.get("phase") == "code.execution.result" and str(ev.get("status", "")).lower() == "ok" for ev in events):
+        return "completed"
+    last = events[-1]
+    last_ts = parse_iso(str(last.get("timestamp") or ""))
+    if str(last.get("status", "")).lower() == "running" and last_ts and (datetime.now(timezone.utc) - last_ts).total_seconds() > 30:
+        return "stale"
+    return "running" if str(last.get("status", "")).lower() == "running" else str(last.get("status") or "unknown")
+
+
+def build_trace_payload(trace_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM trace_events WHERE trace_id = ? ORDER BY id ASC", (trace_id,)).fetchall()
+    if not rows:
+        raise HTTPException(404, "trace not found")
+    events=[]
+    for r in rows:
+        d=dict(r)
+        d["timestamp"]=d.pop("ts")
+        d["input"]=loads_json(d.pop("input_json"))
+        d["output"]=loads_json(d.pop("output_json"))
+        d["metadata"]=loads_json(d.pop("metadata_json"))
+        d["explanation"]=explain_error(d.get("error_code"), d.get("error_message"))
+        events.append(d)
+    started=parse_iso(events[0].get('timestamp'))
+    ended=parse_iso(events[-1].get('timestamp'))
+    duration_ms = round((ended-started).total_seconds()*1000,2) if started and ended else None
+    summary={
+        "tool": events[0].get("tool"),
+        "service": events[-1].get("service"),
+        "events_count": len(events),
+        "status": compute_trace_status(events),
+        "started_at": events[0].get("timestamp"),
+        "last_at": events[-1].get("timestamp"),
+        "duration_ms": duration_ms,
+        "caller_type": (events[-1].get("metadata") or {}).get("caller_type"),
+    }
+    return {"trace_id": trace_id, "summary": summary, "events": events}
+
+
+def trace_to_text(payload: dict[str, Any]) -> str:
+    out=[f"Trace: {payload['trace_id']}", "", "Résumé:", json.dumps(payload['summary'], ensure_ascii=False, indent=2), "", "Timeline:"]
+    for ev in payload["events"]:
+        out.append(f"- #{ev['id']} {ev['timestamp']} · {ev.get('phase')} · {ev.get('status')}")
+    out.append("\nÉvénements détaillés:")
+    for ev in payload['events']:
+        out += ["", f"[{ev['id']}] {ev.get('phase')} ({ev.get('status')})", f"service={ev.get('service')} tool={ev.get('tool')} duration_ms={ev.get('duration_ms')}", "input:", pretty_json(ev.get('input')), "output:", pretty_json(ev.get('output')), "metadata:", pretty_json(ev.get('metadata')), "errors:", pretty_json({"error_code": ev.get('error_code'), "error_message": ev.get('error_message'), "explanation": ev.get('explanation')})]
+    return "\n".join(out)
+
+
+def pretty_json(v: Any) -> str:
+    return json.dumps(v if v is not None else {}, ensure_ascii=False, indent=2, default=str)
+
+
 @app.get("/api/traces")
 def list_traces(
     limit: int = Query(default=50, ge=1, le=100),
@@ -761,9 +832,16 @@ def list_traces(
             (*args, limit, offset),
         ).fetchall()
     items = [dict(r) for r in rows]
+    filtered_items: list[dict[str, Any]] = []
     for item in items:
+        payload = build_trace_payload(item["trace_id"])
+        item["status"] = payload["summary"]["status"]
+        item["caller_type"] = payload["summary"].get("caller_type")
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
-    return {"items": items, "limit": limit, "offset": offset, "returned": len(items)}
+        if status and item["status"] != status:
+            continue
+        filtered_items.append(item)
+    return {"items": filtered_items, "limit": limit, "offset": offset, "returned": len(filtered_items)}
 
 
 @app.delete("/api/traces")
@@ -778,26 +856,22 @@ def delete_all_traces() -> dict[str, Any]:
 
 @app.get("/api/traces/{trace_id}")
 def get_trace(trace_id: str) -> dict[str, Any]:
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM trace_events WHERE trace_id = ? ORDER BY id ASC", (trace_id,)).fetchall()
-    if not rows:
-        raise HTTPException(404, "trace not found")
-    events: list[dict[str, Any]] = []
-    for r in rows:
-        d = dict(r)
-        d["timestamp"] = d.pop("ts")
-        d["input"] = loads_json(d.pop("input_json"))
-        d["output"] = loads_json(d.pop("output_json"))
-        d["metadata"] = loads_json(d.pop("metadata_json"))
-        d["explanation"] = explain_error(d.get("error_code"), d.get("error_message"))
-        events.append(d)
-    first = events[0]
-    latest_status = str(events[-1].get("status") or "ok")
-    if latest_status in {"ok", "warning", "error", "running"}:
-        status = latest_status
-    else:
-        status = "ok"
-    return {"trace_id": trace_id, "tool": first.get("tool"), "status": status, "events": events}
+    payload = build_trace_payload(trace_id)
+    return {"trace_id": trace_id, "tool": payload["summary"].get("tool"), "status": payload["summary"]["status"], "summary": payload["summary"], "events": payload["events"]}
+
+
+@app.get("/api/traces/{trace_id}/export")
+def export_trace_json(trace_id: str) -> dict[str, Any]:
+    payload = build_trace_payload(trace_id)
+    return {**payload, "exported_at": utc_now(), "debug_report": {"status_rule": "v1"}}
+
+
+@app.get("/api/traces/{trace_id}/export.txt")
+def export_trace_text(trace_id: str) -> StreamingResponse:
+    payload = export_trace_json(trace_id)
+    content = trace_to_text(payload)
+    headers = {"Content-Disposition": f'attachment; filename="jarvis-trace-{trace_id}.txt"'}
+    return StreamingResponse(iter([content]), media_type="text/plain; charset=utf-8", headers=headers)
 
 
 @app.delete("/api/traces/{trace_id}")

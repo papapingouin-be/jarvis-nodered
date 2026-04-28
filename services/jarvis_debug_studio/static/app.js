@@ -277,6 +277,15 @@ async function loadTrace(id){
   if(data.events.length) selectEvent(data.events[0].id);
 }
 
+function downloadFile(name, content, type){
+  const blob = new Blob([content], {type});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
 function renderTimeline(){
   const box = $('timeline');
   if(!currentTrace || !currentTrace.events.length){
@@ -312,7 +321,25 @@ function renderDetail(){
   if(activeTab === 'logs') content = pretty({ stdout: ev.metadata?.stdout || ev.output?.stdout, stderr: ev.metadata?.stderr || ev.output?.stderr, logs: ev.output?.logs });
   if(activeTab === 'error') content = pretty({ status: ev.status, error_code: ev.error_code, error_message: ev.error_message, explanation: ev.explanation });
   if(activeTab === 'meta') content = pretty(ev.metadata);
+  if(activeTab === 'caller') content = pretty({ caller_type: ev.metadata?.caller_type, caller_label: ev.metadata?.caller_label, request_info: ev.metadata?.request_info || {} });
   $('detail-content').textContent = content || '—';
+}
+
+async function exportCurrentTraceJson(){
+  if(!currentTraceId) return;
+  const data = await api(`/api/traces/${encodeURIComponent(currentTraceId)}/export`);
+  downloadFile(`jarvis-trace-${currentTraceId}.json`, JSON.stringify(data, null, 2), 'application/json');
+}
+async function exportCurrentTraceTxt(){
+  if(!currentTraceId) return;
+  const res = await fetch(`/api/traces/${encodeURIComponent(currentTraceId)}/export.txt`);
+  const txt = await res.text();
+  downloadFile(`jarvis-trace-${currentTraceId}.txt`, txt, 'text/plain');
+}
+async function copyFullTrace(){
+  if(!currentTraceId) return;
+  const data = await api(`/api/traces/${encodeURIComponent(currentTraceId)}/export`);
+  await copyText(JSON.stringify(data, null, 2));
 }
 
 function startLive(){
@@ -351,6 +378,9 @@ $('copy-debug-report').onclick = copyDebugReport;
 $('search').oninput = () => { clearTimeout(window.__searchTimer); window.__searchTimer = setTimeout(loadTraces, 250); };
 $('status-filter').onchange = loadTraces;
 $('live').onclick = startLive;
+$('export-trace-json').onclick = exportCurrentTraceJson;
+$('export-trace-txt').onclick = exportCurrentTraceTxt;
+$('copy-full-trace').onclick = copyFullTrace;
 
 loadServices();
 loadDebugStatus();
