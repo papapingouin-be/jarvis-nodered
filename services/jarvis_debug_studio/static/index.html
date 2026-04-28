@@ -35,6 +35,7 @@
       <div class="control-actions">
         <button id="refresh-services">Tester les services</button>
         <button id="probe-npm" class="primary">Tester npm_service</button>
+        <button id="probe-ingestion" class="primary">Tester ingestion maintenant</button>
       </div>
     </div>
     <div id="service-grid" class="service-grid"></div>
@@ -50,6 +51,7 @@
       <div class="control-actions">
         <button id="refresh-debug">Rafraîchir diagnostic</button>
         <button id="debug-probe-npm" class="primary">Tester npm_service</button>
+        <button id="debug-probe-ingestion" class="primary">Tester ingestion maintenant</button>
         <button id="copy-debug-report">Copier rapport debug</button>
       </div>
     </div>
@@ -58,6 +60,8 @@
       TRACE_GATEWAY_URL=http://jarvis_debug_studio:8060 · Adresse navigateur : http://192.168.11.206:4318 · Adresse interne Docker : http://jarvis_debug_studio:8060
     </p>
     <div id="debug-diagnosis" class="debug-diagnosis"></div>
+    <div class="panel-title">Preuve OpenWebUI</div>
+    <div id="openwebui-proof" class="debug-diagnosis"></div>
   </section>
 
   <main class="shell">
