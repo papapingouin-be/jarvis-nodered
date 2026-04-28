@@ -1,0 +1,48 @@
+import os
+
+from fastapi.testclient import TestClient
+
+from services.toolbox_runner import app as toolbox_app
+
+
+def test_debug_trace_config_reports_env(monkeypatch) -> None:
+    monkeypatch.setenv("TRACE_ENABLED", "true")
+    monkeypatch.setenv("TRACE_GATEWAY_URL", "http://jarvis_debug_studio:8060")
+    client = TestClient(toolbox_app.app)
+
+    response = client.get("/debug/trace-config")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["service"] == "toolbox_runner"
+    assert payload["trace_enabled"] is True
+    assert payload["trace_gateway_url"] == "http://jarvis_debug_studio:8060"
+    assert payload["env_present"]["TRACE_ENABLED"] is True
+    assert payload["env_present"]["TRACE_GATEWAY_URL"] is True
+
+
+def test_debug_send_test_trace_returns_failure_when_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("TRACE_ENABLED", "false")
+    monkeypatch.setenv("TRACE_GATEWAY_URL", "http://jarvis_debug_studio:8060")
+    client = TestClient(toolbox_app.app)
+
+    response = client.post("/debug/send-test-trace")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sent"] is False
+    assert payload["error"] == "TRACE_ENABLED=false"
+
+
+def test_debug_run_npm_with_trace_uses_execute_path(monkeypatch) -> None:
+    monkeypatch.setenv("TRACE_ENABLED", "false")
+    monkeypatch.setattr(
+        toolbox_app,
+        "_execute_tool_with_trace",
+        lambda tool, tool_input, context: ({"ok": True, "tool": tool, "data": tool_input}, type("T", (), {"trace_id": context["trace_id"], "last_send_result": {"sent": False}})()),
+    )
+
+    client = TestClient(toolbox_app.app)
+    response = client.post("/debug/run-npm-with-trace")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["trace_id"] == "debug-npm-direct"
+    assert payload["result"]["tool"] == "npm_service"

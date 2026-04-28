@@ -16,6 +16,14 @@ def trace_enabled() -> bool:
     return os.getenv("TRACE_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def trace_payloads_enabled() -> bool:
+    return os.getenv("TRACE_PAYLOADS", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def trace_code_preview_enabled() -> bool:
+    return os.getenv("TRACE_CODE_PREVIEW", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def gateway_url() -> str:
     return os.getenv("TRACE_GATEWAY_URL") or os.getenv("TRACE_MONITOR_URL") or "http://jarvis_debug_studio:8060"
 
@@ -59,12 +67,58 @@ class TraceClient:
         self.service = os.getenv("SERVICE_NAME", "toolbox_runner")
         self.enabled = trace_enabled()
         self.url = gateway_url().rstrip("/") + "/api/trace/event"
+        self.last_send_result: dict[str, Any] = {
+            "sent": False,
+            "target_url": self.url,
+            "http_status": None,
+            "response_body": "",
+            "error": "not_sent",
+        }
+
+    def _send_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not self.enabled:
+            result = {
+                "sent": False,
+                "target_url": self.url,
+                "http_status": None,
+                "response_body": "",
+                "error": "TRACE_ENABLED=false",
+            }
+            self.last_send_result = result
+            return result
+
+        data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
+        req = request.Request(self.url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+        print(f"TRACE_SEND_ATTEMPT target={self.url}")
+        try:
+            with request.urlopen(req, timeout=float(os.getenv("TRACE_POST_TIMEOUT_S", "0.8"))) as resp:
+                body = resp.read(2048).decode("utf-8", errors="replace")
+                result = {
+                    "sent": True,
+                    "target_url": self.url,
+                    "http_status": resp.status,
+                    "response_body": body,
+                    "error": "",
+                }
+                print(f"TRACE_SEND_OK status={resp.status}")
+        except (error.URLError, socket.timeout, TimeoutError, OSError) as exc:
+            result = {
+                "sent": False,
+                "target_url": self.url,
+                "http_status": None,
+                "response_body": "",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+            print(f"TRACE_SEND_ERROR error={result['error']}")
+        self.last_send_result = result
+        return result
+
+    def send_custom_event(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._send_payload(payload)
 
     def event(self, phase: str, status: str = "ok", *, input: Any | None = None, output: Any | None = None,
               metadata: dict[str, Any] | None = None, duration_ms: float | None = None,
               error_code: str | None = None, error_message: str | None = None) -> None:
-        if not self.enabled:
-            return
         payload = {
             "trace_id": self.trace_id,
             "run_id": self.run_id,
@@ -81,13 +135,7 @@ class TraceClient:
             "error_code": error_code,
             "error_message": error_message,
         }
-        data = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
-        req = request.Request(self.url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with request.urlopen(req, timeout=float(os.getenv("TRACE_POST_TIMEOUT_S", "0.8"))) as resp:
-                resp.read(64)
-        except (error.URLError, socket.timeout, TimeoutError, OSError):
-            return
+        self._send_payload(payload)
 
 
 class StepTimer:

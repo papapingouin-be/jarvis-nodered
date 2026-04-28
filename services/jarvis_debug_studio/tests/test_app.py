@@ -125,3 +125,15 @@ def test_manual_probe_updates_ingestion_stats(monkeypatch, tmp_path) -> None:
     status = client.get("/api/debug/status")
     assert status.status_code == 200
     assert status.json()["trace_ingestion"]["received_events_since_start"] >= 2
+
+
+def test_ingest_status_endpoint(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    status = client.get("/api/debug/ingest-status")
+    assert status.status_code == 200
+    data = status.json()
+    assert data["service"] == "jarvis_debug_studio"
+    assert data["received_events_since_start"] == 0
+    assert data["events_count_db"] == 0
+    assert data["db_exists"] in {True, False}
