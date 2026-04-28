@@ -755,6 +755,9 @@ def build_trace_payload(trace_id: str) -> dict[str, Any]:
     started=parse_iso(events[0].get('timestamp'))
     ended=parse_iso(events[-1].get('timestamp'))
     duration_ms = round((ended-started).total_seconds()*1000,2) if started and ended else None
+    caller_event = next((ev for ev in events if isinstance(ev.get("metadata"), dict) and ev.get("metadata", {}).get("request_info")), events[-1])
+    caller_metadata = caller_event.get("metadata") or {}
+    request_info = caller_metadata.get("request_info") or {}
     summary={
         "tool": events[0].get("tool"),
         "service": events[-1].get("service"),
@@ -763,7 +766,12 @@ def build_trace_payload(trace_id: str) -> dict[str, Any]:
         "started_at": events[0].get("timestamp"),
         "last_at": events[-1].get("timestamp"),
         "duration_ms": duration_ms,
-        "caller_type": (events[-1].get("metadata") or {}).get("caller_type"),
+        "caller_type": caller_metadata.get("caller_type"),
+        "caller_label": caller_metadata.get("caller_label"),
+        "client_host": request_info.get("client_host"),
+        "request_path": request_info.get("path"),
+        "user_agent": request_info.get("user_agent"),
+        "request_info": request_info,
     }
     return {"trace_id": trace_id, "summary": summary, "events": events}
 
@@ -838,6 +846,7 @@ def list_traces(
         payload = build_trace_payload(item["trace_id"])
         item["status"] = payload["summary"]["status"]
         item["caller_type"] = payload["summary"].get("caller_type")
+        item["client_host"] = payload["summary"].get("client_host")
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
         if not include_list_tools and item.get("tool") == "jarvis_list_tools":
             continue
