@@ -225,6 +225,7 @@ async function loadTraces(){
         <div class="trace-top"><div class="trace-id" title="${t.trace_id}">${short(t.trace_id, 30)}</div>${badge(t.status)}</div>
         <div class="trace-meta">
           <div><span class="pill">tool</span>${fmt(t.tool)}</div>
+          <div><span class="pill">caller</span>${fmt(t.caller_type || 'unknown')} · <span class="pill">client</span>${fmt(t.client_host || 'n/a')}</div>
           <div><span class="pill">events</span>${t.events} · <span class="pill">durée</span>${fmt(t.observed_duration_ms)} ms</div>
           <div>${fmt(t.last_at)}</div>
           ${t.explanation ? `<div class="explain">${short(t.explanation, 120)}</div>` : ''}

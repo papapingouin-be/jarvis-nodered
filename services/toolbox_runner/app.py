@@ -130,12 +130,15 @@ def _available_tool_names() -> list[str]:
     return sorted(REGISTRY.keys())
 
 
-def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None = None) -> tuple[dict, TraceClient]:
+def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None = None, request: Request | None = None) -> tuple[dict, TraceClient]:
     context = context or {}
     trace_id = context.get("trace_id") or context.get("req_id") or new_trace_id()
     run_id = context.get("run_id") or new_run_id(tool)
     trace = TraceClient(trace_id, run_id, tool)
     print(f"TRACE_WRAPPER_ENTERED tool={tool} trace_id={trace_id}")
+    request_info = build_request_info(request) if request else {}
+    caller_type, caller_label = detect_caller(request_info) if request else ("unknown", "Unknown caller")
+    caller_metadata = {"caller_type": caller_type, "caller_label": caller_label, "request_info": request_info}
     trace.event(
         "request.received",
         "running",
@@ -144,6 +147,7 @@ def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None =
             "context_keys": sorted(context.keys()),
             "input_keys": sorted(tool_input.keys()),
             "req_id": context.get("req_id"),
+            **caller_metadata,
         },
     )
     log_event(
@@ -172,14 +176,16 @@ def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None =
             "retryable": False,
             "data": {"available_tools": sorted(REGISTRY.keys())},
         }
-        trace.event("tool.selected", "error", input=tool_input, output=result, error_code="MISSING_TOOL", error_message=result["message"])
+        trace.event("tool.selected", "error", input=tool_input, output=result, error_code="MISSING_TOOL", error_message=result["message"], metadata=caller_metadata)
         return result, trace
 
-    trace.event("tool.selected", "ok", input=tool_input, metadata={"manifest": {k: v for k, v in manifest.items() if k != "input_schema" and k != "output_schema"}})
+    trace.event("tool.selected", "ok", input=tool_input, metadata={"manifest": {k: v for k, v in manifest.items() if k != "input_schema" and k != "output_schema"}, **caller_metadata})
     try:
-        return run_tool(manifest, tool_input, trace=trace), trace
+        result = run_tool(manifest, tool_input, trace=trace)
+        trace.event("response.returned", "ok", output=result, metadata=caller_metadata)
+        return result, trace
     except ToolRunError as exc:
-        trace.event("response.returned", "error", input=tool_input, error_code=exc.code, error_message=exc.message, metadata={"retryable": exc.retryable})
+        trace.event("response.returned", "error", input=tool_input, error_code=exc.code, error_message=exc.message, metadata={"retryable": exc.retryable, **caller_metadata})
         log_event(logger, service="toolbox_runner", event="run_error", tool=tool, code=exc.code, trace_id=trace_id, run_id=run_id)
         return {
             "ok": False,
@@ -191,8 +197,8 @@ def _execute_tool_with_trace(tool: str, tool_input: dict, context: dict | None =
         }, trace
 
 
-def _execute_tool(tool: str, tool_input: dict, context: dict | None = None) -> dict:
-    result, _ = _execute_tool_with_trace(tool, tool_input, context)
+def _execute_tool(tool: str, tool_input: dict, context: dict | None = None, request: Request | None = None) -> dict:
+    result, _ = _execute_tool_with_trace(tool, tool_input, context, request)
     return result
 
 
@@ -264,11 +270,16 @@ def detect_caller(request_info: dict) -> tuple[str, str]:
     path = str(request_info.get("path") or "").lower()
     if str(headers.get("x-jarvis-debug-probe", "")).lower() == "true":
         return "jarvis_debug_studio", "Jarvis Debug Studio probe"
-    if "openwebui" in ua or headers.get("x-openwebui-user-id") or path.startswith("/openwebui"):
-        return "openwebui", "OpenWebUI / jarvis_openwebui"
     if "curl" in ua:
         return "curl", "curl client"
-    if any(x in ua for x in ["mozilla", "chrome", "safari", "firefox"]) and (request_info.get("origin") or request_info.get("referer")):
+    referer_origin = f"{request_info.get('origin','')} {request_info.get('referer','')}".lower()
+    if "openwebui" in referer_origin or "18080" in referer_origin:
+        return "openwebui", "OpenWebUI / jarvis_openwebui"
+    if "openwebui" in ua or headers.get("x-openwebui-user-id") or path.startswith("/openwebui"):
+        return "openwebui", "OpenWebUI / jarvis_openwebui"
+    if path.startswith("/debug"):
+        return "manual_debug", "Manual debug endpoint"
+    if "mozilla" in ua:
         return "browser", "Browser"
     if _is_docker_ip(str(request_info.get("client_host") or "")):
         return "internal_docker", "Internal Docker service"
@@ -280,7 +291,7 @@ def build_request_info(request: Request) -> dict:
     redacted = {}
     for k, v in raw_headers.items():
         key = k.lower()
-        if any(token in key for token in ["authorization", "cookie", "x-api-key", "token", "secret"]):
+        if any(token in key for token in ["authorization", "cookie", "set-cookie", "x-api-key", "api-key", "token", "secret", "password"]):
             redacted[k] = "***REDACTED***"
         else:
             redacted[k] = v
@@ -481,9 +492,9 @@ def debug_real_calls() -> dict:
 
 
 @app.post("/debug/run-nonce")
-def debug_run_nonce() -> dict:
+def debug_run_nonce(request: Request) -> dict:
     payload = ToolRunRequest(tool="debug_nonce", input={}, context={"trace_id": f"debug-nonce-{uuid.uuid4().hex[:10]}"})
-    result = run(payload)
+    result = _execute_tool(payload.tool, payload.input, payload.context, request)
     return {"result": result, "trace_id": payload.context["trace_id"]}
 
 
@@ -494,9 +505,9 @@ def debug_run_nonce() -> dict:
     description="Execute a tool from the toolbox registry using the provided input payload.",
     operation_id="jarvis_execute_tool",
 )
-def run(payload: ToolRunRequest) -> dict:
+def run(payload: ToolRunRequest, request: Request) -> dict:
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=payload.tool, tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
-    return _execute_tool(payload.tool, payload.input, payload.context)
+    return _execute_tool(payload.tool, payload.input, payload.context, request)
 
 
 @app.post(
@@ -506,9 +517,9 @@ def run(payload: ToolRunRequest) -> dict:
     description="Execute a tool from the toolbox registry using the path parameter and a direct input payload.",
     operation_id="jarvis_execute_tool_by_path",
 )
-def run_by_path(tool: str, payload: dict) -> dict:
+def run_by_path(tool: str, payload: dict, request: Request) -> dict:
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=tool, tool_input=payload, trace_id="generated")
-    return _execute_tool(tool, payload, {})
+    return _execute_tool(tool, payload, {}, request)
 
 
 @app.post(
@@ -518,9 +529,9 @@ def run_by_path(tool: str, payload: dict) -> dict:
     description="Compatibility alias for /v1/run.",
     operation_id="jarvis_execute_tool_compat",
 )
-def run_compat(payload: ToolRunRequest) -> dict:
+def run_compat(payload: ToolRunRequest, request: Request) -> dict:
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=payload.tool, tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
-    return _execute_tool(payload.tool, payload.input, payload.context)
+    return _execute_tool(payload.tool, payload.input, payload.context, request)
 
 
 @app.post(
@@ -530,9 +541,9 @@ def run_compat(payload: ToolRunRequest) -> dict:
     description="Compatibility alias for /v1/run/{tool}.",
     operation_id="jarvis_execute_tool_by_path_compat",
 )
-def run_by_path_compat(tool: str, payload: dict) -> dict:
+def run_by_path_compat(tool: str, payload: dict, request: Request) -> dict:
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool=tool, tool_input=payload, trace_id="generated")
-    return _execute_tool(tool, payload, {})
+    return _execute_tool(tool, payload, {}, request)
 
 
 @app.post(
@@ -542,9 +553,9 @@ def run_by_path_compat(tool: str, payload: dict) -> dict:
     description="Generate a real runtime nonce from toolbox_runner.",
     operation_id="debug_nonce",
 )
-def openwebui_debug_nonce(payload: OpenWebUiToolRequest) -> dict:
+def openwebui_debug_nonce(payload: OpenWebUiToolRequest, request: Request) -> dict:
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool="debug_nonce", tool_input=payload.input, trace_id=_trace_id_from_context(payload.context))
-    result = _execute_tool("debug_nonce", payload.input, payload.context)
+    result = _execute_tool("debug_nonce", payload.input, payload.context, request)
     data = result.get("data", {}) if isinstance(result, dict) else {}
     return {
         "nonce": data.get("nonce"),
@@ -559,10 +570,10 @@ def openwebui_debug_nonce(payload: OpenWebUiToolRequest) -> dict:
     description="List npm services using npm_service.",
     operation_id="npm_service_list",
 )
-def openwebui_npm_service_list(payload: OpenWebUiToolRequest) -> dict:
+def openwebui_npm_service_list(payload: OpenWebUiToolRequest, request: Request) -> dict:
     merged_input = {"intent": "list.services", **payload.input}
     _append_real_call(marker="REAL_TOOLBOX_RUN_CALLED", tool="npm_service", tool_input=merged_input, trace_id=_trace_id_from_context(payload.context))
-    result = _execute_tool("npm_service", merged_input, payload.context)
+    result = _execute_tool("npm_service", merged_input, payload.context, request)
     data = result.get("data", {}) if isinstance(result, dict) else {}
     services = data.get("services")
     if services is None and isinstance(data.get("items"), list):
