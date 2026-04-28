@@ -789,6 +789,7 @@ def list_traces(
     tool: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    include_list_tools: bool = Query(default=False),
 ) -> dict[str, Any]:
     where = []
     args: list[Any] = []
@@ -838,6 +839,8 @@ def list_traces(
         item["status"] = payload["summary"]["status"]
         item["caller_type"] = payload["summary"].get("caller_type")
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
+        if not include_list_tools and item.get("tool") == "jarvis_list_tools":
+            continue
         if status and item["status"] != status:
             continue
         filtered_items.append(item)

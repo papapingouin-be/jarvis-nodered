@@ -366,15 +366,16 @@ def health() -> dict[str, str]:
 )
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
-    request_info = build_request_info(request)
-    caller_type, caller_label = detect_caller(request_info)
-    trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+    force_trace = request.headers.get("x-jarvis-trace-force", "").strip().lower() == "true"
+    trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "false").strip().lower() in {"1", "true", "yes", "on"}
     if should_suppress_trace(request):
         log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools)
         return {"tools": tools}
-    if caller_type == "jarvis_debug_studio" or (not trace_list_tools and caller_type != "openwebui"):
+    if not force_trace and not trace_list_tools:
         return {"tools": tools}
 
+    request_info = build_request_info(request)
+    caller_type, caller_label = detect_caller(request_info)
     request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
     trace_id = request_trace_id or _new_tools_list_trace_id()
     trace = TraceClient(trace_id, new_run_id("jarvis_list_tools"), "jarvis_list_tools")

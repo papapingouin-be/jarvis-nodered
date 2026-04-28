@@ -208,8 +208,10 @@ async function loadTraces(){
   const params = new URLSearchParams();
   const q = $('search').value.trim();
   const status = $('status-filter').value;
+  const showListTools = $('show-list-tools').checked;
   if(q) params.set('q', q);
   if(status) params.set('status', status);
+  params.set('include_list_tools', showListTools ? 'true' : 'false');
   const list = $('trace-list');
   list.innerHTML = '<div class="empty">Chargement…</div>';
   try{
@@ -377,6 +379,7 @@ $('refresh-debug').onclick = loadDebugStatus;
 $('copy-debug-report').onclick = copyDebugReport;
 $('search').oninput = () => { clearTimeout(window.__searchTimer); window.__searchTimer = setTimeout(loadTraces, 250); };
 $('status-filter').onchange = loadTraces;
+$('show-list-tools').onchange = loadTraces;
 $('live').onclick = startLive;
 $('export-trace-json').onclick = exportCurrentTraceJson;
 $('export-trace-txt').onclick = exportCurrentTraceTxt;
@@ -386,5 +389,3 @@ loadServices();
 loadDebugStatus();
 loadTraces();
 scheduleRefresh();
-  params.set('limit', '50');
-  params.set('offset', '0');
