@@ -80,6 +80,7 @@ services:
 
   toolbox_runner:
     image: python:3.11-slim
+    container_name: jarvis_toolbox_runner
     working_dir: /app
     volumes:
       - ${JARVIS_HOST_ROOT:-.}:/app
@@ -93,14 +94,18 @@ services:
       TRACE_MONITOR_URL: ${JARVIS_TRACE_MONITOR_URL:-http://jarvis_trace_monitor:4318}
       TRACE_ENABLED: ${TRACE_ENABLED:-true}
       TRACE_GATEWAY_URL: ${TRACE_GATEWAY_URL:-http://jarvis_debug_studio:8060}
+      TRACE_PAYLOADS: ${TRACE_PAYLOADS:-true}
       TRACE_CODE_PREVIEW: ${TRACE_CODE_PREVIEW:-true}
       TRACE_MAX_CODE_LINES: ${TRACE_MAX_CODE_LINES:-160}
     command: bash -lc "REQ=/app/services/toolbox_runner/requirements.txt; [ -f \"$REQ\" ] || REQ=services/toolbox_runner/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn jsonschema pydantic; fi && uvicorn services.toolbox_runner.app:app --host 0.0.0.0 --port 8030"
     ports:
       - "8030:8030"
+    networks:
+      - jarvis_net
 
   jarvis_debug_studio:
     image: python:3.11-slim
+    container_name: jarvis_debug_studio
     working_dir: /app
     volumes:
       - ${JARVIS_HOST_ROOT:-.}:/app
@@ -109,6 +114,8 @@ services:
       - .env
     environment:
       PYTHONPATH: /app
+      DEBUG_DB_PATH: /opt/jarvis/database/jarvis_debug_studio.sqlite
+      TRACE_GATEWAY_INTERNAL_URL: http://jarvis_debug_studio:8060
       JARVIS_DEBUG_DB: /opt/jarvis/database/jarvis_debug_studio.sqlite
       JARVIS_DEBUG_MAX_CODE_LINES: 160
       TOOLBOX_RUNNER_URL: http://toolbox_runner:8030
@@ -125,6 +132,8 @@ services:
       uvicorn services.jarvis_debug_studio.app:app --host 0.0.0.0 --port 8060'
     ports:
       - "4318:8060"
+    networks:
+      - jarvis_net
 
   git_bridge:
     image: python:3.11-slim
@@ -164,3 +173,7 @@ services:
     command: bash -lc "REQ=/app/services/log_bridge/requirements.txt; [ -f \"$REQ\" ] || REQ=services/log_bridge/requirements.txt; if [ -f \"$REQ\" ]; then pip install --no-cache-dir -r \"$REQ\"; else pip install --no-cache-dir fastapi uvicorn; fi && uvicorn services.log_bridge.app:app --host 0.0.0.0 --port 8050"
     ports:
       - "8050:8050"
+
+networks:
+  jarvis_net:
+    name: jarvis_net
