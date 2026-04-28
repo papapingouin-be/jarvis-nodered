@@ -215,10 +215,18 @@ def configured_services() -> list[dict[str, Any]]:
     return services
 
 
-def http_json(url: str, *, method: str = "GET", payload: Any | None = None, timeout: float = 1.5) -> tuple[int | None, Any, str | None, float]:
+def http_json(
+    url: str,
+    *,
+    method: str = "GET",
+    payload: Any | None = None,
+    timeout: float = 1.5,
+    headers: dict[str, str] | None = None,
+) -> tuple[int | None, Any, str | None, float]:
     started = time.perf_counter()
     body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = request.Request(url, data=body, method=method, headers={"Content-Type": "application/json"})
+    request_headers = {"Content-Type": "application/json", **(headers or {})}
+    req = request.Request(url, data=body, method=method, headers=request_headers)
     try:
         with request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read(250_000).decode("utf-8", errors="replace")
@@ -384,7 +392,7 @@ def diagnose_debug_status(storage: dict[str, Any], toolbox_check: dict[str, Any]
             }
         )
     openwebui_probe = toolbox_check.get("openwebui_proof") if toolbox_check else None
-    if isinstance(openwebui_probe, dict) and not openwebui_probe.get("has_recent_openwebui_call", False):
+    if isinstance(openwebui_probe, dict) and not openwebui_probe.get("openwebui_tool_call_seen", False):
         diag.append(
             {
                 "level": "warning",
@@ -504,7 +512,8 @@ def toolbox_connectivity_check() -> dict[str, Any]:
     health_url = "http://toolbox_runner:8030/health"
     tools_url = "http://toolbox_runner:8030/v1/tools"
     h_status, h_data, h_err, h_latency = http_json(health_url, timeout=2.5)
-    t_status, t_data, t_err, t_latency = http_json(tools_url, timeout=2.5)
+    probe_headers = {"X-Jarvis-Debug-Probe": "true", "X-Jarvis-Trace-Suppress": "true", "User-Agent": "jarvis_debug_studio"}
+    t_status, t_data, t_err, t_latency = http_json(tools_url, timeout=2.5, headers=probe_headers)
     tools = t_data.get("tools", []) if isinstance(t_data, dict) else []
     reachable = (
         h_err is None
@@ -518,10 +527,24 @@ def toolbox_connectivity_check() -> dict[str, Any]:
         "http://toolbox_runner:8030/debug/real-calls", timeout=2.5
     )
     real_calls_items = real_calls_data.get("items", []) if isinstance(real_calls_data, dict) else []
-    recent_openwebui_call = next(
+    recent_openwebui_list_tools = next(
         (
             item for item in real_calls_items
             if isinstance(item, dict)
+            and item.get("tool") == "jarvis_list_tools"
+            and (
+                str(item.get("source", "")).lower() == "openwebui"
+                or str(item.get("origin", "")).lower().startswith("openwebui")
+                or str(item.get("context", {}).get("origin", "")).lower().startswith("openwebui")
+            )
+        ),
+        None,
+    )
+    recent_openwebui_tool_call = next(
+        (
+            item for item in real_calls_items
+            if isinstance(item, dict)
+            and item.get("tool") in {"debug_nonce", "npm_service"}
             and (
                 str(item.get("source", "")).lower() == "openwebui"
                 or str(item.get("origin", "")).lower().startswith("openwebui")
@@ -543,8 +566,10 @@ def toolbox_connectivity_check() -> dict[str, Any]:
             "latest": real_calls_items[0] if real_calls_items else None,
         },
         "openwebui_proof": {
-            "has_recent_openwebui_call": recent_openwebui_call is not None,
-            "last_openwebui_call": recent_openwebui_call,
+            "openwebui_list_tools_seen": recent_openwebui_list_tools is not None,
+            "openwebui_tool_call_seen": recent_openwebui_tool_call is not None,
+            "last_openwebui_list_tools_call": recent_openwebui_list_tools,
+            "last_openwebui_tool_call": recent_openwebui_tool_call,
         },
         "error": h_err or t_err,
     }
@@ -688,7 +713,8 @@ async def post_event(event: TraceEvent) -> dict[str, Any]:
 
 @app.get("/api/traces")
 def list_traces(
-    limit: int = Query(default=100, ge=1, le=500),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     tool: str | None = None,
     status: str | None = None,
     q: str | None = None,
@@ -730,14 +756,24 @@ def list_traces(
             {where_sql}
             GROUP BY trace_id
             ORDER BY MAX(id) DESC
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (*args, limit),
+            (*args, limit, offset),
         ).fetchall()
     items = [dict(r) for r in rows]
     for item in items:
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
-    return {"items": items}
+    return {"items": items, "limit": limit, "offset": offset, "returned": len(items)}
+
+
+@app.delete("/api/traces")
+def delete_all_traces() -> dict[str, Any]:
+    with connect() as conn:
+        deleted_events = conn.execute("SELECT COUNT(*) FROM trace_events").fetchone()[0]
+        deleted_traces = conn.execute("SELECT COUNT(DISTINCT trace_id) FROM trace_events").fetchone()[0]
+        conn.execute("DELETE FROM trace_events")
+        conn.commit()
+    return {"ok": True, "deleted_events": deleted_events, "deleted_traces": deleted_traces}
 
 
 @app.get("/api/traces/{trace_id}")
@@ -769,7 +805,21 @@ def delete_trace(trace_id: str) -> dict[str, Any]:
     with connect() as conn:
         cur = conn.execute("DELETE FROM trace_events WHERE trace_id = ?", (trace_id,))
         conn.commit()
-    return {"ok": True, "deleted_events": cur.rowcount}
+    return {"ok": True, "trace_id": trace_id, "deleted_events": cur.rowcount}
+
+
+class PurgeTracesRequest(BaseModel):
+    older_than_days: int = Field(default=7, ge=1, le=3650)
+
+
+@app.post("/api/traces/purge")
+def purge_traces(req: PurgeTracesRequest) -> dict[str, Any]:
+    cutoff_ts = time.time() - (req.older_than_days * 86400)
+    cutoff_iso = datetime.fromtimestamp(cutoff_ts, tz=timezone.utc).isoformat()
+    with connect() as conn:
+        deleted_events = conn.execute("DELETE FROM trace_events WHERE ts < ?", (cutoff_iso,)).rowcount
+        conn.commit()
+    return {"ok": True, "older_than_days": req.older_than_days, "deleted_events": deleted_events}
 
 
 @app.get("/api/live")

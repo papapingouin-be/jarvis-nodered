@@ -226,6 +226,25 @@ def _new_tools_list_trace_id() -> str:
     return f"tools-list-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{random.randint(1000, 9999)}"
 
 
+def should_suppress_trace(request: Request) -> bool:
+    suppress_headers = {
+        "x-jarvis-debug-probe": "true",
+        "x-jarvis-trace-suppress": "true",
+    }
+    for header, expected in suppress_headers.items():
+        if request.headers.get(header, "").lower() == expected:
+            return True
+
+    user_agent = request.headers.get("user-agent", "").lower()
+    source = request.headers.get("x-source", "").lower()
+    if "jarvis_debug_studio" in user_agent or "jarvis-debug-studio" in user_agent:
+        return True
+    if "jarvis_debug_studio" in source or "jarvis-debug-studio" in source:
+        return True
+
+    return request.query_params.get("suppress_trace", "").lower() == "true"
+
+
 def _read_last_real_calls(limit: int = 50) -> list[dict]:
     if not REAL_CALLS_LOG_PATH.exists():
         return []
@@ -298,6 +317,10 @@ def health() -> dict[str, str]:
 )
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
+    if should_suppress_trace(request):
+        log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools)
+        return {"tools": tools}
+
     request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
     trace_id = request_trace_id or _new_tools_list_trace_id()
     trace = TraceClient(trace_id, new_run_id("jarvis_list_tools"), "jarvis_list_tools")
