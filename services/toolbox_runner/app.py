@@ -226,23 +226,30 @@ def _new_tools_list_trace_id() -> str:
     return f"tools-list-{int(datetime.now(timezone.utc).timestamp() * 1000)}-{random.randint(1000, 9999)}"
 
 
-def should_suppress_trace(request: Request) -> bool:
+def should_suppress_trace_reason(request: Request) -> str | None:
     suppress_headers = {
-        "x-jarvis-debug-probe": "true",
-        "x-jarvis-trace-suppress": "true",
+        "x-jarvis-debug-probe": "header:x-jarvis-debug-probe",
+        "x-jarvis-trace-suppress": "header:x-jarvis-trace-suppress",
     }
-    for header, expected in suppress_headers.items():
-        if request.headers.get(header, "").lower() == expected:
-            return True
+    for header, reason in suppress_headers.items():
+        if request.headers.get(header, "").strip().lower() == "true":
+            return reason
 
     user_agent = request.headers.get("user-agent", "").lower()
     source = request.headers.get("x-source", "").lower()
     if "jarvis_debug_studio" in user_agent or "jarvis-debug-studio" in user_agent:
-        return True
+        return "user-agent:jarvis_debug_studio"
     if "jarvis_debug_studio" in source or "jarvis-debug-studio" in source:
-        return True
+        return "header:x-source:jarvis_debug_studio"
 
-    return request.query_params.get("suppress_trace", "").lower() == "true"
+    if request.query_params.get("suppress_trace", "").lower() == "true":
+        return "query:suppress_trace"
+
+    return None
+
+
+def should_suppress_trace(request: Request) -> bool:
+    return should_suppress_trace_reason(request) is not None
 
 
 def _is_docker_ip(host: str | None) -> bool:
@@ -367,11 +374,13 @@ def health() -> dict[str, str]:
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
     force_trace = request.headers.get("x-jarvis-trace-force", "").strip().lower() == "true"
-    trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "false").strip().lower() in {"1", "true", "yes", "on"}
-    if should_suppress_trace(request):
-        log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools)
+    suppress_reason = should_suppress_trace_reason(request)
+    if suppress_reason:
+        print(f"TRACE_SUPPRESSED reason={suppress_reason} path=/v1/tools")
+        log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools, reason=suppress_reason)
         return {"tools": tools}
-    if not force_trace and not trace_list_tools:
+    if not force_trace:
+        print("TRACE_SUPPRESSED reason=v1_tools_default path=/v1/tools")
         return {"tools": tools}
 
     request_info = build_request_info(request)
