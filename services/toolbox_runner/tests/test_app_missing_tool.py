@@ -201,3 +201,48 @@ def test_list_tools_endpoint_reuses_given_trace_id(monkeypatch, tmp_path: Path) 
     assert trace_ids == ["trace-fixed-123"]
     last_line = (tmp_path / "toolbox_real_calls.log").read_text(encoding="utf-8").strip().splitlines()[-1]
     assert '"trace_id": "trace-fixed-123"' in last_line
+
+
+def test_list_tools_endpoint_traces_openwebui_without_force_header(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(toolbox_app, "REGISTRY", {"example_echo": {"name": "example_echo"}})
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", tmp_path / "toolbox_real_calls.log")
+
+    class FakeTraceClient:
+        def __init__(self, trace_id: str, run_id: str, tool: str) -> None:
+            self.trace_id = trace_id
+            self.run_id = run_id
+            self.tool = tool
+
+        def event(self, *args, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+
+    client = TestClient(toolbox_app.app)
+    response = client.get("/v1/tools", headers={"x-openwebui-user-id": "user-123"})
+    assert response.status_code == 200
+    assert response.json()["tools"] == ["example_echo"]
+    assert (tmp_path / "toolbox_real_calls.log").exists()
+
+
+def test_list_tools_endpoint_suppresses_debug_probe_even_when_forced(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(toolbox_app, "REGISTRY", {"example_echo": {"name": "example_echo"}})
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", tmp_path / "toolbox_real_calls.log")
+
+    class FakeTraceClient:
+        def __init__(self, *args, **kwargs) -> None:
+            raise AssertionError("TraceClient should not be created when suppression headers are set")
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+
+    client = TestClient(toolbox_app.app)
+    response = client.get(
+        "/v1/tools",
+        headers={
+            "x-jarvis-debug-probe": "true",
+            "x-jarvis-trace-force": "true",
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["tools"] == ["example_echo"]
+    assert not (tmp_path / "toolbox_real_calls.log").exists()
