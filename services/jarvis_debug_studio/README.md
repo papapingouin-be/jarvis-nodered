@@ -11,6 +11,9 @@ Version control-tower : l'écran n'attend plus passivement des traces. Il montre
 - `POST /api/trace/event` : reçoit les événements métier.
 - `GET /api/traces`
 - `GET /api/traces/{trace_id}`
+- `DELETE /api/traces` : supprime toutes les traces/événements.
+- `DELETE /api/traces/{trace_id}` : supprime une trace et ses événements.
+- `POST /api/traces/purge` : purge les traces anciennes (par âge).
 - `GET /api/live` : SSE.
 
 ## Variables utiles
@@ -52,3 +55,9 @@ curl -X POST http://192.168.11.206:4318/api/probes/npm_service/list \
 ```
 
 Ensuite la trace apparaît dans l'interface avec entrée, sortie, code, logs, erreurs et metadata.
+
+Purger immédiatement toutes les traces existantes :
+
+```bash
+curl -X DELETE http://192.168.11.206:4318/api/traces
+```

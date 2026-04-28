@@ -22,6 +22,7 @@
         <option value="running">Running</option>
       </select>
       <button id="refresh-all">Rafraîchir tout</button>
+      <button id="toggle-refresh">Pause refresh</button>
       <button id="live" class="ghost">Live: off</button>
     </div>
   </header>
@@ -67,6 +68,11 @@
   <main class="shell">
     <aside class="traces">
       <div class="panel-title">Traces récentes</div>
+      <div class="control-actions">
+        <button id="delete-all-traces">Effacer toutes les traces</button>
+        <button id="purge-traces">Purger anciennes traces</button>
+        <button id="delete-current-trace">Effacer cette trace</button>
+      </div>
       <div id="trace-list" class="trace-list"></div>
     </aside>
 

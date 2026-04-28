@@ -7,6 +7,11 @@ let lastDebugStatus = null;
 let lastToolboxCheck = null;
 let lastNpmProbeResult = null;
 let lastIngestionProbeResult = null;
+let refreshPaused = false;
+let refreshIntervalMs = 5000;
+let refreshTimer = null;
+const inFlight = new Set();
+let consecutiveFetchErrors = 0;
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v) => v === undefined || v === null || v === '' ? '—' : v;
@@ -17,9 +22,21 @@ function serviceBadge(status){ return `<span class="svc-dot ${status === 'online
 const BROWSER_URL = 'http://192.168.11.206:4318';
 const DOCKER_INTERNAL_URL = 'http://jarvis_debug_studio:8060';
 
-async function api(path, options){
-  const res = await fetch(path, options);
-  const text = await res.text();
+async function api(path, options = {}){
+  const key = `${options.method || 'GET'}:${path}`;
+  if(inFlight.has(key)) return {items: []};
+  inFlight.add(key);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  let res;
+  let text = '';
+  try{
+    res = await fetch(path, {...options, signal: controller.signal});
+    text = await res.text();
+  } finally {
+    clearTimeout(timeout);
+    inFlight.delete(key);
+  }
   let data = {};
   try { data = text ? JSON.parse(text) : {}; } catch { data = {raw: text}; }
   if(!res.ok) throw new Error(data.detail || data.message || text || res.statusText);
@@ -115,13 +132,13 @@ async function loadDebugStatus(){
     diagnosisBox.innerHTML = status.diagnosis.map(d => `<div class="diag-item ${d.level}">${badge(d.level)} <strong>${d.message}</strong><div>${fmt(d.probable_cause)}</div><div class="muted">Action: ${fmt(d.action)}</div></div>`).join('');
     const openwebui = toolbox.openwebui_proof || {};
     const realCalls = toolbox.real_calls || {};
-    const openwebuiText = openwebui.has_recent_openwebui_call
-      ? `Dernier appel OpenWebUI détecté: ${short(pretty(openwebui.last_openwebui_call), 180)}`
-      : 'Aucune preuve qu’OpenWebUI appelle toolbox_runner.';
+    const openwebuiText = `list_tools=${openwebui.openwebui_list_tools_seen ? 'true' : 'false'} · tool_call=${openwebui.openwebui_tool_call_seen ? 'true' : 'false'}`;
     openwebuiBox.innerHTML = `
-      <div class="diag-item ${openwebui.has_recent_openwebui_call ? 'ok' : 'warning'}">
-        ${badge(openwebui.has_recent_openwebui_call ? 'ok' : 'warning')}
+      <div class="diag-item ${(openwebui.openwebui_list_tools_seen || openwebui.openwebui_tool_call_seen) ? 'ok' : 'warning'}">
+        ${badge((openwebui.openwebui_list_tools_seen || openwebui.openwebui_tool_call_seen) ? 'ok' : 'warning')}
         <strong>${openwebuiText}</strong>
+        <div>Dernier list_tools OpenWebUI: ${short(pretty(openwebui.last_openwebui_list_tools_call), 180)}</div>
+        <div>Dernier vrai tool call OpenWebUI: ${short(pretty(openwebui.last_openwebui_tool_call), 180)}</div>
         <div>Dernier appel réel toolbox_runner (/debug/real-calls): ${short(pretty(realCalls.latest), 180)}</div>
       </div>
     `;
@@ -215,6 +232,38 @@ async function loadTraces(){
     list.innerHTML = `<div class="empty error-text">${err.message}</div>`;
   }
 }
+async function deleteAllTraces(){
+  if(!confirm('Confirmer suppression de toutes les traces ?')) return;
+  await api('/api/traces', {method:'DELETE'});
+  await loadTraces(); await loadDebugStatus();
+}
+async function deleteCurrentTrace(){
+  if(!currentTraceId) return;
+  await api('/api/traces/' + encodeURIComponent(currentTraceId), {method:'DELETE'});
+  currentTraceId = null; currentTrace = null;
+  await loadTraces(); await loadDebugStatus();
+}
+async function purgeOldTraces(){
+  const days = Number(prompt('Supprimer les traces plus anciennes que (jours):', '7') || '7');
+  await api('/api/traces/purge', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({older_than_days: days})});
+  await loadTraces(); await loadDebugStatus();
+}
+function scheduleRefresh(){
+  if(refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    if(refreshPaused || document.visibilityState === 'hidden') return;
+    try{
+      await Promise.all([loadServices(), loadDebugStatus(), loadTraces()]);
+      consecutiveFetchErrors = 0;
+      refreshIntervalMs = 5000;
+    }catch{
+      consecutiveFetchErrors += 1;
+      if(consecutiveFetchErrors >= 3) refreshIntervalMs = refreshIntervalMs < 15000 ? 15000 : 30000;
+    }finally{
+      scheduleRefresh();
+    }
+  }, Math.max(5000, refreshIntervalMs));
+}
 
 async function loadTrace(id){
   currentTraceId = id;
@@ -285,6 +334,13 @@ document.querySelectorAll('.tabs button').forEach(btn => btn.onclick = () => {
   renderDetail();
 });
 $('refresh-all').onclick = async () => { await loadServices(); await loadDebugStatus(); await loadTraces(); };
+$('toggle-refresh').onclick = () => {
+  refreshPaused = !refreshPaused;
+  $('toggle-refresh').textContent = refreshPaused ? 'Reprendre refresh' : 'Pause refresh';
+};
+$('delete-all-traces').onclick = deleteAllTraces;
+$('delete-current-trace').onclick = deleteCurrentTrace;
+$('purge-traces').onclick = purgeOldTraces;
 $('refresh-services').onclick = loadServices;
 $('probe-npm').onclick = runNpmProbe;
 $('probe-ingestion').onclick = runIngestionProbe;
@@ -299,3 +355,6 @@ $('live').onclick = startLive;
 loadServices();
 loadDebugStatus();
 loadTraces();
+scheduleRefresh();
+  params.set('limit', '50');
+  params.set('offset', '0');
