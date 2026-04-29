@@ -19,7 +19,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 APP_DIR = Path(__file__).resolve().parent
-DB_PATH = Path(os.getenv("JARVIS_DEBUG_DB", "/opt/jarvis/database/jarvis_debug_studio.sqlite"))
+def resolve_db_path() -> tuple[str | None, Path]:
+    configured = os.getenv("DEBUG_DB_PATH") or os.getenv("JARVIS_DEBUG_DB") or "/data/jarvis_debug_studio.sqlite"
+    return configured, Path(configured).expanduser()
+
+
+CONFIGURED_DB_PATH, DB_PATH = resolve_db_path()
 MAX_VALUE_LENGTH = int(os.getenv("JARVIS_DEBUG_MAX_VALUE_LENGTH", "6000"))
 MAX_JSON_LENGTH = int(os.getenv("JARVIS_DEBUG_MAX_JSON_LENGTH", "120000"))
 MAX_CODE_LINES = int(os.getenv("JARVIS_DEBUG_MAX_CODE_LINES", "160"))
@@ -173,6 +178,11 @@ def connect() -> sqlite3.Connection:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_events_status ON trace_events(status)")
     conn.commit()
     return conn
+
+
+def read_db_tables(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name ASC").fetchall()
+    return [str(row["name"]) for row in rows]
 
 
 def explain_error(error_code: str | None, error_message: str | None) -> str | None:
@@ -456,8 +466,12 @@ def add_local_debug_event(phase: str, status: str, trace_id: str, **kw: Any) -> 
 @app.on_event("startup")
 def startup() -> None:
     reset_ingestion_stats()
-    with connect():
-        pass
+    db_exists = DB_PATH.exists()
+    with connect() as conn:
+        tables = read_db_tables(conn)
+    print(f"DEBUG_STUDIO_DB_PATH={DB_PATH}")
+    print(f"DEBUG_STUDIO_DB_EXISTS={db_exists}")
+    print(f"DEBUG_STUDIO_DB_TABLES={','.join(tables)}")
 
 
 @app.exception_handler(RequestValidationError)
@@ -685,23 +699,28 @@ async def post_event(event: TraceEvent) -> dict[str, Any]:
     row_event = event.dict()
     row_event["timestamp"] = ts
     row_event["metadata"] = metadata
-    with connect() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO trace_events(trace_id, run_id, ts, source, service, tool, phase, status,
-                                     duration_ms, input_json, output_json, metadata_json,
-                                     error_code, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                event.trace_id, event.run_id, ts, event.source, event.service, event.tool,
-                event.phase, event.status, event.duration_ms,
-                dumps_limited(event.input), dumps_limited(event.output), dumps_limited(metadata),
-                event.error_code, event.error_message,
-            ),
-        )
-        conn.commit()
-        event_id = cur.lastrowid
+    try:
+        with connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO trace_events(trace_id, run_id, ts, source, service, tool, phase, status,
+                                         duration_ms, input_json, output_json, metadata_json,
+                                         error_code, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.trace_id, event.run_id, ts, event.source, event.service, event.tool,
+                    event.phase, event.status, event.duration_ms,
+                    dumps_limited(event.input), dumps_limited(event.output), dumps_limited(metadata),
+                    event.error_code, event.error_message,
+                ),
+            )
+            conn.commit()
+            event_id = cur.lastrowid
+        print(f"DEBUG_STUDIO_EVENT_STORED id={event_id} trace_id={event.trace_id} tool={event.tool} db_path={DB_PATH}")
+    except Exception as exc:
+        print(f"DEBUG_STUDIO_EVENT_STORE_ERROR error={type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=500, detail="event storage failed")
     row_event["id"] = event_id
     row_event["explanation"] = explain_error(event.error_code, event.error_message)
     _record_ingested_event(event_id, event, ts)
@@ -846,6 +865,7 @@ def list_traces(
     items = [dict(r) for r in rows]
     filtered_items: list[dict[str, Any]] = []
     hidden_count = 0
+    hidden_reasons: dict[str, int] = {}
     hide_list_tools_effective = hide_tools_list or (not include_list_tools)
     for item in items:
         payload = build_trace_payload(item["trace_id"])
@@ -855,8 +875,11 @@ def list_traces(
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
         if hide_list_tools_effective and item.get("tool") == "jarvis_list_tools":
             hidden_count += 1
+            hidden_reasons["jarvis_list_tools_hidden"] = hidden_reasons.get("jarvis_list_tools_hidden", 0) + 1
             continue
         if status and item["status"] != status:
+            hidden_count += 1
+            hidden_reasons["status_filter_mismatch"] = hidden_reasons.get("status_filter_mismatch", 0) + 1
             continue
         filtered_items.append(item)
     return {
@@ -865,6 +888,7 @@ def list_traces(
         "offset": offset,
         "returned": len(filtered_items),
         "hidden_count": hidden_count,
+        "hidden_reasons": hidden_reasons,
         "filters": {
             "include_tools_list": include_list_tools,
             "hide_tools_list": hide_tools_list,
@@ -886,6 +910,36 @@ def debug_raw_events(limit: int = Query(default=20, ge=1, le=200)) -> dict[str, 
             (limit,),
         ).fetchall()
     return {"limit": limit, "items": [dict(r) for r in rows]}
+
+
+@app.get("/api/debug/db-info")
+def debug_db_info() -> dict[str, Any]:
+    db_exists = DB_PATH.exists()
+    db_size_bytes = DB_PATH.stat().st_size if db_exists else 0
+    with connect() as conn:
+        tables = read_db_tables(conn)
+        events_table_exists = "trace_events" in tables
+        traces_table_exists = "traces" in tables
+        events_count = int(conn.execute("SELECT COUNT(*) FROM trace_events").fetchone()[0] or 0)
+        last_rows = conn.execute(
+            """
+            SELECT id, trace_id, run_id, ts, source, service, tool, phase, status, duration_ms, error_code, error_message
+            FROM trace_events
+            ORDER BY id DESC
+            LIMIT 20
+            """
+        ).fetchall()
+    return {
+        "configured_db_path": CONFIGURED_DB_PATH,
+        "absolute_db_path": str(DB_PATH.resolve()),
+        "db_exists": db_exists,
+        "db_size_bytes": db_size_bytes,
+        "tables": tables,
+        "events_table_exists": events_table_exists,
+        "traces_table_exists": traces_table_exists,
+        "events_count": events_count,
+        "last_20_events": [dict(row) for row in last_rows],
+    }
 
 
 @app.get("/api/debug/trace-exists/{trace_id}")
