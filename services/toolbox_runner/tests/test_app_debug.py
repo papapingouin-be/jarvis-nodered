@@ -184,3 +184,56 @@ def test_debug_nonce_trace_regression_checks(monkeypatch) -> None:
     assert request_received[0]["status"] != "running"
 
     assert response_returned_events[0]["status"] == "ok"
+
+
+def test_list_tools_decision_logged_and_visible(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "real_calls.log"
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", log_file)
+    client = TestClient(toolbox_app.app)
+
+    response = client.get("/v1/tools")
+    assert response.status_code == 200
+
+    decisions = client.get("/debug/list-tools-decisions")
+    assert decisions.status_code == 200
+    payload = decisions.json()
+    assert payload["count"] >= 1
+    last = payload["items"][-1]
+    assert last["marker"] == "LIST_TOOLS_TRACE_DECISION"
+    assert last["tool"] == "jarvis_list_tools"
+    assert last["input"]["trace"] is False
+    assert last["input"]["reason"] == "default_no_trace"
+
+
+def test_list_tools_force_header_enables_trace(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "real_calls.log"
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", log_file)
+    captured_events: list[dict] = []
+
+    class FakeTraceClient:
+        def __init__(self, trace_id: str, run_id: str, tool: str) -> None:
+            self.trace_id = trace_id
+            self.run_id = run_id
+            self.tool = tool
+
+        def event(self, phase: str, status: str = "ok", **kwargs) -> None:
+            captured_events.append({"phase": phase, "status": status, "metadata": kwargs.get("metadata", {})})
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+    client = TestClient(toolbox_app.app)
+
+    response = client.get("/v1/tools", headers={"X-Jarvis-Trace-Force": "true"})
+    assert response.status_code == 200
+
+    decisions = client.get("/debug/list-tools-decisions").json()["items"]
+    assert decisions[-1]["input"]["trace"] is True
+    assert decisions[-1]["input"]["reason"] == "forced"
+    assert [e["phase"] for e in captured_events] == [
+        "request.received",
+        "tool.selected",
+        "code.execution.result",
+        "response.returned",
+    ]
+    for event in captured_events:
+        assert event["status"] == "ok"
+        assert event["metadata"]["trace_decision_reason"] == "forced"
