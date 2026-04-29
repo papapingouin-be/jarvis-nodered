@@ -20,7 +20,7 @@ def test_debug_trace_config_reports_env(monkeypatch) -> None:
     assert payload["env_present"]["TRACE_GATEWAY_URL"] is True
 
 
-def test_debug_send_test_trace_returns_failure_when_disabled(monkeypatch) -> None:
+def test_debug_send_test_trace_forces_manual_ingestion_when_disabled(monkeypatch) -> None:
     monkeypatch.setenv("TRACE_ENABLED", "false")
     monkeypatch.setenv("TRACE_GATEWAY_URL", "http://jarvis_debug_studio:8060")
     client = TestClient(toolbox_app.app)
@@ -28,8 +28,8 @@ def test_debug_send_test_trace_returns_failure_when_disabled(monkeypatch) -> Non
     response = client.post("/debug/send-test-trace")
     assert response.status_code == 200
     payload = response.json()
-    assert payload["sent"] is False
-    assert payload["error"] == "TRACE_ENABLED=false"
+    assert payload["target_url"] == "http://jarvis_debug_studio:8060/api/trace/event"
+    assert payload["error"] != "TRACE_ENABLED=false"
 
 
 def test_debug_run_npm_with_trace_uses_execute_path(monkeypatch) -> None:
