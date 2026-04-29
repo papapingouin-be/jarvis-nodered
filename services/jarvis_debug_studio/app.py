@@ -618,6 +618,8 @@ def debug_status() -> dict[str, Any]:
         "last_trace_db": storage.get("last_trace_db"),
         "last_received_event_memory": last_received_event_memory,
         "last_received_event_db": last_event_db,
+        "last_received_tool": (last_event.get("tool") if isinstance(last_event, dict) else None),
+        "last_received_trace_id": (last_event.get("trace_id") if isinstance(last_event, dict) else None),
         "received_events_since_start": _ingestion_stats["received_events_since_start"],
         "last_event": last_event,
         "trace_ingestion": {
@@ -797,7 +799,8 @@ def list_traces(
     tool: str | None = None,
     status: str | None = None,
     q: str | None = None,
-    include_list_tools: bool = Query(default=False),
+    include_list_tools: bool = Query(default=True),
+    hide_tools_list: bool = Query(default=False),
 ) -> dict[str, Any]:
     where = []
     args: list[Any] = []
@@ -842,18 +845,69 @@ def list_traces(
         ).fetchall()
     items = [dict(r) for r in rows]
     filtered_items: list[dict[str, Any]] = []
+    hidden_count = 0
+    hide_list_tools_effective = hide_tools_list or (not include_list_tools)
     for item in items:
         payload = build_trace_payload(item["trace_id"])
         item["status"] = payload["summary"]["status"]
         item["caller_type"] = payload["summary"].get("caller_type")
         item["client_host"] = payload["summary"].get("client_host")
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
-        if not include_list_tools and item.get("tool") == "jarvis_list_tools":
+        if hide_list_tools_effective and item.get("tool") == "jarvis_list_tools":
+            hidden_count += 1
             continue
         if status and item["status"] != status:
             continue
         filtered_items.append(item)
-    return {"items": filtered_items, "limit": limit, "offset": offset, "returned": len(filtered_items)}
+    return {
+        "items": filtered_items,
+        "limit": limit,
+        "offset": offset,
+        "returned": len(filtered_items),
+        "hidden_count": hidden_count,
+        "filters": {
+            "include_tools_list": include_list_tools,
+            "hide_tools_list": hide_tools_list,
+            "hide_tools_list_effective": hide_list_tools_effective,
+        },
+    }
+
+
+@app.get("/api/debug/raw-events")
+def debug_raw_events(limit: int = Query(default=20, ge=1, le=200)) -> dict[str, Any]:
+    with connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, trace_id, run_id, ts, source, service, tool, phase, status, duration_ms, error_code, error_message
+            FROM trace_events
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return {"limit": limit, "items": [dict(r) for r in rows]}
+
+
+@app.get("/api/debug/trace-exists/{trace_id}")
+def debug_trace_exists(trace_id: str) -> dict[str, Any]:
+    with connect() as conn:
+        count = conn.execute("SELECT COUNT(*) FROM trace_events WHERE trace_id = ?", (trace_id,)).fetchone()[0]
+        appears = conn.execute(
+            """
+            SELECT 1
+            FROM trace_events
+            WHERE trace_id = ?
+            GROUP BY trace_id
+            LIMIT 1
+            """,
+            (trace_id,),
+        ).fetchone() is not None
+    return {
+        "trace_id": trace_id,
+        "events_count": count,
+        "exists_in_events": count > 0,
+        "appears_in_api_traces": appears,
+    }
 
 
 @app.delete("/api/traces")
