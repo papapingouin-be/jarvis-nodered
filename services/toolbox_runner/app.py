@@ -4,6 +4,7 @@ import os
 import uuid
 import json
 import random
+import socket
 from pathlib import Path
 from time import perf_counter
 from datetime import datetime, timezone
@@ -39,6 +40,44 @@ logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
 REAL_CALLS_LOG_PATH = Path(os.getenv("TOOLBOX_REAL_CALLS_LOG", "/tmp/toolbox_real_calls.log"))
 LIST_TOOLS_DECISIONS_LIMIT = 50
+
+
+def _resolve_openwebui_ips() -> tuple[list[str], list[str]]:
+    hosts_raw = os.getenv("OPENWEBUI_HOSTS", "").strip()
+    if not hosts_raw:
+        container_names = os.getenv("OPENWEBUI_CONTAINER_NAMES", "").strip()
+        hosts_raw = container_names
+    if not hosts_raw:
+        hosts_raw = "jarvis_openwebui,openwebui"
+
+    hosts = [host.strip() for host in hosts_raw.split(",") if host.strip()]
+    resolved_ips: set[str] = set()
+    for host in hosts:
+        lookup = host.split(":", 1)[0].strip()
+        if not lookup:
+            continue
+        try:
+            _, aliases, ips = socket.gethostbyname_ex(lookup)
+            for ip in ips:
+                if ip:
+                    resolved_ips.add(ip)
+            for alias in aliases:
+                if alias and alias.count(".") >= 1:
+                    try:
+                        _, _, alias_ips = socket.gethostbyname_ex(alias)
+                        for ip in alias_ips:
+                            if ip:
+                                resolved_ips.add(ip)
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    return hosts, sorted(resolved_ips)
+
+
+OPENWEBUI_HOSTS_CONFIG, OPENWEBUI_RESOLVED_IPS = _resolve_openwebui_ips()
+print(f"OPENWEBUI_HOSTS={','.join(OPENWEBUI_HOSTS_CONFIG)}")
+print(f"OPENWEBUI_RESOLVED_IPS={','.join(OPENWEBUI_RESOLVED_IPS)}")
 
 
 class OpenWebUiToolRequest(BaseModel):
@@ -276,8 +315,13 @@ def detect_caller(request_info: dict) -> tuple[str, str]:
     referer_origin = f"{request_info.get('origin','')} {request_info.get('referer','')}".lower()
     if "openwebui" in referer_origin or "18080" in referer_origin:
         return "openwebui", "OpenWebUI / jarvis_openwebui"
+    client_host = str(request_info.get("client_host") or "")
+    if client_host and client_host in OPENWEBUI_RESOLVED_IPS:
+        return "openwebui", "OpenWebUI / resolved docker host"
     if "openwebui" in ua or headers.get("x-openwebui-user-id") or path.startswith("/openwebui"):
         return "openwebui", "OpenWebUI / jarvis_openwebui"
+    if "aiohttp" in ua and _is_docker_ip(client_host) and (path == "/v1/tools" or path.startswith("/openwebui/")):
+        return "openwebui_candidate", "OpenWebUI candidate / docker aiohttp"
     if path.startswith("/debug"):
         return "manual_debug", "Manual debug endpoint"
     if "mozilla" in ua:
@@ -344,7 +388,7 @@ def _list_tools_trace_decision(request: Request, caller_type: str) -> tuple[bool
         return False, "suppressed_header"
     if force:
         return True, "forced"
-    if caller_type == "openwebui":
+    if caller_type in {"openwebui", "openwebui_candidate"}:
         return True, "openwebui"
     return False, "default_no_trace"
 
@@ -435,11 +479,13 @@ def list_tools(request: Request) -> dict[str, list[str]]:
         tool="jarvis_list_tools",
         tool_input={
             "caller_type": caller_type,
+            "caller_label": caller_label,
             "trace": should_trace,
             "reason": reason,
             "client_host": request_info.get("client_host"),
             "user_agent": request_info.get("user_agent"),
             "path": "/v1/tools",
+            "resolved_openwebui_ips": OPENWEBUI_RESOLVED_IPS,
             "force": force_trace,
             "suppress": suppress,
             "debug_probe": debug_probe,

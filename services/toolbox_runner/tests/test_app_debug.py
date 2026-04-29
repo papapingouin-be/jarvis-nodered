@@ -237,3 +237,36 @@ def test_list_tools_force_header_enables_trace(monkeypatch, tmp_path) -> None:
     for event in captured_events:
         assert event["status"] == "ok"
         assert event["metadata"]["trace_decision_reason"] == "forced"
+
+
+def test_list_tools_traces_openwebui_candidate_for_docker_aiohttp(monkeypatch, tmp_path) -> None:
+    log_file = tmp_path / "real_calls.log"
+    monkeypatch.setattr(toolbox_app, "REAL_CALLS_LOG_PATH", log_file)
+    monkeypatch.setattr(toolbox_app, "OPENWEBUI_RESOLVED_IPS", [])
+    captured_events: list[dict] = []
+
+    class FakeTraceClient:
+        def __init__(self, trace_id: str, run_id: str, tool: str) -> None:
+            self.trace_id = trace_id
+            self.run_id = run_id
+            self.tool = tool
+
+        def event(self, phase: str, status: str = "ok", **kwargs) -> None:
+            captured_events.append({"phase": phase, "status": status, "metadata": kwargs.get("metadata", {})})
+
+    monkeypatch.setattr(toolbox_app, "TraceClient", FakeTraceClient)
+    client = TestClient(toolbox_app.app, client=("172.25.0.15", 4242))
+
+    response = client.get(
+        "/v1/tools",
+        headers={"User-Agent": "Python/3.11 aiohttp/3.13.2"},
+    )
+    assert response.status_code == 200
+
+    decisions = client.get("/debug/list-tools-decisions").json()["items"]
+    assert decisions[-1]["input"]["caller_type"] == "openwebui_candidate"
+    assert decisions[-1]["input"]["trace"] is True
+    assert decisions[-1]["input"]["reason"] == "openwebui"
+    assert decisions[-1]["input"]["caller_label"]
+    assert decisions[-1]["input"]["resolved_openwebui_ips"] == []
+    assert captured_events
