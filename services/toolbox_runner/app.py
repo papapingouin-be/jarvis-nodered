@@ -406,6 +406,7 @@ def health() -> dict[str, str]:
 )
 def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
+    trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id") or _new_tools_list_trace_id()
     request_info = build_request_info(request)
     caller_type, caller_label = detect_caller(request_info)
     trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "").strip().lower()
@@ -444,15 +445,13 @@ def list_tools(request: Request) -> dict[str, list[str]]:
             "debug_probe": debug_probe,
             "trace_list_tools": trace_list_tools,
         },
-        trace_id=request.headers.get("x-trace-id") or request.query_params.get("trace_id") or _new_tools_list_trace_id(),
+        trace_id=trace_id,
     )
     if not should_trace:
         print(f"TRACE_SUPPRESSED reason={reason} path=/v1/tools")
         log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools, reason=reason)
         return {"tools": tools}
 
-    request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
-    trace_id = request_trace_id or _new_tools_list_trace_id()
     trace = TraceClient(trace_id, new_run_id("jarvis_list_tools"), "jarvis_list_tools")
 
     print("### REAL_TOOLBOX_LIST_TOOLS_CALLED ###")

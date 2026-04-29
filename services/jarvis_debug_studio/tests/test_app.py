@@ -201,3 +201,33 @@ def test_ingest_status_endpoint(monkeypatch, tmp_path) -> None:
     assert data["received_events_since_start"] == 0
     assert data["events_count_db"] == 0
     assert data["db_exists"] in {True, False}
+
+
+def test_list_tools_trace_visible_by_default_and_hide_switch(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    client.post("/api/trace/event", json={"trace_id": "tools-list-1", "tool": "jarvis_list_tools", "phase": "request.received", "status": "ok"})
+
+    visible = client.get("/api/traces")
+    assert visible.status_code == 200
+    assert any(item["trace_id"] == "tools-list-1" for item in visible.json()["items"])
+
+    hidden = client.get("/api/traces?hide_tools_list=true")
+    assert hidden.status_code == 200
+    assert all(item["trace_id"] != "tools-list-1" for item in hidden.json()["items"])
+    assert hidden.json()["hidden_count"] >= 1
+
+
+def test_debug_raw_events_and_trace_exists(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    trace_id = "tools-list-xyz"
+    client.post("/api/trace/event", json={"trace_id": trace_id, "tool": "jarvis_list_tools", "phase": "request.received", "status": "ok"})
+
+    raw = client.get("/api/debug/raw-events?limit=20")
+    assert raw.status_code == 200
+    assert any(item["trace_id"] == trace_id and item["tool"] == "jarvis_list_tools" for item in raw.json()["items"])
+
+    exists = client.get(f"/api/debug/trace-exists/{trace_id}")
+    assert exists.status_code == 200
+    payload = exists.json()
+    assert payload["exists_in_events"] is True
+    assert payload["appears_in_api_traces"] is True
