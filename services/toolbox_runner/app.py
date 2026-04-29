@@ -38,6 +38,7 @@ app.openapi_version = "3.0.3"
 logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
 REAL_CALLS_LOG_PATH = Path(os.getenv("TOOLBOX_REAL_CALLS_LOG", "/tmp/toolbox_real_calls.log"))
+LIST_TOOLS_DECISIONS_LIMIT = 50
 
 
 class OpenWebUiToolRequest(BaseModel):
@@ -327,6 +328,27 @@ def _read_last_real_calls(limit: int = 50) -> list[dict]:
     return out
 
 
+def _read_list_tools_decisions(limit: int = LIST_TOOLS_DECISIONS_LIMIT) -> list[dict]:
+    calls = _read_last_real_calls(limit=500)
+    decisions = [item for item in calls if item.get("marker") == "LIST_TOOLS_TRACE_DECISION"]
+    return decisions[-limit:]
+
+
+def _list_tools_trace_decision(request: Request, caller_type: str) -> tuple[bool, str]:
+    debug_probe = request.headers.get("x-jarvis-debug-probe", "").strip().lower() == "true"
+    suppress = request.headers.get("x-jarvis-trace-suppress", "").strip().lower() == "true"
+    force = request.headers.get("x-jarvis-trace-force", "").strip().lower() == "true"
+    if debug_probe:
+        return False, "debug_probe"
+    if suppress:
+        return False, "suppressed_header"
+    if force:
+        return True, "forced"
+    if caller_type == "openwebui":
+        return True, "openwebui"
+    return False, "default_no_trace"
+
+
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
     if request.url.path not in {"/v1/run", "/run"}:
@@ -386,29 +408,48 @@ def list_tools(request: Request) -> dict[str, list[str]]:
     tools = _available_tool_names()
     request_info = build_request_info(request)
     caller_type, caller_label = detect_caller(request_info)
+    trace_list_tools = os.getenv("TRACE_LIST_TOOLS", "").strip().lower()
     force_trace = request.headers.get("x-jarvis-trace-force", "").strip().lower() == "true"
-    suppress_reason = should_suppress_trace_reason(request)
-    if suppress_reason:
-        print(
-            "LIST_TOOLS_TRACE_DECISION "
-            f"caller_type={caller_type} force={force_trace} suppress=true trace=false reason={suppress_reason}"
-        )
-        print(f"TRACE_SUPPRESSED reason={suppress_reason} path=/v1/tools")
-        log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools, reason=suppress_reason)
-        return {"tools": tools}
-    should_trace = caller_type == "openwebui" or force_trace
-    if not should_trace:
-        print(
-            "LIST_TOOLS_TRACE_DECISION "
-            f"caller_type={caller_type} force={force_trace} suppress=false trace=false reason=default_no_trace"
-        )
-        print("TRACE_SUPPRESSED reason=v1_tools_default path=/v1/tools")
-        return {"tools": tools}
-    reason = "openwebui" if caller_type == "openwebui" else "force_header"
+    debug_probe = request.headers.get("x-jarvis-debug-probe", "").strip().lower() == "true"
+    suppress = request.headers.get("x-jarvis-trace-suppress", "").strip().lower() == "true"
+    print(
+        "### LIST_TOOLS_ENDPOINT_CALLED ### "
+        f"client_host={request_info.get('client_host')} "
+        f"method={request_info.get('method')} "
+        f"path={request_info.get('path')} "
+        f"user_agent={request_info.get('user_agent')} "
+        f"headers_redacted={json.dumps(request_info.get('headers_redacted', {}), ensure_ascii=False, default=str)} "
+        f"TRACE_LIST_TOOLS={trace_list_tools} "
+        f"X-Jarvis-Trace-Force={force_trace} "
+        f"X-Jarvis-Debug-Probe={debug_probe} "
+        f"X-Jarvis-Trace-Suppress={suppress}"
+    )
+    should_trace, reason = _list_tools_trace_decision(request, caller_type)
     print(
         "LIST_TOOLS_TRACE_DECISION "
-        f"caller_type={caller_type} force={force_trace} suppress=false trace=true reason={reason}"
+        f"caller_type={caller_type} force={force_trace} suppress={suppress} debug_probe={debug_probe} trace={should_trace} reason={reason}"
     )
+    _append_real_call(
+        marker="LIST_TOOLS_TRACE_DECISION",
+        tool="jarvis_list_tools",
+        tool_input={
+            "caller_type": caller_type,
+            "trace": should_trace,
+            "reason": reason,
+            "client_host": request_info.get("client_host"),
+            "user_agent": request_info.get("user_agent"),
+            "path": "/v1/tools",
+            "force": force_trace,
+            "suppress": suppress,
+            "debug_probe": debug_probe,
+            "trace_list_tools": trace_list_tools,
+        },
+        trace_id=request.headers.get("x-trace-id") or request.query_params.get("trace_id") or _new_tools_list_trace_id(),
+    )
+    if not should_trace:
+        print(f"TRACE_SUPPRESSED reason={reason} path=/v1/tools")
+        log_event(logger, service="toolbox_runner", event="list_tools_suppressed", count=len(tools), tools=tools, reason=reason)
+        return {"tools": tools}
 
     request_trace_id = request.headers.get("x-trace-id") or request.query_params.get("trace_id")
     trace_id = request_trace_id or _new_tools_list_trace_id()
@@ -424,14 +465,14 @@ def list_tools(request: Request) -> dict[str, list[str]]:
 
     trace.event(
         "request.received",
-        "received",
+        "ok",
         input={},
-        metadata={"path": "/v1/tools", "query": str(request.url.query or ""), "request_info": request_info, "caller_type": caller_type, "caller_label": caller_label},
+        metadata={"path": "/v1/tools", "query": str(request.url.query or ""), "request_info": request_info, "caller_type": caller_type, "caller_label": caller_label, "trace_decision_reason": reason},
     )
-    trace.event("tool.selected", "ok", input={}, metadata={"tool": "jarvis_list_tools", "service": "toolbox_runner"})
+    trace.event("tool.selected", "ok", input={}, metadata={"tool": "jarvis_list_tools", "service": "toolbox_runner", "caller_type": caller_type, "caller_label": caller_label, "request_info": request_info, "trace_decision_reason": reason})
     output = {"tools": tools}
-    trace.event("code.execution.result", "ok", output=output)
-    trace.event("response.returned", "ok", output=output)
+    trace.event("code.execution.result", "ok", output=output, metadata={"caller_type": caller_type, "caller_label": caller_label, "request_info": request_info, "trace_decision_reason": reason})
+    trace.event("response.returned", "ok", output=output, metadata={"caller_type": caller_type, "caller_label": caller_label, "request_info": request_info, "trace_decision_reason": reason})
 
     log_event(
         logger,
@@ -503,6 +544,12 @@ def debug_run_npm_with_trace() -> dict:
 def debug_real_calls() -> dict:
     calls = _read_last_real_calls(50)
     return {"count": len(calls), "items": calls, "log_path": str(REAL_CALLS_LOG_PATH)}
+
+
+@app.get("/debug/list-tools-decisions")
+def debug_list_tools_decisions() -> dict:
+    decisions = _read_list_tools_decisions(50)
+    return {"count": len(decisions), "items": decisions, "log_path": str(REAL_CALLS_LOG_PATH)}
 
 
 @app.post("/debug/run-nonce")
