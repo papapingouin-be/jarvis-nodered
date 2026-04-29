@@ -209,13 +209,24 @@ async function loadTraces(){
   const q = $('search').value.trim();
   const status = $('status-filter').value;
   const showListTools = $('show-list-tools').checked;
+  const showAll = $('show-all').checked;
+  const showInternalProbes = $('show-internal-probes').checked;
   if(q) params.set('q', q);
   if(status) params.set('status', status);
-  params.set('include_list_tools', showListTools ? 'true' : 'false');
+  params.set('show_all', showAll ? 'true' : 'false');
+  params.set('hide_tools_list', showListTools ? 'false' : 'true');
+  params.set('hide_internal', showInternalProbes ? 'false' : 'true');
+  params.set('hide_probe', showInternalProbes ? 'false' : 'true');
   const list = $('trace-list');
   list.innerHTML = '<div class="empty">Chargement…</div>';
   try{
     const data = await api('/api/traces?' + params.toString());
+    $('trace-visibility-summary').textContent = `${data.total_count ?? 0} traces en base · ${data.returned ?? 0} affichées · ${data.hidden_count ?? 0} masquées`;
+    const hiddenReasons = data.hidden_reasons || {};
+    $('trace-hidden-reasons').textContent = `Masquages — tool_filter:${hiddenReasons.tool_filter ?? 0}, hide_tools_list:${hiddenReasons.hide_tools_list ?? 0}, hide_internal:${hiddenReasons.hide_internal ?? 0}, hide_probe:${hiddenReasons.hide_probe ?? 0}, status_filter:${hiddenReasons.status_filter ?? 0}`;
+    if(data.last_trace_hidden_message){
+      $('trace-hidden-reasons').textContent += ` · ${data.last_trace_hidden_message}`;
+    }
     if(!data.items.length){
       list.innerHTML = `<div class="empty"><strong>Aucune trace.</strong><br><br>Ce n’est pas normal si tu viens d’appeler un outil.<br><br>Vérifie :<br>TRACE_ENABLED=true<br>TRACE_GATEWAY_URL=http://jarvis_debug_studio:8060<br><br>Consulte AI Debug Log puis clique sur <em>Tester npm_service</em>.</div>`;
       return;
@@ -381,6 +392,8 @@ $('copy-debug-report').onclick = copyDebugReport;
 $('search').oninput = () => { clearTimeout(window.__searchTimer); window.__searchTimer = setTimeout(loadTraces, 250); };
 $('status-filter').onchange = loadTraces;
 $('show-list-tools').onchange = loadTraces;
+$('show-all').onchange = loadTraces;
+$('show-internal-probes').onchange = loadTraces;
 $('live').onclick = startLive;
 $('export-trace-json').onclick = exportCurrentTraceJson;
 $('export-trace-txt').onclick = exportCurrentTraceTxt;
