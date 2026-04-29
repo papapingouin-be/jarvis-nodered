@@ -507,6 +507,7 @@ def debug_trace_config() -> dict:
 @app.post("/debug/send-test-trace")
 def debug_send_test_trace() -> dict:
     trace = TraceClient("manual-toolbox-test", "manual-toolbox-test", "debug")
+    trace.enabled = True
     result = trace.send_custom_event(
         {
             "trace_id": "manual-toolbox-test",
