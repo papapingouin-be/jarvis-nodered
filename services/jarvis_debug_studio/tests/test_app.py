@@ -215,6 +215,24 @@ def test_list_tools_trace_visible_by_default_and_hide_switch(monkeypatch, tmp_pa
     assert hidden.status_code == 200
     assert all(item["trace_id"] != "tools-list-1" for item in hidden.json()["items"])
     assert hidden.json()["hidden_count"] >= 1
+    assert "hide_tools_list" in hidden.json()["hidden_reasons"]
+
+
+def test_show_all_and_hide_tools_list_false_include_list_tools(monkeypatch, tmp_path) -> None:
+    client = _client(monkeypatch, tmp_path)
+    client.post("/api/trace/event", json={"trace_id": "tools-list-1777423241881-6836", "tool": "jarvis_list_tools", "phase": "request.received", "status": "ok"})
+    client.post("/api/trace/event", json={"trace_id": "trace-normal", "tool": "debug_nonce", "phase": "request.received", "status": "ok"})
+
+    show_all = client.get("/api/traces?show_all=true")
+    assert show_all.status_code == 200
+    show_all_ids = {item["trace_id"] for item in show_all.json()["items"]}
+    assert "tools-list-1777423241881-6836" in show_all_ids
+    assert show_all.json()["total_count"] == 2
+    assert show_all.json()["hidden_count"] == 0
+
+    include_tools = client.get("/api/traces?hide_tools_list=false")
+    assert include_tools.status_code == 200
+    assert any(item["tool"] == "jarvis_list_tools" for item in include_tools.json()["items"])
 
 
 def test_debug_raw_events_and_trace_exists(monkeypatch, tmp_path) -> None:

@@ -21,7 +21,9 @@
         <option value="error">Error</option>
         <option value="running">Running</option>
       </select>
-      <label><input id="show-list-tools" type="checkbox" /> Afficher listage outils</label>
+      <label><input id="show-all" type="checkbox" /> Afficher tout</label>
+      <label><input id="show-list-tools" type="checkbox" /> Afficher jarvis_list_tools</label>
+      <label><input id="show-internal-probes" type="checkbox" /> Afficher probes internes</label>
       <button id="refresh-all">Rafraîchir tout</button>
       <button id="toggle-refresh">Pause refresh</button>
       <button id="live" class="ghost">Live: off</button>
@@ -69,6 +71,8 @@
   <main class="shell">
     <aside class="traces">
       <div class="panel-title">Traces récentes</div>
+      <p id="trace-visibility-summary" class="muted">Chargement des filtres…</p>
+      <div id="trace-hidden-reasons" class="muted"></div>
       <div class="control-actions">
         <button id="delete-all-traces">Effacer toutes les traces</button>
         <button id="purge-traces">Purger anciennes traces</button>

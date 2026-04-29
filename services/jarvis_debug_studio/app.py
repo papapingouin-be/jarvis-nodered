@@ -392,13 +392,22 @@ def diagnose_debug_status(storage: dict[str, Any], toolbox_check: dict[str, Any]
                 "action": "Vérifier http://toolbox_runner:8030/health et le réseau Docker.",
             }
         )
-    if toolbox_check and toolbox_check.get("reachable", False) and received_since_start == 0:
+    if toolbox_check and toolbox_check.get("reachable", False) and received_since_start == 0 and events_count_db == 0:
         diag.append(
             {
                 "level": "warning",
                 "message": "toolbox_runner est joignable mais n’envoie pas de trace.",
                 "probable_cause": "La connectivité est OK mais aucun événement récent n’a été ingéré.",
                 "action": f"Vérifier TRACE_ENABLED=true et TRACE_GATEWAY_URL={expected_gateway_url()} dans toolbox_runner, puis lancer un test manuel.",
+            }
+        )
+    if events_count_db > 0 and received_since_start == 0:
+        diag.append(
+            {
+                "level": "ok",
+                "message": "Des traces sont bien reçues. Certaines peuvent être masquées par les filtres d’affichage.",
+                "probable_cause": "La persistance SQLite contient des traces, mais la vue liste peut masquer une partie des éléments.",
+                "action": "Utiliser /api/traces?show_all=true et vérifier hidden_reasons dans /api/traces.",
             }
         )
     openwebui_probe = toolbox_check.get("openwebui_proof") if toolbox_check else None
@@ -820,6 +829,9 @@ def list_traces(
     q: str | None = None,
     include_list_tools: bool = Query(default=True),
     hide_tools_list: bool = Query(default=False),
+    hide_internal: bool = Query(default=False),
+    hide_probe: bool = Query(default=False),
+    show_all: bool = Query(default=False),
 ) -> dict[str, Any]:
     where = []
     args: list[Any] = []
@@ -835,6 +847,7 @@ def list_traces(
         args.extend([like, like, like, like])
     where_sql = "WHERE " + " AND ".join(where) if where else ""
     with connect() as conn:
+        total_count = int(conn.execute("SELECT COUNT(DISTINCT trace_id) FROM trace_events").fetchone()[0] or 0)
         rows = conn.execute(
             f"""
             SELECT trace_id,
@@ -865,34 +878,83 @@ def list_traces(
     items = [dict(r) for r in rows]
     filtered_items: list[dict[str, Any]] = []
     hidden_count = 0
-    hidden_reasons: dict[str, int] = {}
-    hide_list_tools_effective = hide_tools_list or (not include_list_tools)
+    hidden_reasons: dict[str, int] = {
+        "tool_filter": 0,
+        "hide_tools_list": 0,
+        "hide_internal": 0,
+        "hide_probe": 0,
+        "status_filter": 0,
+    }
+    hide_list_tools_effective = (hide_tools_list or (not include_list_tools)) and not show_all
+    hide_internal_effective = hide_internal and not show_all
+    hide_probe_effective = hide_probe and not show_all
+    status_filter_effective = status if not show_all else None
     for item in items:
         payload = build_trace_payload(item["trace_id"])
         item["status"] = payload["summary"]["status"]
         item["caller_type"] = payload["summary"].get("caller_type")
         item["client_host"] = payload["summary"].get("client_host")
         item["explanation"] = explain_error(item.get("error_code"), item.get("error_message"))
+        item["is_internal"] = bool(item.get("caller_type") in {"jarvis_debug_studio", "internal"})
+        item["is_probe"] = bool(
+            str(item.get("trace_id", "")).startswith("manual-")
+            or str(item.get("phase", "")).startswith("manual_probe")
+            or item.get("caller_type") in {"probe", "internal_probe"}
+        )
+        if tool and item.get("tool") != tool:
+            hidden_count += 1
+            hidden_reasons["tool_filter"] += 1
+            continue
         if hide_list_tools_effective and item.get("tool") == "jarvis_list_tools":
             hidden_count += 1
-            hidden_reasons["jarvis_list_tools_hidden"] = hidden_reasons.get("jarvis_list_tools_hidden", 0) + 1
+            hidden_reasons["hide_tools_list"] += 1
             continue
-        if status and item["status"] != status:
+        if hide_internal_effective and item["is_internal"]:
             hidden_count += 1
-            hidden_reasons["status_filter_mismatch"] = hidden_reasons.get("status_filter_mismatch", 0) + 1
+            hidden_reasons["hide_internal"] += 1
+            continue
+        if hide_probe_effective and item["is_probe"]:
+            hidden_count += 1
+            hidden_reasons["hide_probe"] += 1
+            continue
+        if status_filter_effective and item["status"] != status_filter_effective:
+            hidden_count += 1
+            hidden_reasons["status_filter"] += 1
             continue
         filtered_items.append(item)
+    last_trace_db = db_debug_stats().get("last_trace_db")
+    last_trace_hidden = bool(last_trace_db and all(t["trace_id"] != last_trace_db.get("trace_id") for t in filtered_items))
     return {
         "items": filtered_items,
+        "total_count": total_count,
         "limit": limit,
         "offset": offset,
         "returned": len(filtered_items),
         "hidden_count": hidden_count,
         "hidden_reasons": hidden_reasons,
-        "filters": {
+        "active_filters": {
+            "show_all": show_all,
+            "tool": tool,
+            "status": status,
+            "q": q,
             "include_tools_list": include_list_tools,
             "hide_tools_list": hide_tools_list,
             "hide_tools_list_effective": hide_list_tools_effective,
+            "hide_internal": hide_internal,
+            "hide_internal_effective": hide_internal_effective,
+            "hide_probe": hide_probe,
+            "hide_probe_effective": hide_probe_effective,
+        },
+        "last_trace_db": last_trace_db,
+        "last_trace_hidden": last_trace_hidden,
+        "last_trace_hidden_message": (
+            f"Dernière trace reçue masquée par filtre : {last_trace_db.get('trace_id')}"
+            if last_trace_hidden and last_trace_db
+            else None
+        ),
+        "filters": {
+            "include_tools_list": include_list_tools,
+            "hide_tools_list": hide_tools_list,
         },
     }
 
