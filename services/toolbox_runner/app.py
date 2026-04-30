@@ -5,6 +5,7 @@ import uuid
 import json
 import random
 import socket
+import sqlite3
 from pathlib import Path
 from time import perf_counter
 from datetime import datetime, timezone
@@ -14,6 +15,7 @@ from fastapi import Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 from pydantic import BaseModel, Field
 
 from services.common.logging_utils import configure_logging, log_event
@@ -40,6 +42,7 @@ logger = configure_logging("toolbox_runner")
 REGISTRY = build_registry()
 REAL_CALLS_LOG_PATH = Path(os.getenv("TOOLBOX_REAL_CALLS_LOG", "/tmp/toolbox_real_calls.log"))
 LIST_TOOLS_DECISIONS_LIMIT = 50
+DEBUG_DB_PATH = Path(os.getenv("JARVIS_INFRA_DB", "/opt/jarvis/database/jarvis.db"))
 
 
 def _resolve_openwebui_ips() -> tuple[list[str], list[str]]:
@@ -92,8 +95,79 @@ def _cors_allowed_origins() -> list[str]:
 
 
 def _http_log_excluded_paths() -> set[str]:
-    raw = os.getenv("TOOLBOX_LOG_EXCLUDE_PATHS", "/openapi.json,/docs,/docs/oauth2-redirect")
+    raw = os.getenv("TOOLBOX_LOG_EXCLUDE_PATHS", "")
     return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _db_conn() -> sqlite3.Connection:
+    DEBUG_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DEBUG_DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def ensure_debug_tables() -> None:
+    with _db_conn() as conn:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS http_requests (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              request_id TEXT NOT NULL,
+              trace_id TEXT,
+              ts TEXT DEFAULT (datetime('now')),
+              service TEXT NOT NULL DEFAULT 'jarvis-engine',
+              source_ip TEXT,
+              method TEXT,
+              path TEXT,
+              query_string TEXT,
+              status_code INTEGER,
+              duration_ms REAL,
+              user_agent TEXT,
+              request_headers_json TEXT,
+              request_body_json TEXT,
+              response_body_json TEXT,
+              error_text TEXT
+            );
+            CREATE TABLE IF NOT EXISTS traces (
+              trace_id TEXT PRIMARY KEY,
+              request_id TEXT,
+              source TEXT,
+              tool_name TEXT,
+              intent TEXT,
+              status TEXT,
+              input_json TEXT,
+              output_json TEXT,
+              error_text TEXT,
+              started_at TEXT,
+              finished_at TEXT,
+              duration_ms REAL
+            );
+            CREATE TABLE IF NOT EXISTS trace_events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              trace_id TEXT,
+              request_id TEXT,
+              ts TEXT DEFAULT (datetime('now')),
+              service TEXT,
+              step TEXT,
+              event_type TEXT,
+              status TEXT,
+              input_json TEXT,
+              output_json TEXT,
+              error_text TEXT,
+              duration_ms REAL
+            );
+            CREATE TABLE IF NOT EXISTS service_logs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              ts TEXT DEFAULT (datetime('now')),
+              service TEXT,
+              level TEXT,
+              message TEXT,
+              trace_id TEXT,
+              request_id TEXT,
+              data_json TEXT
+            );
+            """
+        )
 
 
 app.add_middleware(
@@ -109,10 +183,20 @@ app.add_middleware(
 async def log_http_requests(request: Request, call_next):
     if request.url.path in _http_log_excluded_paths():
         return await call_next(request)
-
+    ensure_debug_tables()
     started = perf_counter()
     client_ip = request.client.host if request.client else "unknown"
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    request_body = None
+    trace_id = request.headers.get("x-jarvis-trace-id") or request.headers.get("x-trace-id")
+    if request.method in {"POST", "PUT", "PATCH"}:
+        try:
+            request_body = await request.json()
+            if isinstance(request_body, dict):
+                trace_id = trace_id or request_body.get("trace_id") or request_body.get("context", {}).get("trace_id")
+        except Exception:
+            request_body = None
     log_event(
         logger,
         service="toolbox_runner",
@@ -145,6 +229,25 @@ async def log_http_requests(request: Request, call_next):
         raise
     else:
         duration_ms = round((perf_counter() - started) * 1000, 2)
+        response_body = None
+        try:
+            if hasattr(response, "body") and response.body:
+                response_body = json.loads(response.body.decode("utf-8"))
+        except Exception:
+            response_body = None
+        response.headers["X-Jarvis-Request-Id"] = request_id
+        if trace_id:
+            response.headers["X-Jarvis-Trace-Id"] = trace_id
+        try:
+            with _db_conn() as conn:
+                conn.execute(
+                    """INSERT INTO http_requests
+                    (request_id, trace_id, service, source_ip, method, path, query_string, status_code, duration_ms, user_agent, request_headers_json, request_body_json, response_body_json, error_text)
+                    VALUES (?, ?, 'jarvis-engine', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+                    (request_id, trace_id, client_ip, request.method, request.url.path, str(request.url.query or ""), response.status_code, duration_ms, request.headers.get("user-agent"), json.dumps(build_request_info(request).get("headers_redacted", {}), ensure_ascii=False), json.dumps(request_body, ensure_ascii=False) if request_body is not None else None, json.dumps(response_body, ensure_ascii=False) if response_body is not None else None),
+                )
+        except Exception:
+            pass
         log_event(
             logger,
             service="toolbox_runner",
@@ -527,7 +630,31 @@ def list_tools(request: Request) -> dict[str, list[str]]:
         tools=tools,
         trace_id=trace.trace_id,
     )
+    try:
+        with _db_conn() as conn:
+            conn.execute(
+                "INSERT INTO service_logs(service, level, message, trace_id, request_id, data_json) VALUES('jarvis-engine','info','tools listed',?,?,?)",
+                (trace_id, getattr(request.state, "request_id", None), json.dumps({"tools_count": len(tools)}, ensure_ascii=False)),
+            )
+    except Exception:
+        pass
     return output
+
+
+@app.get("/v1/http-requests")
+def list_http_requests() -> dict:
+    ensure_debug_tables()
+    with _db_conn() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM http_requests ORDER BY id DESC LIMIT 100").fetchall()]
+    return {"items": rows}
+
+
+@app.get("/v1/http-requests/{request_id}")
+def get_http_request(request_id: str) -> dict:
+    ensure_debug_tables()
+    with _db_conn() as conn:
+        row = conn.execute("SELECT * FROM http_requests WHERE request_id = ? ORDER BY id DESC LIMIT 1", (request_id,)).fetchone()
+    return {"item": dict(row) if row else None}
 
 
 
